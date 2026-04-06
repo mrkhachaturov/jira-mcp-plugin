@@ -39,7 +39,9 @@
               application="jira">
         <label key="mcp.admin.label"/>
         <link linkId="mcp-admin-link">/plugins/servlet/mcp-admin</link>
-        <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserIsAdminCondition"/>
+        <condition class="com.atlassian.jira.plugin.webfragment.conditions.JiraGlobalPermissionCondition">
+            <param name="permission">admin</param>
+        </condition>
     </web-item>
 
     <!-- Admin web resources -->
