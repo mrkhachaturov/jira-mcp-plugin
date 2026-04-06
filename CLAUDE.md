@@ -4,7 +4,7 @@ Native Jira Data Center plugin that embeds an MCP (Model Context Protocol) serve
 
 ## Status
 
-**Working.** Plugin installs, MCP endpoint responds, tools execute against Jira REST API. Admin config page renders but save has a JS web resource loading issue being fixed.
+**Working in production.** Plugin installed on `bpm.astrateam.net`, MCP endpoint responds, 46 tools execute, admin UI renders with sidebar link. Toggle save fixed (DOM `.checked` property). Tool list and user picker need verification after latest deploy.
 
 ## Architecture
 
@@ -99,6 +99,15 @@ Using `<web-item>` with `<condition class="...UserIsAdminCondition"/>` causes Sp
 
 ### XSRF for browser REST calls
 Browser AJAX to Jira REST endpoints requires `X-Atlassian-Token: no-check` header, otherwise Jira blocks the request silently.
+
+### AUI toggle state — use DOM property, not jQuery
+`<aui-toggle>` is a web component. `$("#id").is("[checked]")` and `$.attr("checked")` do NOT work. Use `document.getElementById("id").checked` to read/write state. This applies to both loading saved state and reading before save.
+
+### Admin sidebar link — UserLoggedInCondition, not UserIsAdminCondition
+BigPicture pattern: `<web-section location="admin_plugins_menu">` + `<web-item>` with `<condition class="...UserLoggedInCondition"/>`. Using `UserIsAdminCondition` causes Spring bean resolution errors (`PermissionManager` not available in plugin context). `UserLoggedInCondition` is safe — admin pages are only visible to admins anyway.
+
+### Plugin enable timeout is NOT our bug
+Jira's internal `jira-migration` plugin has a pre-existing `AppOutdatedCheck` constructor error (`uriTemplate is null`). This delays the OSGi container and causes our plugin to time out during enable. Solution: manually click "Enable" in UPM after upload — the plugin works fine once enabled.
 
 ## Project Structure
 
@@ -200,11 +209,10 @@ Error shape: protocol errors return JSON-RPC `error` object. Tool execution fail
 
 ## Known Issues / TODO
 
-- **Admin page save:** JS web resource was not loading due to wrong plugin key in Velocity template (fixed). XSRF header added. Needs re-test after latest deploy.
-- **Admin UI UX:** Tool enable/disable is a textarea — should be a visual list with toggles.
-- **OAuth:** Upstream mcp-atlassian supports OAuth 2.0 via Application Links for Jira DC. Tested and working with the upstream sidecar. Plan to add OAuth flow to this plugin so users don't need PATs.
+- **Admin tool list / user picker rendering:** Click-to-toggle tool list and Jira native user picker (AJS.MultiSelect) implemented but need verification on production after latest deploy. If tools don't appear, check browser console for JS errors — likely `AJS.MultiSelect` initialization failure.
+- **OAuth:** Upstream mcp-atlassian supports OAuth 2.0 via Application Links for Jira DC. Tested and working with the upstream sidecar (`mcp-jira.astrateam.net`). Plan to add OAuth flow to this plugin so users don't need PATs. This is the #1 priority enhancement.
 - **Capability detection:** Board/sprint tools registered even if Jira Software not installed (will fail at call time — not hidden from tools/list yet).
-- **No sidebar admin link:** Removed due to OSGi condition class issues. Access admin via Manage Apps > Configure.
+- **Plugin enable timeout:** Jira's migration plugin error causes our plugin to timeout during enable. Manual enable click in UPM resolves it.
 
 ## Toolchain
 
