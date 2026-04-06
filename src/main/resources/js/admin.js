@@ -3,202 +3,136 @@
     var headers = { "X-Atlassian-Token": "no-check" };
     var allToolsMeta = [];
     var disabledSet = new Set();
-    var allowedUsers = []; // [{key, displayName}]
 
-    // ==================== TOOL PICKER ====================
+    // ==================== TOOLS ====================
 
-    function renderToolLists() {
-        var enabledFilter = ($("#mcp-filter-enabled").val() || "").toLowerCase();
-        var disabledFilter = ($("#mcp-filter-disabled").val() || "").toLowerCase();
-        var $enabled = $("#mcp-enabled-tools").empty();
-        var $disabled = $("#mcp-disabled-tools").empty();
+    function renderTools() {
+        var filter = ($("#mcp-tool-filter").val() || "").toLowerCase();
+        var $list = $("#mcp-tools-list").empty();
 
         allToolsMeta.forEach(function (tool) {
-            var badge = tool.isWrite ? ' <span class="aui-lozenge aui-lozenge-moved">write</span>' : '';
-            var desc = tool.description ? '<div class="mcp-tool-desc">' + escapeHtml(tool.description) + '</div>' : '';
-            var html = '<div class="mcp-tool-item" data-name="' + escapeHtml(tool.name) + '">'
-                + '<span class="mcp-tool-name">' + escapeHtml(tool.name) + '</span>' + badge + desc + '</div>';
+            if (filter && tool.name.toLowerCase().indexOf(filter) < 0) return;
 
-            if (disabledSet.has(tool.name)) {
-                if (!disabledFilter || tool.name.toLowerCase().indexOf(disabledFilter) >= 0) {
-                    $disabled.append(html);
-                }
-            } else {
-                if (!enabledFilter || tool.name.toLowerCase().indexOf(enabledFilter) >= 0) {
-                    $enabled.append(html);
-                }
-            }
+            var isDisabled = disabledSet.has(tool.name);
+            var badge = tool.isWrite ? '<span class="aui-lozenge aui-lozenge-moved" style="font-size:10px; margin-left:6px;">write</span>' : '';
+            var cls = "mcp-tool-row" + (isDisabled ? " mcp-tool-disabled" : "");
+
+            $list.append(
+                '<div class="' + cls + '" data-name="' + esc(tool.name) + '">'
+                + '<span class="mcp-tool-toggle">' + (isDisabled ? '&#x2717;' : '&#x2713;') + '</span> '
+                + '<span class="mcp-tool-label">' + esc(tool.name) + '</span>'
+                + badge
+                + '<span class="mcp-tool-desc">' + esc(tool.description) + '</span>'
+                + '</div>'
+            );
         });
     }
 
     // ==================== USER PICKER ====================
 
-    function renderUserTags() {
-        var $container = $("#mcp-allowed-users").empty();
-        if (allowedUsers.length === 0) {
-            $container.append('<span class="mcp-user-empty">All authenticated users (no restrictions)</span>');
-            return;
-        }
-        allowedUsers.forEach(function (u, i) {
-            var tag = '<span class="mcp-user-tag">'
-                + '<span class="mcp-user-tag-name">' + escapeHtml(u.displayName || u.key) + '</span>'
-                + '<button type="button" class="mcp-user-remove" data-index="' + i + '">&times;</button>'
-                + '</span>';
-            $container.append(tag);
-        });
-    }
+    function initUserPicker(existingKeys) {
+        var $picker = $("#mcp-allowed-users");
 
-    var searchTimeout = null;
-    function searchUsers(query) {
-        if (!query || query.length < 2) {
-            $("#mcp-user-suggestions").hide();
-            return;
-        }
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(function () {
-            $.ajax({
-                url: AJS.contextPath() + "/rest/api/2/user/search?username=" + encodeURIComponent(query) + "&maxResults=10",
-                dataType: "json",
-                headers: headers
-            }).done(function (users) {
-                var $sug = $("#mcp-user-suggestions").empty();
-                if (!users || users.length === 0) {
-                    $sug.append('<div class="mcp-user-sug-item mcp-user-sug-empty">No users found</div>');
-                } else {
-                    users.forEach(function (u) {
-                        var already = allowedUsers.some(function (a) { return a.key === u.key; });
-                        if (!already) {
-                            var avatar = u.avatarUrls && u.avatarUrls["16x16"] ? '<img src="' + u.avatarUrls["16x16"] + '" class="mcp-user-avatar"> ' : '';
-                            $sug.append('<div class="mcp-user-sug-item" data-key="' + escapeHtml(u.key) + '" data-name="' + escapeHtml(u.displayName) + '">'
-                                + avatar + escapeHtml(u.displayName) + ' <span class="mcp-user-sug-username">(' + escapeHtml(u.name) + ')</span></div>');
-                        }
-                    });
-                }
-                $sug.show();
+        if (existingKeys && existingKeys.length > 0) {
+            var loaded = 0;
+            existingKeys.forEach(function (key) {
+                $.ajax({
+                    url: AJS.contextPath() + "/rest/api/2/user?key=" + encodeURIComponent(key),
+                    dataType: "json", headers: headers
+                }).done(function (u) {
+                    $picker.append($("<option>").val(u.name).text(u.displayName).attr("selected", "selected").data("userkey", u.key));
+                }).fail(function () {
+                    $picker.append($("<option>").val(key).text(key).attr("selected", "selected").data("userkey", key));
+                }).always(function () {
+                    loaded++;
+                    if (loaded === existingKeys.length) createMultiSelect($picker);
+                });
             });
-        }, 300);
+        } else {
+            createMultiSelect($picker);
+        }
     }
 
-    // ==================== HELPERS ====================
-
-    function escapeHtml(str) {
-        if (!str) return "";
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    function createMultiSelect($picker) {
+        try {
+            new AJS.MultiSelect({
+                element: $picker,
+                itemAttrDisplayed: "label",
+                showDropdownButton: false,
+                ajaxOptions: {
+                    url: AJS.contextPath() + "/rest/api/2/user/search",
+                    query: true,
+                    data: { maxResults: 10 },
+                    formatResponse: function (data) {
+                        var ret = [];
+                        $(data).each(function (i, u) {
+                            ret.push(new AJS.ItemDescriptor({
+                                value: u.name,
+                                label: u.displayName,
+                                html: u.displayName + " (" + u.name + ")"
+                            }));
+                        });
+                        return ret;
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn("AJS.MultiSelect not available:", e);
+        }
     }
 
-    function getDisabledString() {
-        return Array.from(disabledSet).sort().join(",");
+    function getSelectedUserKeys() {
+        var keys = [];
+        $("#mcp-allowed-users option:selected").each(function () {
+            var key = $(this).data("userkey") || $(this).val();
+            if (key) keys.push(key);
+        });
+        return keys.join(",");
     }
 
-    function getAllowedUsersString() {
-        return allowedUsers.map(function (u) { return u.key; }).join(",");
-    }
+    function esc(s) { return s ? $("<span>").text(s).html() : ""; }
 
     // ==================== INIT ====================
 
     $(function () {
-        // Load config
         $.ajax({ url: url, dataType: "json", headers: headers }).done(function (config) {
             if (config.enabled) $("#enabled").attr("checked", "checked");
             if (config.readOnlyMode) $("#readOnlyMode").attr("checked", "checked");
             $("#jiraBaseUrl").val(config.jiraBaseUrl || "");
 
-            // Tools
             allToolsMeta = config.allTools || [];
-            var disabledStr = config.disabledTools || "";
-            if (disabledStr) {
-                disabledStr.split(",").forEach(function (t) {
-                    var trimmed = t.trim();
-                    if (trimmed) disabledSet.add(trimmed);
-                });
-            }
-            renderToolLists();
+            var ds = config.disabledTools || "";
+            if (ds) ds.split(",").forEach(function (t) { t = t.trim(); if (t) disabledSet.add(t); });
+            renderTools();
 
-            // Users — we have keys, need to resolve display names
-            var usersStr = config.allowedUsers || "";
-            if (usersStr) {
-                var keys = usersStr.split(",").map(function (k) { return k.trim(); }).filter(Boolean);
-                var resolved = 0;
-                keys.forEach(function (key) {
-                    $.ajax({
-                        url: AJS.contextPath() + "/rest/api/2/user?key=" + encodeURIComponent(key),
-                        dataType: "json",
-                        headers: headers
-                    }).done(function (u) {
-                        allowedUsers.push({ key: u.key, displayName: u.displayName });
-                    }).fail(function () {
-                        allowedUsers.push({ key: key, displayName: key });
-                    }).always(function () {
-                        resolved++;
-                        if (resolved === keys.length) renderUserTags();
-                    });
-                });
-            } else {
-                renderUserTags();
-            }
+            var us = config.allowedUsers || "";
+            var keys = us ? us.split(",").map(function (k) { return k.trim(); }).filter(Boolean) : [];
+            initUserPicker(keys);
         });
 
         // Tool filter
-        $("#mcp-filter-enabled, #mcp-filter-disabled").on("input", renderToolLists);
+        $("#mcp-tool-filter").on("input", renderTools);
 
-        // Tool select
-        $(document).on("click", ".mcp-tool-item", function () {
-            $(this).toggleClass("selected");
-        });
-
-        // Tool disable/enable buttons
-        $("#mcp-disable-tool").on("click", function () {
-            $("#mcp-enabled-tools .mcp-tool-item.selected").each(function () {
-                disabledSet.add($(this).data("name"));
-            });
-            renderToolLists();
-        });
-        $("#mcp-enable-tool").on("click", function () {
-            $("#mcp-disabled-tools .mcp-tool-item.selected").each(function () {
-                disabledSet.delete($(this).data("name"));
-            });
-            renderToolLists();
-        });
-
-        // User search
-        $("#mcp-user-search").on("input", function () {
-            searchUsers($(this).val());
-        });
-
-        // User suggestion click
-        $(document).on("click", ".mcp-user-sug-item[data-key]", function () {
-            allowedUsers.push({ key: $(this).data("key"), displayName: $(this).data("name") });
-            renderUserTags();
-            $("#mcp-user-search").val("");
-            $("#mcp-user-suggestions").hide();
-        });
-
-        // User remove
-        $(document).on("click", ".mcp-user-remove", function () {
-            var idx = parseInt($(this).data("index"), 10);
-            allowedUsers.splice(idx, 1);
-            renderUserTags();
-        });
-
-        // Hide suggestions on click outside
-        $(document).on("click", function (e) {
-            if (!$(e.target).closest(".mcp-user-picker").length) {
-                $("#mcp-user-suggestions").hide();
+        // Tool click-to-toggle
+        $(document).on("click", ".mcp-tool-row", function () {
+            var name = $(this).data("name");
+            if (disabledSet.has(name)) {
+                disabledSet.delete(name);
+            } else {
+                disabledSet.add(name);
             }
+            renderTools();
         });
 
         // Save
         $("#mcp-admin-form").on("submit", function (e) {
             e.preventDefault();
             $.ajax({
-                url: url,
-                type: "PUT",
-                contentType: "application/json",
-                headers: headers,
+                url: url, type: "PUT", contentType: "application/json", headers: headers,
                 data: JSON.stringify({
                     enabled: $("#enabled").is("[checked]"),
-                    allowedUsers: getAllowedUsersString(),
-                    disabledTools: getDisabledString(),
+                    allowedUsers: getSelectedUserKeys(),
+                    disabledTools: Array.from(disabledSet).sort().join(","),
                     readOnlyMode: $("#readOnlyMode").is("[checked]"),
                     jiraBaseUrl: $("#jiraBaseUrl").val()
                 }),

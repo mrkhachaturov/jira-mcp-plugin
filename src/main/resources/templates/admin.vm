@@ -21,14 +21,11 @@
             <div class="description">$i18n.getText("mcp.admin.readOnlyMode.description")</div>
         </div>
 
-        <!-- Allowed Users (with search picker) -->
+        <!-- Allowed Users (Jira native user picker) -->
         <div class="field-group">
-            <label for="mcp-user-search">$i18n.getText("mcp.admin.allowedUsers.label")</label>
-            <div class="mcp-user-picker">
-                <input type="text" id="mcp-user-search" class="text" placeholder="Search users..." autocomplete="off">
-                <div id="mcp-user-suggestions" class="mcp-user-suggestions" style="display:none;"></div>
-                <div id="mcp-allowed-users" class="mcp-user-tags"></div>
-            </div>
+            <label for="mcp-allowed-users">$i18n.getText("mcp.admin.allowedUsers.label")</label>
+            <select id="mcp-allowed-users" class="js-default-user-multi-picker hidden" multiple="multiple" style="width:400px;">
+            </select>
             <div class="description">$i18n.getText("mcp.admin.allowedUsers.description")</div>
         </div>
 
@@ -39,24 +36,11 @@
             <div class="description">$i18n.getText("mcp.admin.jiraBaseUrl.description")</div>
         </div>
 
-        <!-- Tool picker (dual-list) -->
+        <!-- Tools (click to toggle) -->
         <h3>Tools</h3>
-        <div class="mcp-tool-picker">
-            <div class="mcp-tool-column">
-                <h4>Enabled Tools</h4>
-                <input type="text" id="mcp-filter-enabled" class="text" placeholder="Filter...">
-                <div id="mcp-enabled-tools" class="mcp-tool-list"></div>
-            </div>
-            <div class="mcp-tool-arrows">
-                <button type="button" id="mcp-disable-tool" class="aui-button" title="Disable selected">&rsaquo;</button>
-                <button type="button" id="mcp-enable-tool" class="aui-button" title="Enable selected">&lsaquo;</button>
-            </div>
-            <div class="mcp-tool-column">
-                <h4>Disabled Tools</h4>
-                <input type="text" id="mcp-filter-disabled" class="text" placeholder="Filter...">
-                <div id="mcp-disabled-tools" class="mcp-tool-list"></div>
-            </div>
-        </div>
+        <p class="description">Click a tool to disable it. Click again to re-enable. Disabled tools are greyed out.</p>
+        <input type="text" id="mcp-tool-filter" class="text" placeholder="Filter tools..." style="width:400px; margin-bottom:8px;">
+        <div id="mcp-tools-list"></div>
 
         <!-- Save -->
         <div class="buttons-container" style="margin-top: 20px;">
@@ -65,6 +49,5 @@
             </div>
         </div>
     </form>
-    <div id="mcp-admin-message"></div>
 </body>
 </html>

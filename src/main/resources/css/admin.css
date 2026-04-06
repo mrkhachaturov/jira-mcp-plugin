@@ -1,189 +1,51 @@
-/* MCP Admin Configuration */
-#mcp-admin-form .field-group {
-    margin-bottom: 16px;
-}
-#mcp-admin-form textarea {
-    width: 100%;
-    font-family: monospace;
-    font-size: 13px;
+/* MCP Admin */
+#mcp-admin-form .field-group { margin-bottom: 16px; }
+
+/* Scale down AUI toggles */
+#mcp-admin-form aui-toggle {
+    transform: scale(0.8);
+    transform-origin: left center;
 }
 
-/* Tool dual-list picker */
-.mcp-tool-picker {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    margin: 16px 0;
-}
-.mcp-tool-column {
-    flex: 1;
-    min-width: 0;
-}
-.mcp-tool-column h4 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    color: #6b778c;
-}
-.mcp-tool-column input[type="text"] {
-    width: 100%;
-    margin-bottom: 8px;
-    box-sizing: border-box;
-}
-.mcp-tool-list {
+/* Tool list — click to toggle */
+#mcp-tools-list {
     border: 1px solid #dfe1e6;
     border-radius: 3px;
-    height: 400px;
+    max-height: 500px;
     overflow-y: auto;
-    background: #fafbfc;
 }
-.mcp-tool-item {
-    padding: 6px 10px;
+.mcp-tool-row {
+    padding: 8px 12px;
     cursor: pointer;
     border-bottom: 1px solid #ebecf0;
-    font-size: 13px;
-    transition: background 0.1s;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    transition: background 0.1s, opacity 0.1s;
 }
-.mcp-tool-item:hover {
-    background: #ebecf0;
+.mcp-tool-row:hover { background: #ebecf0; }
+.mcp-tool-row.mcp-tool-disabled {
+    opacity: 0.45;
+    text-decoration: line-through;
 }
-.mcp-tool-item.selected {
-    background: #deebff;
-    border-left: 3px solid #0052cc;
-    padding-left: 7px;
+.mcp-tool-toggle {
+    font-size: 14px;
+    width: 18px;
+    flex-shrink: 0;
+    text-align: center;
 }
-.mcp-tool-name {
+.mcp-tool-row:not(.mcp-tool-disabled) .mcp-tool-toggle { color: #00875a; }
+.mcp-tool-row.mcp-tool-disabled .mcp-tool-toggle { color: #de350b; }
+.mcp-tool-label {
     font-family: monospace;
     font-weight: 500;
+    font-size: 13px;
+    flex-shrink: 0;
 }
 .mcp-tool-desc {
-    font-size: 11px;
+    font-size: 12px;
     color: #6b778c;
-    margin-top: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-/* Arrow buttons */
-.mcp-tool-arrows {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-top: 140px;
-}
-.mcp-tool-arrows .aui-button {
-    font-size: 20px;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    text-align: center;
-    line-height: 36px;
-}
-
-/* Write tool badge */
-.mcp-tool-item .aui-lozenge {
-    font-size: 10px;
-    vertical-align: middle;
-    margin-left: 4px;
-}
-
-/* User picker */
-.mcp-user-picker {
-    position: relative;
-}
-.mcp-user-picker input[type="text"] {
-    width: 100%;
-    box-sizing: border-box;
-}
-.mcp-user-suggestions {
-    position: absolute;
-    z-index: 100;
-    width: 100%;
-    max-height: 200px;
-    overflow-y: auto;
-    background: #fff;
-    border: 1px solid #dfe1e6;
-    border-radius: 3px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-.mcp-user-sug-item {
-    padding: 8px 10px;
-    cursor: pointer;
-    font-size: 13px;
-}
-.mcp-user-sug-item:hover {
-    background: #ebecf0;
-}
-.mcp-user-sug-empty {
-    color: #6b778c;
-    cursor: default;
-}
-.mcp-user-sug-username {
-    color: #6b778c;
-    font-size: 12px;
-}
-.mcp-user-avatar {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    vertical-align: middle;
-    margin-right: 4px;
-}
-.mcp-user-tags {
-    margin-top: 8px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-.mcp-user-tag {
-    display: inline-flex;
-    align-items: center;
-    background: #deebff;
-    border-radius: 3px;
-    padding: 4px 8px;
-    font-size: 13px;
-}
-.mcp-user-tag-name {
-    margin-right: 6px;
-}
-.mcp-user-remove {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 16px;
-    color: #6b778c;
-    padding: 0;
-    line-height: 1;
-}
-.mcp-user-remove:hover {
-    color: #de350b;
-}
-.mcp-user-empty {
-    color: #6b778c;
-    font-size: 13px;
-    font-style: italic;
-}
-
-/* Dark mode support (Jira DC dark theme) */
-@media (prefers-color-scheme: dark) {
-    .mcp-tool-list {
-        background: #1b2638;
-        border-color: #344563;
-    }
-    .mcp-tool-item {
-        border-bottom-color: #344563;
-    }
-    .mcp-tool-item:hover {
-        background: #253858;
-    }
-    .mcp-tool-item.selected {
-        background: #0747a6;
-        border-left-color: #4c9aff;
-    }
-    .mcp-tool-desc {
-        color: #8993a4;
-    }
-    .mcp-tool-column h4 {
-        color: #8993a4;
-    }
 }

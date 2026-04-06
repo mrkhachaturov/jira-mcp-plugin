@@ -48,6 +48,7 @@
     <!-- Admin web resources -->
     <web-resource key="admin-resources" name="MCP Admin Resources">
         <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>jira.webresources:jira-fields</dependency>
         <resource type="download" name="admin.css" location="/css/admin.css"/>
         <resource type="download" name="admin.js" location="/js/admin.js"/>
         <context>mcp-admin</context>
