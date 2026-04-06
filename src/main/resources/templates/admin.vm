@@ -2,7 +2,7 @@
 <head>
     <title>$i18n.getText("mcp.admin.title")</title>
     <meta name="decorator" content="atl.admin" />
-    $webResourceManager.requireResource("com.atlassian.mcp.atlassian-mcp-plugin:mcp-admin-ui")
+    $webResourceManager.requireResource("com.atlassian.mcp.jira-mcp-plugin:mcp-admin-ui")
 </head>
 <body>
     <h2>$i18n.getText("mcp.admin.title")</h2>

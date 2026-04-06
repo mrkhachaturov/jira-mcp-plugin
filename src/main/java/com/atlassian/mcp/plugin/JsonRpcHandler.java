@@ -168,6 +168,81 @@ public class JsonRpcHandler {
         }
     }
 
+    /** Resolve a tools/call request into its components, for streaming execution by McpResource. */
+    @SuppressWarnings("unchecked")
+    public ToolCallInfo resolveToolCall(String jsonBody, String userKey) {
+        try {
+            JsonNode request = mapper.readTree(jsonBody);
+            String method = request.has("method") ? request.get("method").asText() : null;
+            if (!"tools/call".equals(method)) return null;
+
+            JsonNode id = request.has("id") ? request.get("id") : null;
+            JsonNode params = request.has("params") ? request.get("params") : mapper.createObjectNode();
+            String toolName = params.has("name") ? params.get("name").asText() : null;
+            if (toolName == null) return null;
+
+            String accessError = toolRegistry.checkToolAccess(toolName, userKey);
+            if (accessError != null) return null;
+
+            McpTool tool = toolRegistry.getTool(toolName);
+            if (tool == null || !tool.supportsProgress()) return null;
+
+            // Extract progressToken from params._meta.progressToken
+            JsonNode meta = params.path("_meta");
+            if (!meta.has("progressToken")) return null;
+
+            JsonNode tokenNode = meta.get("progressToken");
+            Object progressToken = tokenNode.isTextual() ? tokenNode.asText() : tokenNode.asInt();
+
+            Map<String, Object> args = new HashMap<>();
+            if (params.has("arguments") && params.get("arguments").isObject()) {
+                args = mapper.convertValue(params.get("arguments"), Map.class);
+            }
+
+            return new ToolCallInfo(id, tool, args, progressToken);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Holds resolved tool call components for streaming execution. */
+    public record ToolCallInfo(JsonNode id, McpTool tool, Map<String, Object> args, Object progressToken) {}
+
+    /** Build a progress notification JSON-RPC message. */
+    public String buildProgressNotification(Object progressToken, int progress, int total, String message) {
+        try {
+            ObjectNode notification = mapper.createObjectNode();
+            notification.put("jsonrpc", JSONRPC);
+            notification.put("method", "notifications/progress");
+            ObjectNode params = mapper.createObjectNode();
+            if (progressToken instanceof String s) {
+                params.put("progressToken", s);
+            } else {
+                params.put("progressToken", ((Number) progressToken).intValue());
+            }
+            params.put("progress", progress);
+            if (total >= 0) params.put("total", total);
+            if (message != null) params.put("message", message);
+            notification.set("params", params);
+            return mapper.writeValueAsString(notification);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Build a CallToolResult JSON-RPC response. */
+    public String buildToolResult(JsonNode id, String resultText, boolean isError) {
+        ObjectNode result = mapper.createObjectNode();
+        ArrayNode content = mapper.createArrayNode();
+        ObjectNode textContent = mapper.createObjectNode();
+        textContent.put("type", "text");
+        textContent.put("text", isError ? "Error: " + resultText : resultText);
+        content.add(textContent);
+        result.set("content", content);
+        result.put("isError", isError);
+        return successResponse(id, result);
+    }
+
     String errorResponse(JsonNode id, int code, String message) {
         try {
             ObjectNode response = mapper.createObjectNode();

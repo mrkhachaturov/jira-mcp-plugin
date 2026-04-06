@@ -32,4 +32,37 @@ public interface McpTool {
      * @return JSON string result
      */
     String execute(Map<String, Object> args, String authHeader) throws McpToolException;
+
+    /**
+     * Whether this tool supports streaming execution with progress notifications.
+     * Override and return true in batch tools that process multiple items.
+     */
+    default boolean supportsProgress() {
+        return false;
+    }
+
+    /**
+     * Execute the tool with progress reporting. Called instead of execute()
+     * when the client sends a progressToken and supportsProgress() is true.
+     *
+     * @param args parsed JSON arguments
+     * @param authHeader Authorization header
+     * @param progress callback to report progress during execution
+     * @return JSON string result (same as execute)
+     */
+    default String executeWithProgress(Map<String, Object> args, String authHeader,
+                                       ProgressCallback progress) throws McpToolException {
+        return execute(args, authHeader);
+    }
+
+    /** Callback for reporting progress during streaming execution. */
+    @FunctionalInterface
+    interface ProgressCallback {
+        /**
+         * @param current items processed so far
+         * @param total total items (or -1 if unknown)
+         * @param message human-readable status message
+         */
+        void report(int current, int total, String message);
+    }
 }

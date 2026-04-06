@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <atlassian-plugin key="${atlassian.plugin.key}"
-                  name="Atlassian MCP Plugin" plugins-version="2">
+                  name="Jira MCP Plugin" plugins-version="2">
     <plugin-info>
-        <description>MCP Server embedded in Jira Data Center</description>
+        <description>Connect AI agents to Jira Data Center</description>
         <version>${project.version}</version>
-        <vendor name="Ruben Khachaturov" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
+        <vendor name="Ruben Khachaturov" url="https://github.com/mrkhachaturov/jira-mcp-plugin"/>
         <param name="plugin-icon">images/pluginIcon.png</param>
         <param name="plugin-logo">images/pluginLogo.png</param>
         <param name="atlassian-data-center-status">compatible</param>

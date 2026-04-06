@@ -11,6 +11,9 @@ target/
 .project
 .settings/
 
+# Credentials (local only)
+.credentials/
+
 # RKstack / Claude Code
 .rkstack/
 .mcp.json

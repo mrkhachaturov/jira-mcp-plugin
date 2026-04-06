@@ -61,6 +61,9 @@ jobs:
           path: ./CHANGELOG.md
           validation_level: warn
 
+      - name: Set release version from tag
+        run: mvn versions:set -DnewVersion=${{ steps.version.outputs.version }} -B
+
       - name: Build
         run: mvn package -DskipTests -B
 
@@ -71,4 +74,4 @@ jobs:
           name: v${{ steps.version.outputs.version }}
           body: ${{ steps.changelog.outputs.changes }}
           makeLatest: true
-          artifacts: "target/atlassian-mcp-plugin-*.jar,target/atlassian-mcp-plugin-*.obr"
+          artifacts: "target/jira-mcp-plugin-*.jar,target/jira-mcp-plugin-*.obr"

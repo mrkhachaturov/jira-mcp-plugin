@@ -1,32 +1,85 @@
 package com.atlassian.mcp.plugin.tools.issues;
 
-// Ported from mcp-atlassian v0.21.0 -- src/mcp_atlassian/servers/jira.py:batch_get_changelogs
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class BatchGetChangelogsTool implements McpTool {
     private final JiraRestClient client;
-    public BatchGetChangelogsTool(JiraRestClient client) { this.client = client; }
+
+    public BatchGetChangelogsTool(JiraRestClient client) {
+        this.client = client;
+    }
 
     @Override public String name() { return "batch_get_changelogs"; }
-    @Override public String description() { return "Get the changelog (history of changes) for a Jira issue."; }
-    @Override public Map<String, Object> inputSchema() {
-        return Map.of("type", "object",
-                "properties", Map.of(
-                        "issue_key", Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                        "maxResults", Map.of("type", "integer", "description", "Max results", "default", 50),
-                        "startAt", Map.of("type", "integer", "description", "Pagination offset", "default", 0)),
-                "required", List.of("issue_key"));
+
+    @Override
+    public String description() {
+        return "Get changelogs for multiple Jira issues (Cloud only).";
     }
+
+    @Override
+    public Map<String, Object> inputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "issue_ids_or_keys", Map.of("type", "string", "description", "Comma-separated list of Jira issue IDs or keys (e.g. 'PROJ-123,PROJ-124')"),
+                        "fields", Map.of("type", "string", "description", "(Optional) Comma-separated list of fields to filter changelogs by (e.g. 'status,assignee'). Default to None for all fields."),
+                        "limit", Map.of("type", "integer", "description", "Maximum number of changelogs to return in result for each issue. Default to -1 for all changelogs.", "default", -1)
+                ),
+                "required", List.of("issue_ids_or_keys")
+        );
+    }
+
     @Override public boolean isWriteTool() { return false; }
+    @Override public boolean supportsProgress() { return true; }
 
     @Override
     public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String issueKey = (String) args.get("issue_key");
-        if (issueKey == null) throw new McpToolException("issue_key is required");
-        return client.get("/rest/api/2/issue/" + issueKey + "/changelog", authHeader);
+        return executeWithProgress(args, authHeader, (current, total, message) -> {});
+    }
+
+    @Override
+    public String executeWithProgress(Map<String, Object> args, String authHeader,
+                                      ProgressCallback progress) throws McpToolException {
+        String issueIdsOrKeys = (String) args.get("issue_ids_or_keys");
+        if (issueIdsOrKeys == null || issueIdsOrKeys.isBlank()) {
+            throw new McpToolException("'issue_ids_or_keys' parameter is required");
+        }
+
+        String[] keys = issueIdsOrKeys.split(",");
+        List<String> trimmedKeys = new ArrayList<>();
+        for (String k : keys) {
+            String t = k.trim();
+            if (!t.isEmpty()) trimmedKeys.add(t);
+        }
+
+        int total = trimmedKeys.size();
+        List<String> results = new ArrayList<>();
+
+        for (int i = 0; i < total; i++) {
+            String key = trimmedKeys.get(i);
+            progress.report(i, total, "Fetching changelog for " + key + " (" + (i + 1) + "/" + total + ")");
+
+            String changelog = client.get("/rest/api/2/issue/" + key + "/changelog", authHeader);
+            results.add("\"" + key + "\":" + changelog);
+        }
+
+        progress.report(total, total, "Completed: " + total + " changelogs fetched");
+
+        return "{" + String.join(",", results) + "}";
+    }
+
+    private static int getInt(Map<String, Object> args, String key, int defaultVal) {
+        Object val = args.get(key);
+        if (val instanceof Number n) return n.intValue();
+        if (val instanceof String s) {
+            try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultVal; }
+        }
+        return defaultVal;
     }
 }

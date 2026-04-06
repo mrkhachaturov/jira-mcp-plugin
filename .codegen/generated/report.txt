@@ -1,0 +1,470 @@
+======================================================================
+UPSTREAM → JAVA TOOL PARITY REPORT
+======================================================================
+
+Upstream tools:  49
+Existing Java:   46
+
+MISSING TOOLS (in upstream but not in Java):
+  - add_issues_to_sprint (jira_agile) [WRITE]
+  - create_sprint (jira_agile) [WRITE]
+  - update_sprint (jira_agile) [WRITE]
+
+----------------------------------------------------------------------
+TOOL DETAILS (all upstream tools)
+----------------------------------------------------------------------
+
+add_comment [EXISTS] (jira_comments)
+  Title:       Add Comment
+  Description: Add a comment to a Jira issue.
+  Write:       True
+  Params (4):
+    - issue_key: string (REQUIRED)
+    - body: string (REQUIRED)
+    - visibility: string (optional)
+    - public: boolean (optional)
+
+add_issues_to_sprint [MISSING] (jira_agile)
+  Title:       Add Issues to Sprint
+  Description: Add issues to a Jira sprint.
+  Write:       True
+  Params (2):
+    - sprint_id: string (REQUIRED)
+    - issue_keys: string (REQUIRED)
+
+add_watcher [EXISTS] (jira_watchers)
+  Title:       Add Issue Watcher
+  Description: Add a user as a watcher to a Jira issue.
+  Write:       True
+  Params (2):
+    - issue_key: string (REQUIRED)
+    - user_identifier: string (REQUIRED)
+
+add_worklog [EXISTS] (jira_worklog)
+  Title:       Add Worklog
+  Description: Add a worklog entry to a Jira issue.
+  Write:       True
+  Params (6):
+    - issue_key: string (REQUIRED)
+    - time_spent: string (REQUIRED)
+    - comment: string (optional)
+    - started: string (optional)
+    - original_estimate: string (optional)
+    - remaining_estimate: string (optional)
+
+batch_create_issues [EXISTS] (jira_issues)
+  Title:       Batch Create Issues
+  Description: Create multiple Jira issues in a batch.
+  Write:       True
+  Params (2):
+    - issues: string (REQUIRED)
+    - validate_only: boolean (optional default=False)
+
+batch_create_versions [EXISTS] (jira_projects)
+  Title:       Batch Create Versions
+  Description: Batch create multiple versions in a Jira project.
+  Write:       True
+  Params (2):
+    - project_key: string (REQUIRED)
+    - versions: string (REQUIRED)
+
+batch_get_changelogs [EXISTS] (jira_issues)
+  Title:       Batch Get Changelogs
+  Description: Get changelogs for multiple Jira issues (Cloud only).
+  Write:       False
+  Params (3):
+    - issue_ids_or_keys: string (REQUIRED)
+    - fields: string (optional)
+    - limit: integer (optional default=-1)
+
+create_issue [EXISTS] (jira_issues)
+  Title:       Create Issue
+  Description: Create a new Jira issue with optional Epic link or parent for subtasks.
+  Write:       True
+  Params (7):
+    - project_key: string (REQUIRED)
+    - summary: string (REQUIRED)
+    - issue_type: string (REQUIRED)
+    - assignee: string (optional)
+    - description: string (optional)
+    - components: string (optional)
+    - additional_fields: string (optional)
+
+create_issue_link [EXISTS] (jira_links)
+  Title:       Create Issue Link
+  Description: Create a link between two Jira issues.
+  Write:       True
+  Params (5):
+    - link_type: string (REQUIRED)
+    - inward_issue_key: string (REQUIRED)
+    - outward_issue_key: string (REQUIRED)
+    - comment: string (optional)
+    - comment_visibility: string (optional)
+
+create_remote_issue_link [EXISTS] (jira_links)
+  Title:       Create Remote Issue Link
+  Description: Create a remote issue link (web link or Confluence link) for a Jira issue. This ...
+  Write:       True
+  Params (6):
+    - issue_key: string (REQUIRED)
+    - url: string (REQUIRED)
+    - title: string (REQUIRED)
+    - summary: string (optional)
+    - relationship: string (optional)
+    - icon_url: string (optional)
+
+create_sprint [MISSING] (jira_agile)
+  Title:       Create Sprint
+  Description: Create Jira sprint for a board.
+  Write:       True
+  Params (5):
+    - board_id: string (REQUIRED)
+    - name: string (REQUIRED)
+    - start_date: string (REQUIRED)
+    - end_date: string (REQUIRED)
+    - goal: string (optional)
+
+create_version [EXISTS] (jira_projects)
+  Title:       Create Version
+  Description: Create a new fix version in a Jira project.
+  Write:       True
+  Params (5):
+    - project_key: string (REQUIRED)
+    - name: string (REQUIRED)
+    - start_date: string (optional)
+    - release_date: string (optional)
+    - description: string (optional)
+
+delete_issue [EXISTS] (jira_issues)
+  Title:       Delete Issue
+  Description: Delete an existing Jira issue.
+  Write:       True
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+download_attachments [EXISTS] (jira_attachments)
+  Title:       Download Attachments
+  Description: Download attachments from a Jira issue. Returns attachment contents as base64-en...
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+edit_comment [EXISTS] (jira_comments)
+  Title:       Edit Comment
+  Description: Edit an existing comment on a Jira issue.
+  Write:       True
+  Params (4):
+    - issue_key: string (REQUIRED)
+    - comment_id: string (REQUIRED)
+    - body: string (REQUIRED)
+    - visibility: string (optional)
+
+get_agile_boards [EXISTS] (jira_agile)
+  Title:       Get Agile Boards
+  Description: Get jira agile boards by name, project key, or type.
+  Write:       False
+  Params (5):
+    - board_name: string (optional)
+    - project_key: string (optional)
+    - board_type: string (optional)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=10)
+
+get_all_projects [EXISTS] (jira_projects)
+  Title:       Get All Projects
+  Description: Get all Jira projects accessible to the current user.
+  Write:       False
+  Params (1):
+    - include_archived: boolean (optional default=False)
+
+get_board_issues [EXISTS] (jira_agile)
+  Title:       Get Board Issues
+  Description: Get all issues linked to a specific board filtered by JQL.
+  Write:       False
+  Params (6):
+    - board_id: string (REQUIRED)
+    - jql: string (REQUIRED)
+    - fields: string (optional default=summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=10)
+    - expand: string (optional default=version)
+
+get_field_options [EXISTS] (jira_fields)
+  Title:       Get Field Options
+  Description: Get allowed option values for a custom field. Returns the list of valid options ...
+  Write:       False
+  Params (7):
+    - field_id: string (REQUIRED)
+    - context_id: string (optional)
+    - project_key: string (optional)
+    - issue_type: string (optional)
+    - contains: string (optional)
+    - return_limit: integer (optional)
+    - values_only: boolean (optional default=False)
+
+get_issue [EXISTS] (jira_issues)
+  Title:       Get Issue
+  Description: Get details of a specific Jira issue including its Epic links and relationship i...
+  Write:       False
+  Params (6):
+    - issue_key: string (REQUIRED)
+    - fields: string (optional default=summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent)
+    - expand: string (optional)
+    - comment_limit: integer (optional default=10)
+    - properties: string (optional)
+    - update_history: boolean (optional default=True)
+
+get_issue_dates [EXISTS] (jira_metrics)
+  Title:       Get Issue Dates
+  Description: Get date information and status transition history for a Jira issue. Returns dat...
+  Write:       False
+  Params (3):
+    - issue_key: string (REQUIRED)
+    - include_status_changes: boolean (optional default=True)
+    - include_status_summary: boolean (optional default=True)
+
+get_issue_development_info [EXISTS] (jira_development)
+  Title:       Get Issue Development Info
+  Description: Get development information (PRs, commits, branches) linked to a Jira issue. Thi...
+  Write:       False
+  Params (3):
+    - issue_key: string (REQUIRED)
+    - application_type: string (optional)
+    - data_type: string (optional)
+
+get_issue_images [EXISTS] (jira_attachments)
+  Title:       Get Issue Images
+  Description: Get all images attached to a Jira issue as inline image content. Filters attachm...
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+get_issue_proforma_forms [EXISTS] (jira_forms)
+  Title:       Get Issue Forms
+  Description: Get all ProForma forms associated with a Jira issue. Uses the new Jira Forms RES...
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+get_issue_sla [EXISTS] (jira_metrics)
+  Title:       Get Issue SLA
+  Description: Calculate SLA metrics for a Jira issue. Computes various time-based metrics incl...
+  Write:       False
+  Params (4):
+    - issue_key: string (REQUIRED)
+    - metrics: string (optional)
+    - working_hours_only: boolean (optional)
+    - include_raw_dates: boolean (optional default=False)
+
+get_issue_watchers [EXISTS] (jira_watchers)
+  Title:       Get Issue Watchers
+  Description: Get the list of watchers for a Jira issue.
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+get_issues_development_info [EXISTS] (jira_development)
+  Title:       Get Issues Development Info
+  Description: Get development information for multiple Jira issues. Batch retrieves developmen...
+  Write:       False
+  Params (3):
+    - issue_keys: string (REQUIRED)
+    - application_type: string (optional)
+    - data_type: string (optional)
+
+get_link_types [EXISTS] (jira_links)
+  Title:       Get Link Types
+  Description: Get all available issue link types.
+  Write:       False
+  Params (1):
+    - name_filter: string (optional)
+
+get_proforma_form_details [EXISTS] (jira_forms)
+  Title:       Get Form Details
+  Description: Get detailed information about a specific ProForma form. Uses the new Jira Forms...
+  Write:       False
+  Params (2):
+    - issue_key: string (REQUIRED)
+    - form_id: string (REQUIRED)
+
+get_project_components [EXISTS] (jira_projects)
+  Title:       Get Project Components
+  Description: Get all components for a specific Jira project.
+  Write:       False
+  Params (1):
+    - project_key: string (REQUIRED)
+
+get_project_issues [EXISTS] (jira_issues)
+  Title:       Get Project Issues
+  Description: Get all issues for a specific Jira project.
+  Write:       False
+  Params (3):
+    - project_key: string (REQUIRED)
+    - limit: integer (optional default=10)
+    - start_at: integer (optional default=0)
+
+get_project_versions [EXISTS] (jira_projects)
+  Title:       Get Project Versions
+  Description: Get all fix versions for a specific Jira project.
+  Write:       False
+  Params (1):
+    - project_key: string (REQUIRED)
+
+get_queue_issues [EXISTS] (jira_service_desk)
+  Title:       Get Queue Issues
+  Description: Get issues from a Jira Service Desk queue. Server/Data Center only. Not availabl...
+  Write:       False
+  Params (4):
+    - service_desk_id: string (REQUIRED)
+    - queue_id: string (REQUIRED)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=50)
+
+get_service_desk_for_project [EXISTS] (jira_service_desk)
+  Title:       Get Service Desk For Project
+  Description: Get the Jira Service Desk associated with a project key. Server/Data Center only...
+  Write:       False
+  Params (1):
+    - project_key: string (REQUIRED)
+
+get_service_desk_queues [EXISTS] (jira_service_desk)
+  Title:       Get Service Desk Queues
+  Description: Get queues for a Jira Service Desk. Server/Data Center only. Not available on Ji...
+  Write:       False
+  Params (3):
+    - service_desk_id: string (REQUIRED)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=50)
+
+get_sprint_issues [EXISTS] (jira_agile)
+  Title:       Get Sprint Issues
+  Description: Get jira issues from sprint.
+  Write:       False
+  Params (4):
+    - sprint_id: string (REQUIRED)
+    - fields: string (optional default=summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=10)
+
+get_sprints_from_board [EXISTS] (jira_agile)
+  Title:       Get Sprints from Board
+  Description: Get jira sprints from board by state.
+  Write:       False
+  Params (4):
+    - board_id: string (REQUIRED)
+    - state: string (optional)
+    - start_at: integer (optional default=0)
+    - limit: integer (optional default=10)
+
+get_transitions [EXISTS] (jira_transitions)
+  Title:       Get Transitions
+  Description: Get available status transitions for a Jira issue.
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+get_user_profile [EXISTS] (jira_users)
+  Title:       Get User Profile
+  Description: Retrieve profile information for a specific Jira user.
+  Write:       False
+  Params (1):
+    - user_identifier: string (REQUIRED)
+
+get_worklog [EXISTS] (jira_worklog)
+  Title:       Get Worklog
+  Description: Get worklog entries for a Jira issue.
+  Write:       False
+  Params (1):
+    - issue_key: string (REQUIRED)
+
+link_to_epic [EXISTS] (jira_links)
+  Title:       Link to Epic
+  Description: Link an existing issue to an epic.
+  Write:       True
+  Params (2):
+    - issue_key: string (REQUIRED)
+    - epic_key: string (REQUIRED)
+
+remove_issue_link [EXISTS] (jira_links)
+  Title:       Remove Issue Link
+  Description: Remove a link between two Jira issues.
+  Write:       True
+  Params (1):
+    - link_id: string (REQUIRED)
+
+remove_watcher [EXISTS] (jira_watchers)
+  Title:       Remove Issue Watcher
+  Description: Remove a user from watching a Jira issue.
+  Write:       True
+  Params (3):
+    - issue_key: string (REQUIRED)
+    - username: string (optional)
+    - account_id: string (optional)
+
+search [EXISTS] (jira_issues)
+  Title:       Search Issues
+  Description: Search Jira issues using JQL (Jira Query Language).
+  Write:       False
+  Params (7):
+    - jql: string (REQUIRED)
+    - fields: string (optional default=summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent)
+    - limit: integer (optional default=10)
+    - start_at: integer (optional default=0)
+    - projects_filter: string (optional)
+    - expand: string (optional)
+    - page_token: string (optional)
+
+search_fields [EXISTS] (jira_fields)
+  Title:       Search Fields
+  Description: Search Jira fields by keyword with fuzzy match.
+  Write:       False
+  Params (3):
+    - keyword: string (optional default=)
+    - limit: integer (optional default=10)
+    - refresh: boolean (optional default=False)
+
+transition_issue [EXISTS] (jira_transitions)
+  Title:       Transition Issue
+  Description: Transition a Jira issue to a new status.
+  Write:       True
+  Params (4):
+    - issue_key: string (REQUIRED)
+    - transition_id: string (REQUIRED)
+    - fields: string (optional)
+    - comment: string (optional)
+
+update_issue [EXISTS] (jira_issues)
+  Title:       Update Issue
+  Description: Update an existing Jira issue including changing status, adding Epic links, upda...
+  Write:       True
+  Params (5):
+    - issue_key: string (REQUIRED)
+    - fields: string (REQUIRED)
+    - additional_fields: string (optional)
+    - components: string (optional)
+    - attachments: string (optional)
+
+update_proforma_form_answers [EXISTS] (jira_forms)
+  Title:       Update Form Answers
+  Description: Update form field answers using the Jira Forms REST API. This is the primary met...
+  Write:       True
+  Params (3):
+    - issue_key: string (REQUIRED)
+    - form_id: string (REQUIRED)
+    - answers: string (REQUIRED)
+
+update_sprint [MISSING] (jira_agile)
+  Title:       Update Sprint
+  Description: Update jira sprint.
+  Write:       True
+  Params (6):
+    - sprint_id: string (REQUIRED)
+    - name: string (optional)
+    - state: string (optional)
+    - start_date: string (optional)
+    - end_date: string (optional)
+    - goal: string (optional)
+
+======================================================================
+Total: 49 tools, 3 missing, 0 extra
+======================================================================

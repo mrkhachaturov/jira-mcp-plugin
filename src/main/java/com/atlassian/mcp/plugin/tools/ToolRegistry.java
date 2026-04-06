@@ -8,7 +8,6 @@ import com.atlassian.mcp.plugin.tools.transitions.*;
 import com.atlassian.mcp.plugin.tools.worklogs.*;
 import com.atlassian.mcp.plugin.tools.boards.*;
 import com.atlassian.mcp.plugin.tools.links.*;
-import com.atlassian.mcp.plugin.tools.epics.*;
 import com.atlassian.mcp.plugin.tools.projects.*;
 import com.atlassian.mcp.plugin.tools.users.*;
 import com.atlassian.mcp.plugin.tools.attachments.*;
@@ -42,9 +41,10 @@ public class ToolRegistry {
     }
 
     private void registerAllTools(JiraRestClient client) {
-        // Issues & Search (7)
+        // Issues & Search (8)
         register(new SearchTool(client));
         register(new GetIssueTool(client));
+        register(new GetProjectIssuesTool(client));
         register(new CreateIssueTool(client));
         register(new UpdateIssueTool(client));
         register(new DeleteIssueTool(client));
@@ -63,24 +63,24 @@ public class ToolRegistry {
         register(new GetWorklogTool(client));
         register(new AddWorklogTool(client));
 
-        // Boards & Sprints (4)
+        // Boards & Sprints (7)
         register(new GetAgileBoardsTool(client));
         register(new GetBoardIssuesTool(client));
         register(new GetSprintsFromBoardTool(client));
         register(new GetSprintIssuesTool(client));
+        register(new CreateSprintTool(client));
+        register(new UpdateSprintTool(client));
+        register(new AddIssuesToSprintTool(client));
 
-        // Links (4)
+        // Links (5)
         register(new GetLinkTypesTool(client));
         register(new CreateIssueLinkTool(client));
         register(new CreateRemoteIssueLinkTool(client));
         register(new RemoveIssueLinkTool(client));
-
-        // Epics (1)
         register(new LinkToEpicTool(client));
 
-        // Projects & Versions (6)
+        // Projects & Versions (5)
         register(new GetAllProjectsTool(client));
-        register(new GetProjectIssuesTool(client));
         register(new GetProjectVersionsTool(client));
         register(new GetProjectComponentsTool(client));
         register(new CreateVersionTool(client));

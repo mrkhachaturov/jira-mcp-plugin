@@ -53,8 +53,8 @@ jobs:
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
-          name: atlassian-mcp-plugin
+          name: jira-mcp-plugin
           path: |
-            target/atlassian-mcp-plugin-*.jar
-            target/atlassian-mcp-plugin-*.obr
+            target/jira-mcp-plugin-*.jar
+            target/jira-mcp-plugin-*.obr
           if-no-files-found: error

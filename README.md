@@ -1,42 +1,67 @@
-# 🔌 Atlassian MCP Plugin for Jira Data Center
+# 🔌 Jira MCP Plugin
 
-> **Native Jira plugin that brings AI directly into your Jira instance** — no sidecars, no proxies, no external services.
+> 🏢 Native MCP server for Jira Data Center. AI agents connect directly to your Jira instance.
+>
+> Repository: `jira-mcp-plugin`
 
-[![Build](https://github.com/mrkhachaturov/atlassian-mcp-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/mrkhachaturov/atlassian-mcp-plugin/actions/workflows/build.yml)
+[![Build](https://github.com/mrkhachaturov/jira-mcp-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/mrkhachaturov/jira-mcp-plugin/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Jira DC](https://img.shields.io/badge/Jira%20DC-10.x-0052CC)
+![MCP Tools](https://img.shields.io/badge/MCP%20tools-49-10b981)
+![Transport](https://img.shields.io/badge/transport-Streamable%20HTTP-6366f1)
 
-An [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server embedded directly inside Jira Data Center. AI agents like **Claude Code**, **Cursor**, and other MCP-compatible tools connect to your Jira and work with issues, projects, boards, sprints, and more — all running inside the Jira JVM with zero external dependencies.
+[MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that runs inside your Jira Data Center JVM. Claude Code, Cursor, and other MCP-compatible tools connect to it and work with issues, projects, boards, sprints, and more. Everything stays inside your infrastructure.
 
-## ✨ Highlights
+| | Scope | Meaning |
+|---|-------|---------|
+| 🔌 | Plugin | Single JAR, installed via UPM, runs inside the Jira JVM |
+| 🔐 | Auth | OAuth 2.0 (browser consent) + Personal Access Tokens |
+| 🛠️ | Tools | 49 tools mirrored 1:1 from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) upstream |
+| 📡 | Transport | Streamable HTTP (MCP spec 2025-06-18) with SSE progress streaming |
 
-- 🛠️ **46 MCP tools** — issues, projects, boards, sprints, comments, worklogs, links, fields, SLA, dev info
-- 🔐 **OAuth 2.0** — click "Authenticate" in your AI tool, consent in browser, done. No PATs to manage
-- 👥 **Group & user access control** — define who can use MCP via Jira groups or individual users
-- 🎛️ **Per-tool management** — enable/disable individual tools, read-only mode
-- 📦 **Single JAR** — install via UPM, no Docker, no sidecar, no external services
-- 🔑 **PAT support** — Personal Access Tokens still work alongside OAuth
+> [!IMPORTANT]
+> This plugin runs entirely inside Jira. No data leaves your infrastructure.
+> No sidecars, no proxies, no external API calls. The plugin talks to Jira's own REST API on localhost.
 
-## 🚀 Quick Start
+---
 
-### 1. Install
+## 🗺️ How it works
 
-Download the latest JAR from [**Releases**](../../releases) and upload via **Jira Admin → Manage Apps → Upload App**.
+```mermaid
+graph TD
+    AI["🤖 AI Agent<br/>Claude Code / Cursor"] -->|"POST /rest/mcp/1.0/"| MCP["🔌 MCP Endpoint<br/>Streamable HTTP"]
+    AI -->|"OAuth 2.0"| OAUTH["🔐 OAuth Proxy<br/>/plugins/servlet/mcp-oauth/*"]
 
-### 2. Configure OAuth *(recommended)*
+    MCP --> TR["🛠️ Tool Registry<br/>49 tools"]
+    OAUTH -->|"consent flow"| JIRA_AUTH["🦊 Jira OAuth"]
 
+    TR --> CLIENT["📡 JiraRestClient"]
+    CLIENT --> TRIM["✂️ ResponseTrimmer"]
+    CLIENT -->|"localhost"| JIRA_API["🦊 Jira REST API"]
+
+    style MCP fill:#6366f1,color:#fff,stroke:#6366f1
+    style TR fill:#10b981,color:#fff,stroke:#10b981
+    style OAUTH fill:#f59e0b,color:#000,stroke:#f59e0b
+    style JIRA_API fill:#0052CC,color:#fff,stroke:#0052CC
 ```
-Jira Admin → Application Links → Create Link → External Application (Incoming)
+
+---
+
+## ⚡ Quick start
+
+```bash
+# 1️⃣  Install: download JAR from Releases, upload via UPM
+#     Jira Admin > Manage Apps > Upload App
+
+# 2️⃣  Configure OAuth (recommended)
+#     Jira Admin > Application Links > Create Link > External Application
+#     Name: MCP Server
+#     Redirect URL: https://your-jira/plugins/servlet/mcp-oauth/callback
+#     Permission: Write
+#     Then: MCP Configuration > OAuth tab > paste Client ID and Secret
+
+# 3️⃣  Connect your AI tool
 ```
-
-| Field | Value |
-|-------|-------|
-| Name | `MCP Server` |
-| Redirect URL | `https://your-jira.example.com/plugins/servlet/mcp-oauth/callback` |
-| Permission | `Write` |
-
-Then go to **MCP Configuration → OAuth** tab, paste the Client ID and Secret.
-
-### 3. Connect your AI tool
 
 ```json
 {
@@ -49,105 +74,177 @@ Then go to **MCP Configuration → OAuth** tab, paste the Client ID and Secret.
 }
 ```
 
-First connection → "Needs Auth" → click **Authenticate** → Jira consent page → **Allow** → done! 🎉
+On first connection, click Authenticate, consent on the Jira page, and you're in.
 
-## 🛠️ Available Tools
+---
+
+## 🛠️ Available tools
 
 <details>
-<summary><strong>46 tools across 14 categories</strong> (click to expand)</summary>
+<summary>49 tools across 13 categories (click to expand)</summary>
 
-| Category | Tools | Count |
-|----------|-------|:-----:|
-| **Issues** | `search`, `get_issue`, `create_issue`, `update_issue`, `delete_issue`, `batch_create_issues`, `batch_get_changelogs` | 7 |
-| **Comments** | `add_comment`, `edit_comment` | 2 |
-| **Transitions** | `get_transitions`, `transition_issue` | 2 |
-| **Worklogs** | `get_worklog`, `add_worklog` | 2 |
-| **Boards & Sprints** | `get_agile_boards`, `get_board_issues`, `get_sprints_from_board`, `get_sprint_issues` | 4 |
-| **Links** | `get_link_types`, `create_issue_link`, `create_remote_issue_link`, `remove_issue_link` | 4 |
-| **Epics** | `link_to_epic` | 1 |
-| **Projects** | `get_all_projects`, `get_project_issues`, `get_project_versions`, `get_project_components`, `create_version`, `batch_create_versions` | 6 |
-| **Users** | `get_user_profile`, `get_issue_watchers`, `add_watcher`, `remove_watcher` | 4 |
-| **Attachments** | `download_attachments`, `get_issue_images` | 2 |
-| **Fields** | `search_fields`, `get_field_options` | 2 |
-| **Service Desk** | `get_service_desk_for_project`, `get_service_desk_queues`, `get_queue_issues` | 3 |
-| **Forms** | `get_issue_proforma_forms`, `get_proforma_form_details`, `update_proforma_form_answers` | 3 |
-| **Metrics** | `get_issue_dates`, `get_issue_sla`, `get_issue_development_info`, `get_issues_development_info` | 4 |
+| | Category | Tools | Count |
+|---|----------|-------|:-----:|
+| 📋 | Issues | `search`, `get_issue`, `get_project_issues`, `create_issue`, `update_issue`, `delete_issue`, `batch_create_issues`, `batch_get_changelogs` | 8 |
+| 💬 | Comments | `add_comment`, `edit_comment` | 2 |
+| 🔄 | Transitions | `get_transitions`, `transition_issue` | 2 |
+| ⏱️ | Worklogs | `get_worklog`, `add_worklog` | 2 |
+| 🏃 | Boards and sprints | `get_agile_boards`, `get_board_issues`, `get_sprints_from_board`, `get_sprint_issues`, `create_sprint`, `update_sprint`, `add_issues_to_sprint` | 7 |
+| 🔗 | Links | `get_link_types`, `create_issue_link`, `create_remote_issue_link`, `remove_issue_link`, `link_to_epic` | 5 |
+| 📁 | Projects | `get_all_projects`, `get_project_versions`, `get_project_components`, `create_version`, `batch_create_versions` | 5 |
+| 👤 | Users | `get_user_profile`, `get_issue_watchers`, `add_watcher`, `remove_watcher` | 4 |
+| 📎 | Attachments | `download_attachments`, `get_issue_images` | 2 |
+| 🏷️ | Fields | `search_fields`, `get_field_options` | 2 |
+| 🎫 | Service Desk | `get_service_desk_for_project`, `get_service_desk_queues`, `get_queue_issues` | 3 |
+| 📝 | Forms | `get_issue_proforma_forms`, `get_proforma_form_details`, `update_proforma_form_answers` | 3 |
+| 📊 | Metrics | `get_issue_dates`, `get_issue_sla`, `get_issue_development_info`, `get_issues_development_info` | 4 |
+
+Tools that require Jira Software, JSM, or Proforma are hidden automatically when those plugins aren't installed.
 
 </details>
 
+---
+
+## 📡 Transport
+
+The plugin implements MCP Streamable HTTP on a single endpoint. The server decides the response format per request.
+
+```mermaid
+graph LR
+    REQ["📨 POST request"] --> CHECK{"progressToken?"}
+    CHECK -->|"no"| JSON["📄 JSON response<br/>application/json"]
+    CHECK -->|"yes + batch tool"| SSE["📡 SSE stream<br/>text/event-stream"]
+
+    SSE --> P1["📊 progress 1/20"]
+    P1 --> P2["📊 progress 10/20"]
+    P2 --> P3["📊 progress 20/20"]
+    P3 --> RESULT["✅ final result"]
+    JSON --> RESULT2["✅ result"]
+
+    style JSON fill:#10b981,color:#fff
+    style SSE fill:#6366f1,color:#fff
+    style RESULT fill:#0f766e,color:#fff
+    style RESULT2 fill:#0f766e,color:#fff
+```
+
+Most tool calls return plain JSON. Batch tools (`batch_create_issues`, `batch_create_versions`, `batch_get_changelogs`, `get_issues_development_info`) support SSE streaming when the client sends a `progressToken`. The server sends progress notifications as SSE events before the final result.
+
+| | Method | Behavior |
+|---|--------|----------|
+| 📨 | POST | JSON for single responses, SSE for batch tools with `progressToken` |
+| 📡 | GET | SSE stream for server-initiated notifications (requires `MCP-Session-Id`) |
+| 🗑️ | DELETE | Close session |
+
+Sessions are tracked via the `MCP-Session-Id` header, assigned on `initialize`.
+
+---
+
 ## 🔐 Authentication
 
-### OAuth 2.0 *(recommended)*
+### OAuth 2.0 (recommended) 🌐
 
-Best UX — users just click "Authenticate" and consent in the browser. The plugin acts as an OAuth 2.0 proxy between MCP clients and Jira's built-in OAuth provider.
+The plugin proxies between MCP clients and Jira's built-in OAuth provider. Users click Authenticate, consent in the browser, and the token exchange happens automatically.
 
-```
-MCP Client → Plugin OAuth Proxy → Jira OAuth 2.0 → Consent → Token → Done
-```
-
-### Personal Access Tokens
-
-Create a PAT in Jira (**Profile → Personal Access Tokens**) and configure your MCP client with a Bearer token header.
-
-## ⚙️ Admin Configuration
-
-Access via **Jira Admin → MCP Server → MCP Configuration**.
-
-| Tab | What |
-|-----|------|
-| **General** | Enable/disable MCP, read-only mode, base URL override |
-| **Access Control** | Allowed groups + individual users (empty = everyone) |
-| **Tools** | Click-to-toggle tool list with search filter |
-| **OAuth** | Client ID/Secret, status, callback URL, user config snippet |
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│                   Jira DC JVM                    │
-│                                                  │
-│  ┌──────────────┐  ┌────────────────────────┐   │
-│  │ MCP Endpoint  │  │   OAuth Proxy Servlet   │   │
-│  │ /rest/mcp/1.0 │  │ /plugins/servlet/       │   │
-│  │               │  │  mcp-oauth/*            │   │
-│  │ JSON-RPC 2.0  │  │ authorize, callback,    │   │
-│  │ POST handler  │  │ token, register,        │   │
-│  │               │  │ metadata                │   │
-│  └───────┬───────┘  └────────────────────────┘   │
-│          │                                        │
-│  ┌───────▼───────┐                               │
-│  │ Tool Registry  │  46 tools                    │
-│  │ ToolRegistry   │  Each tool calls             │
-│  │                │  Jira REST API internally    │
-│  └───────┬───────┘                               │
-│          │                                        │
-│  ┌───────▼───────┐                               │
-│  │ JiraRestClient │  HTTP calls to               │
-│  │                │  localhost Jira API           │
-│  └────────────────┘                               │
-│                                                   │
-└───────────────────────────────────────────────────┘
+```text
+🤖 MCP Client → 🔌 Plugin OAuth Proxy → 🦊 Jira OAuth 2.0 → ✅ Consent → 🔑 Token → Done
 ```
 
-## 📋 Requirements
+### Personal Access Tokens 🔑
 
-- **Jira Data Center** 10.x (tested on 10.7.4)
-- **Java** 17
+Create a PAT in Jira (Profile > Personal Access Tokens) and configure your MCP client with a Bearer token header.
 
-## 🔨 Building from Source
+---
+
+## 🛡️ Enterprise security
+
+The plugin runs inside the Jira JVM. No data leaves your infrastructure. It uses Jira's own OAuth 2.0 and PAT mechanisms, so there are no separate credentials and no API keys to external services. The same Jira permissions apply: users can only access projects and issues they already have access to.
+
+| | Concern | How it's handled |
+|---|---------|-----------------|
+| 🏠 | Data residency | Runs inside Jira JVM, no outbound connections |
+| 🔐 | Authentication | Jira's own OAuth 2.0 and PATs |
+| 🔒 | Authorization | Same Jira permissions, same project access |
+| 👥 | Admin control | Group and user allowlists, per-tool enable/disable, read-only mode |
+| 📋 | Audit trail | All requests go through Jira's standard auth pipeline |
+| 🌐 | Origin validation | `Origin` header checked per MCP spec (DNS rebinding protection) |
+
+> [!CAUTION]
+> The plugin makes localhost HTTP calls to Jira's own REST API. No outbound network connections are made. Verify this by checking your firewall logs after installation.
+
+---
+
+## ⚙️ Admin configuration
+
+Access via Jira Admin > MCP Server > MCP Configuration.
+
+| | Tab | What |
+|---|-----|------|
+| ⚙️ | General | Enable/disable MCP, read-only mode, base URL override |
+| 👥 | Access Control | Allowed groups + individual users (empty = everyone) |
+| 🛠️ | Tools | Click-to-toggle tool list with search filter |
+| 🔐 | OAuth | Client ID/Secret, status, callback URL, user config snippet |
+
+---
+
+## ✂️ Response trimming
+
+Jira's REST API returns a lot of data that AI agents don't need: avatar URLs, self links, icon URLs, empty group containers. The plugin strips these before returning results, matching the upstream mcp-atlassian's `to_simplified_dict()` behavior.
+
+Fields stripped recursively: `self`, `avatarUrls`, `iconUrl`, `expand`, `groups`, `applicationRoles`
+
+Fields renamed to match upstream: `issuetype` to `issue_type`, `fixVersions` to `fix_versions`
+
+---
+
+## 📋 Prerequisites
+
+| | Tool | Purpose |
+|---|------|---------|
+| ☕ | Java 17 | Runtime (via mise) |
+| 🧰 | Atlassian Plugin SDK | `atlas-mvn` for local builds |
+| ⚡ | `just` | Task runner |
+| 🔧 | `mise` | Tool version manager + env var loader |
+
+## 🔨 Building from source
 
 ```bash
-# Java 17 required (via mise, SDKMAN, or system)
-mvn package -DskipTests
+# 🧰 Setup
+mise trust && mise install
 
-# Output
-target/atlassian-mcp-plugin-<version>.jar   # Upload to Jira UPM
-target/atlassian-mcp-plugin-<version>.obr
+# 🏗️ Build
+just build
+
+# 🚀 Build + deploy + run 35 e2e tests
+just deploy-and-test
+
+# 📋 Or step by step
+just deploy              # build + upload to Jira UPM
+just e2e                 # run e2e tests against live Jira
+just codegen             # regenerate tools from upstream Python definitions
 ```
+
+---
+
+## 🔄 Release process
+
+```mermaid
+graph LR
+    DEV["🔧 Development<br/>1.0.0-SNAPSHOT"] -->|"git tag v1.0.0"| CI["🤖 GitHub Actions"]
+    CI -->|"mvn versions:set"| BUILD["🏗️ Build<br/>1.0.0"]
+    BUILD --> RELEASE["📦 GitHub Release<br/>jira-mcp-plugin-1.0.0.jar"]
+
+    style DEV fill:#f59e0b,color:#000
+    style CI fill:#6366f1,color:#fff
+    style RELEASE fill:#10b981,color:#fff
+```
+
+Development uses `1.0.0-SNAPSHOT` in pom.xml. When you push a tag like `v1.0.0`, GitHub Actions strips the SNAPSHOT suffix and builds a clean release JAR. The CHANGELOG.md entry for that version is included in the release notes.
+
+---
 
 ## 🙏 Credits
 
-Tool definitions are ported from [**mcp-atlassian**](https://github.com/sooperset/mcp-atlassian) by [@sooperset](https://github.com/sooperset) — an excellent Python-based MCP server for Atlassian products. This plugin re-implements those tools as a native Jira plugin, eliminating the need for an external sidecar service.
+Tool definitions are mirrored from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) by [@sooperset](https://github.com/sooperset). That project is a Python-based MCP server for Atlassian products. This plugin re-implements the same 49 tools as a native Jira plugin so you don't need an external process.
 
 ## 📄 License
 
