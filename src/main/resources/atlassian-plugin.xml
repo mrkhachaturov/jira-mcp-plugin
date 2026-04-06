@@ -4,7 +4,7 @@
     <plugin-info>
         <description>MCP Server embedded in Jira Data Center</description>
         <version>${project.version}</version>
-        <vendor name="Atlassian MCP" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
+        <vendor name="AstraTeam" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
         <param name="plugin-icon">images/pluginIcon.png</param>
         <param name="plugin-logo">images/pluginLogo.png</param>
         <param name="atlassian-data-center-status">compatible</param>
