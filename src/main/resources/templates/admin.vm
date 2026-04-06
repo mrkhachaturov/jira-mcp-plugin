@@ -2,47 +2,106 @@
 <head>
     <title>$i18n.getText("mcp.admin.title")</title>
     <meta name="decorator" content="atl.admin" />
-    $webResourceManager.requireResource("com.atlassian.mcp.atlassian-mcp-plugin:admin-resources")
+    $webResourceManager.requireResource("com.atlassian.mcp.atlassian-mcp-plugin:mcp-admin-ui")
 </head>
 <body>
     <h2>$i18n.getText("mcp.admin.title")</h2>
 
     <form id="mcp-admin-form" class="aui">
-        <!-- Enable toggle -->
-        <div class="field-group">
-            <label for="enabled">$i18n.getText("mcp.admin.enabled.label")</label>
-            <aui-toggle id="enabled" label="Enable MCP Server"></aui-toggle>
+        <div class="aui-tabs horizontal-tabs">
+            <ul class="tabs-menu">
+                <li class="menu-item active-tab"><a href="#mcp-tab-general"><strong>General</strong></a></li>
+                <li class="menu-item"><a href="#mcp-tab-access"><strong>Access Control</strong></a></li>
+                <li class="menu-item"><a href="#mcp-tab-tools"><strong>Tools</strong></a></li>
+                <li class="menu-item"><a href="#mcp-tab-oauth"><strong>OAuth</strong></a></li>
+            </ul>
+
+            <!-- General tab -->
+            <div class="tabs-pane active-pane" id="mcp-tab-general">
+                <div class="field-group">
+                    <label for="enabled">$i18n.getText("mcp.admin.enabled.label")</label>
+                    <aui-toggle id="enabled" label="Enable MCP Server"></aui-toggle>
+                </div>
+                <div class="field-group">
+                    <label for="readOnlyMode">$i18n.getText("mcp.admin.readOnlyMode.label")</label>
+                    <aui-toggle id="readOnlyMode" label="Read-only Mode"></aui-toggle>
+                    <div class="description">$i18n.getText("mcp.admin.readOnlyMode.description")</div>
+                </div>
+                <div class="field-group">
+                    <label for="jiraBaseUrl">$i18n.getText("mcp.admin.jiraBaseUrl.label")</label>
+                    <input type="text" id="jiraBaseUrl" class="text long-field">
+                    <div class="description">$i18n.getText("mcp.admin.jiraBaseUrl.description")</div>
+                </div>
+            </div>
+
+            <!-- Access Control tab -->
+            <div class="tabs-pane" id="mcp-tab-access">
+                <p class="description" style="margin-bottom:16px;">
+                    Define who can use MCP. If both lists are empty, all authenticated users have access.
+                    Users have higher priority than groups.
+                </p>
+                <div class="field-group">
+                    <label for="mcp-group-input">Allowed Groups</label>
+                    <div id="mcp-group-tags" style="margin-bottom:4px;"></div>
+                    <input type="text" id="mcp-group-input" class="text long-field" autocomplete="off"
+                           placeholder="Type a group name to search...">
+                    <div id="mcp-group-suggestions" style="display:none;"></div>
+                    <div class="description">Members of these groups can use MCP.</div>
+                </div>
+                <div class="field-group">
+                    <label for="mcp-user-input">Allowed Users</label>
+                    <div id="mcp-user-tags" style="margin-bottom:4px;"></div>
+                    <input type="text" id="mcp-user-input" class="text long-field" autocomplete="off"
+                           placeholder="Type a username to search...">
+                    <div id="mcp-user-suggestions" style="display:none;"></div>
+                    <div class="description">Individual users with MCP access (overrides group settings).</div>
+                </div>
+            </div>
+
+            <!-- Tools tab -->
+            <div class="tabs-pane" id="mcp-tab-tools">
+                <p class="description" style="margin-bottom:8px;">
+                    Click a tool to disable it. Click again to re-enable. Disabled tools are greyed out.
+                </p>
+                <input type="text" id="mcp-tool-filter" class="text" placeholder="Filter tools..."
+                       style="width:400px; margin-bottom:8px;">
+                <div id="mcp-tools-list"></div>
+            </div>
+
+            <!-- OAuth tab -->
+            <div class="tabs-pane" id="mcp-tab-oauth">
+                <p class="description" style="margin-bottom:16px;">
+                    Configure OAuth 2.0 so users can authenticate via browser consent instead of PATs.
+                    Create an incoming Application Link in Jira admin first, then enter the credentials here.
+                </p>
+                <div class="field-group">
+                    <label for="oauthClientId">Client ID</label>
+                    <input type="text" id="oauthClientId" class="text long-field">
+                    <div class="description">From Application Links &gt; your incoming link &gt; Client ID</div>
+                </div>
+                <div class="field-group">
+                    <label for="oauthClientSecret">Client Secret</label>
+                    <input type="password" id="oauthClientSecret" class="text long-field"
+                           placeholder="Enter new secret (leave empty to keep current)">
+                    <div class="description" id="oauth-secret-status"></div>
+                </div>
+                <div class="field-group" id="oauth-status-group" style="display:none;">
+                    <label>Status</label>
+                    <div id="oauth-status"></div>
+                </div>
+                <div class="field-group">
+                    <label>Callback URL (set in Application Link)</label>
+                    <pre id="oauth-callback-url" style="background:#1b2638; padding:12px; border-radius:3px; font-size:12px;"></pre>
+                    <div class="description">Set this as the Redirect URL when creating the incoming Application Link.</div>
+                </div>
+                <div class="field-group">
+                    <label>MCP Config for Users</label>
+                    <pre id="oauth-mcp-config" style="background:#1b2638; padding:12px; border-radius:3px; font-size:12px;"></pre>
+                    <div class="description">Users paste this into their Claude Code / Cursor MCP settings.</div>
+                </div>
+            </div>
         </div>
 
-        <!-- Read-only mode -->
-        <div class="field-group">
-            <label for="readOnlyMode">$i18n.getText("mcp.admin.readOnlyMode.label")</label>
-            <aui-toggle id="readOnlyMode" label="Read-only Mode"></aui-toggle>
-            <div class="description">$i18n.getText("mcp.admin.readOnlyMode.description")</div>
-        </div>
-
-        <!-- Allowed Users (Jira native user picker) -->
-        <div class="field-group">
-            <label for="mcp-allowed-users">$i18n.getText("mcp.admin.allowedUsers.label")</label>
-            <select id="mcp-allowed-users" class="js-default-user-multi-picker hidden" multiple="multiple" style="width:400px;">
-            </select>
-            <div class="description">$i18n.getText("mcp.admin.allowedUsers.description")</div>
-        </div>
-
-        <!-- Internal Base URL -->
-        <div class="field-group">
-            <label for="jiraBaseUrl">$i18n.getText("mcp.admin.jiraBaseUrl.label")</label>
-            <input type="text" id="jiraBaseUrl" name="jiraBaseUrl" class="text long-field">
-            <div class="description">$i18n.getText("mcp.admin.jiraBaseUrl.description")</div>
-        </div>
-
-        <!-- Tools (click to toggle) -->
-        <h3>Tools</h3>
-        <p class="description">Click a tool to disable it. Click again to re-enable. Disabled tools are greyed out.</p>
-        <input type="text" id="mcp-tool-filter" class="text" placeholder="Filter tools..." style="width:400px; margin-bottom:8px;">
-        <div id="mcp-tools-list"></div>
-
-        <!-- Save -->
         <div class="buttons-container" style="margin-top: 20px;">
             <div class="buttons">
                 <input type="submit" value="$i18n.getText('mcp.admin.save')" class="aui-button aui-button-primary">

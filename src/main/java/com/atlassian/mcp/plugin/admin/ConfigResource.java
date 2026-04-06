@@ -54,9 +54,14 @@ public class ConfigResource {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", config.isEnabled());
         result.put("allowedUsers", String.join(",", config.getAllowedUserKeys()));
+        result.put("allowedGroups", String.join(",", config.getAllowedGroups()));
         result.put("disabledTools", String.join(",", config.getDisabledTools()));
         result.put("readOnlyMode", config.isReadOnlyMode());
         result.put("jiraBaseUrl", config.getJiraBaseUrlOverride());
+        result.put("oauthClientId", config.getOAuthClientId());
+        String secret = config.getOAuthClientSecret();
+        result.put("oauthClientSecretSet", secret != null && !secret.isEmpty());
+        result.put("oauthEnabled", config.isOAuthEnabled());
         result.put("allTools", allTools);
         return Response.ok(result).build();
     }
@@ -75,6 +80,9 @@ public class ConfigResource {
         if (body.containsKey("allowedUsers")) {
             config.setAllowedUserKeys(body.get("allowedUsers").toString());
         }
+        if (body.containsKey("allowedGroups")) {
+            config.setAllowedGroups(body.get("allowedGroups").toString());
+        }
         if (body.containsKey("disabledTools")) {
             config.setDisabledTools(body.get("disabledTools").toString());
         }
@@ -83,6 +91,15 @@ public class ConfigResource {
         }
         if (body.containsKey("jiraBaseUrl")) {
             config.setJiraBaseUrlOverride(body.get("jiraBaseUrl").toString());
+        }
+        if (body.containsKey("oauthClientId")) {
+            config.setOAuthClientId(body.get("oauthClientId").toString());
+        }
+        if (body.containsKey("oauthClientSecret")) {
+            String secret = body.get("oauthClientSecret").toString();
+            if (!secret.isEmpty()) {
+                config.setOAuthClientSecret(secret);
+            }
         }
 
         return Response.noContent().build();
