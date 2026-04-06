@@ -2,7 +2,7 @@
     var url = AJS.contextPath() + "/rest/mcp-admin/1.0/";
 
     $(function () {
-        $.ajax({ url: url, dataType: "json" }).done(function (config) {
+        $.ajax({ url: url, dataType: "json", headers: { "X-Atlassian-Token": "no-check" } }).done(function (config) {
             $("#enabled").prop("checked", config.enabled);
             $("#allowedUsers").val(config.allowedUsers || "");
             $("#disabledTools").val(config.disabledTools || "");
@@ -16,6 +16,7 @@
                 url: url,
                 type: "PUT",
                 contentType: "application/json",
+                headers: { "X-Atlassian-Token": "no-check" },
                 data: JSON.stringify({
                     enabled: $("#enabled").is(":checked"),
                     allowedUsers: $("#allowedUsers").val(),
