@@ -32,6 +32,10 @@ jobs:
                     <id>atlassian-public</id>
                     <url>https://packages.atlassian.com/mvn/maven-atlassian-external/</url>
                   </repository>
+                  <repository>
+                    <id>atlassian-3rdparty</id>
+                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external-3rdparty/</url>
+                  </repository>
                 </repositories>
                 <pluginRepositories>
                   <pluginRepository>
