@@ -96,8 +96,8 @@
 
     $(function () {
         $.ajax({ url: url, dataType: "json", headers: headers }).done(function (config) {
-            if (config.enabled) $("#enabled").attr("checked", "checked");
-            if (config.readOnlyMode) $("#readOnlyMode").attr("checked", "checked");
+            if (config.enabled) document.getElementById("enabled").checked = true;
+            if (config.readOnlyMode) document.getElementById("readOnlyMode").checked = true;
             $("#jiraBaseUrl").val(config.jiraBaseUrl || "");
 
             allToolsMeta = config.allTools || [];
@@ -130,10 +130,10 @@
             $.ajax({
                 url: url, type: "PUT", contentType: "application/json", headers: headers,
                 data: JSON.stringify({
-                    enabled: $("#enabled").is("[checked]"),
+                    enabled: document.getElementById("enabled").checked,
                     allowedUsers: getSelectedUserKeys(),
                     disabledTools: Array.from(disabledSet).sort().join(","),
-                    readOnlyMode: $("#readOnlyMode").is("[checked]"),
+                    readOnlyMode: document.getElementById("readOnlyMode").checked,
                     jiraBaseUrl: $("#jiraBaseUrl").val()
                 }),
                 processData: false
