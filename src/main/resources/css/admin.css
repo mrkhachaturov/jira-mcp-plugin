@@ -1,0 +1,7 @@
+#mcp-admin-form .field-group {
+    margin-bottom: 16px;
+}
+#mcp-admin-form textarea {
+    width: 100%;
+    font-family: monospace;
+}

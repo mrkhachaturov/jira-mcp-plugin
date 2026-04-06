@@ -1,0 +1,41 @@
+<html>
+<head>
+    <title>$i18n.getText("mcp.admin.title")</title>
+    <meta name="decorator" content="atl.admin" />
+    $webResourceManager.requireResource("atlassian-mcp-plugin:admin-resources")
+</head>
+<body>
+    <h2>$i18n.getText("mcp.admin.title")</h2>
+    <form id="mcp-admin-form" class="aui">
+        <div class="field-group">
+            <label for="enabled">$i18n.getText("mcp.admin.enabled.label")</label>
+            <input type="checkbox" id="enabled" name="enabled" class="checkbox">
+        </div>
+        <div class="field-group">
+            <label for="allowedUsers">$i18n.getText("mcp.admin.allowedUsers.label")</label>
+            <textarea id="allowedUsers" name="allowedUsers" class="textarea" rows="4"></textarea>
+            <div class="description">$i18n.getText("mcp.admin.allowedUsers.description")</div>
+        </div>
+        <div class="field-group">
+            <label for="disabledTools">$i18n.getText("mcp.admin.disabledTools.label")</label>
+            <textarea id="disabledTools" name="disabledTools" class="textarea" rows="4"></textarea>
+        </div>
+        <div class="field-group">
+            <label for="readOnlyMode">$i18n.getText("mcp.admin.readOnlyMode.label")</label>
+            <input type="checkbox" id="readOnlyMode" name="readOnlyMode" class="checkbox">
+            <div class="description">$i18n.getText("mcp.admin.readOnlyMode.description")</div>
+        </div>
+        <div class="field-group">
+            <label for="jiraBaseUrl">$i18n.getText("mcp.admin.jiraBaseUrl.label")</label>
+            <input type="text" id="jiraBaseUrl" name="jiraBaseUrl" class="text long-field">
+            <div class="description">$i18n.getText("mcp.admin.jiraBaseUrl.description")</div>
+        </div>
+        <div class="buttons-container">
+            <div class="buttons">
+                <input type="submit" value="$i18n.getText('mcp.admin.save')" class="aui-button aui-button-primary">
+            </div>
+        </div>
+    </form>
+    <div id="mcp-admin-message"></div>
+</body>
+</html>
