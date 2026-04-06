@@ -29,18 +29,18 @@ jobs:
                 <id>atlassian</id>
                 <repositories>
                   <repository>
-                    <id>atlassian-public</id>
-                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external/</url>
+                    <id>atlassian-all</id>
+                    <url>https://packages.atlassian.com/artifactory/maven-atlassian-all/</url>
                   </repository>
                   <repository>
-                    <id>atlassian-3rdparty</id>
-                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external-3rdparty/</url>
+                    <id>jenkins-releases</id>
+                    <url>https://repo.jenkins-ci.org/releases/</url>
                   </repository>
                 </repositories>
                 <pluginRepositories>
                   <pluginRepository>
-                    <id>atlassian-public</id>
-                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external/</url>
+                    <id>atlassian-all</id>
+                    <url>https://packages.atlassian.com/artifactory/maven-atlassian-all/</url>
                   </pluginRepository>
                 </pluginRepositories>
               </profile>
