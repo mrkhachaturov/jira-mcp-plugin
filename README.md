@@ -137,6 +137,37 @@ Most tool calls return plain JSON. Batch tools (`batch_create_issues`, `batch_cr
 
 Sessions are tracked via the `MCP-Session-Id` header, assigned on `initialize`.
 
+### SSE event taxonomy
+
+Every SSE event has a globally unique `id` field for reconnection via `Last-Event-ID`.
+
+| | Event type | When | Payload |
+|---|-----------|------|---------|
+| 💓 | `heartbeat` | Every 30s on GET streams, priming event on connect | Empty data |
+| 📊 | `progress` | During batch tool execution | JSON-RPC `notifications/progress` |
+| 📨 | `message` | Final tool result | JSON-RPC response with `CallToolResult` |
+| ❌ | `error` | Tool execution failure during streaming | Error details |
+
+### Partial failure handling
+
+Batch tools don't fail the entire request when individual operations error. The final result includes both successes and failures:
+
+```json
+{
+  "created": 18,
+  "errors": 2,
+  "issues": [ ... ],
+  "failed": [
+    {"index": 3, "summary": "Issue 4", "error": "Project not found"},
+    {"index": 7, "summary": "Issue 8", "error": "Permission denied"}
+  ]
+}
+```
+
+### SSE lifecycle metrics
+
+The server tracks active streams, total events sent, reconnects, and active sessions. Accessible via `McpResource.getSseMetrics()` for monitoring and debugging reverse proxy issues.
+
 ---
 
 ## 🔐 Authentication

@@ -65,25 +65,39 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
         int total = trimmedKeys.size();
         List<String> results = new ArrayList<>();
 
+        List<String> errors = new ArrayList<>();
+
         for (int i = 0; i < total; i++) {
             String key = trimmedKeys.get(i);
             progress.report(i, total, "Fetching dev info for " + key + " (" + (i + 1) + "/" + total + ")");
 
-            StringBuilder query = new StringBuilder("?issueKey=");
-            query.append(URLEncoder.encode(key, StandardCharsets.UTF_8));
-            if (applicationType != null && !applicationType.isBlank()) {
-                query.append("&applicationType=").append(URLEncoder.encode(applicationType, StandardCharsets.UTF_8));
-            }
-            if (dataType != null && !dataType.isBlank()) {
-                query.append("&dataType=").append(URLEncoder.encode(dataType, StandardCharsets.UTF_8));
-            }
+            try {
+                StringBuilder query = new StringBuilder("?issueKey=");
+                query.append(URLEncoder.encode(key, StandardCharsets.UTF_8));
+                if (applicationType != null && !applicationType.isBlank()) {
+                    query.append("&applicationType=").append(URLEncoder.encode(applicationType, StandardCharsets.UTF_8));
+                }
+                if (dataType != null && !dataType.isBlank()) {
+                    query.append("&dataType=").append(URLEncoder.encode(dataType, StandardCharsets.UTF_8));
+                }
 
-            String devInfo = client.get("/rest/dev-status/latest/issue/detail" + query, authHeader);
-            results.add("\"" + key + "\":" + devInfo);
+                String devInfo = client.get("/rest/dev-status/latest/issue/detail" + query, authHeader);
+                results.add("\"" + key + "\":" + devInfo);
+            } catch (Exception e) {
+                errors.add("\"" + key + "\":{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
+            }
         }
 
-        progress.report(total, total, "Completed: dev info for " + total + " issues");
+        progress.report(total, total, "Completed: " + results.size() + " fetched, " + errors.size() + " errors");
 
-        return "{" + String.join(",", results) + "}";
+        StringBuilder sb = new StringBuilder("{\"devInfo\":{");
+        sb.append(String.join(",", results));
+        sb.append("},\"fetched\":").append(results.size());
+        sb.append(",\"errors\":").append(errors.size());
+        if (!errors.isEmpty()) {
+            sb.append(",\"failed\":{").append(String.join(",", errors)).append("}");
+        }
+        sb.append("}");
+        return sb.toString();
     }
 }

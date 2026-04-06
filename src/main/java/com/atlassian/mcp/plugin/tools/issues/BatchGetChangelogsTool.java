@@ -60,18 +60,31 @@ public class BatchGetChangelogsTool implements McpTool {
 
         int total = trimmedKeys.size();
         List<String> results = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
 
         for (int i = 0; i < total; i++) {
             String key = trimmedKeys.get(i);
             progress.report(i, total, "Fetching changelog for " + key + " (" + (i + 1) + "/" + total + ")");
 
-            String changelog = client.get("/rest/api/2/issue/" + key + "/changelog", authHeader);
-            results.add("\"" + key + "\":" + changelog);
+            try {
+                String changelog = client.get("/rest/api/2/issue/" + key + "/changelog", authHeader);
+                results.add("\"" + key + "\":" + changelog);
+            } catch (Exception e) {
+                errors.add("\"" + key + "\":{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
+            }
         }
 
-        progress.report(total, total, "Completed: " + total + " changelogs fetched");
+        progress.report(total, total, "Completed: " + results.size() + " fetched, " + errors.size() + " errors");
 
-        return "{" + String.join(",", results) + "}";
+        StringBuilder sb = new StringBuilder("{\"changelogs\":{");
+        sb.append(String.join(",", results));
+        sb.append("},\"fetched\":").append(results.size());
+        sb.append(",\"errors\":").append(errors.size());
+        if (!errors.isEmpty()) {
+            sb.append(",\"failed\":{").append(String.join(",", errors)).append("}");
+        }
+        sb.append("}");
+        return sb.toString();
     }
 
     private static int getInt(Map<String, Object> args, String key, int defaultVal) {

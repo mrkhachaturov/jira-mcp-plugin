@@ -532,28 +532,36 @@ public class McpEndpointE2ETest {
         assertTrue("Should return SSE for batch with progressToken, got: " + contentType,
                 contentType.contains("text/event-stream"));
 
-        // Parse all SSE events
+        // Parse all SSE events — check event type taxonomy
         String body = resp.body();
         String[] lines = body.split("\n");
         int progressCount = 0;
         int responseCount = 0;
+        int heartbeatCount = 0;
         String lastResponseData = null;
+        String currentEventType = null;
 
         for (String line : lines) {
-            if (line.startsWith("data: ") && line.length() > 6) {
+            if (line.startsWith("event: ")) {
+                currentEventType = line.substring(7).trim();
+            } else if (line.startsWith("data: ") && line.length() > 6) {
                 String data = line.substring(6).trim();
-                if (data.isEmpty()) continue; // priming event
+                if (data.isEmpty()) {
+                    heartbeatCount++;
+                    continue;
+                }
                 try {
                     JsonNode event = MAPPER.readTree(data);
-                    if (event.has("method") && event.get("method").asText().contains("progress")) {
+                    if ("progress".equals(currentEventType)) {
                         progressCount++;
-                    } else if (event.has("result")) {
+                    } else if ("message".equals(currentEventType) && event.has("result")) {
                         responseCount++;
                         lastResponseData = data;
                     }
                 } catch (Exception e) {
                     // skip non-JSON data lines
                 }
+                currentEventType = null;
             }
         }
 

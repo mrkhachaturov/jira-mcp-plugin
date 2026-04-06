@@ -4,6 +4,7 @@ import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.crowd.embedded.api.Group;
 import com.atlassian.jira.security.groups.GroupManager;
 import com.atlassian.mcp.plugin.JsonRpcHandler;
+import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
@@ -22,25 +23,33 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import com.atlassian.mcp.plugin.McpToolException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * MCP Streamable HTTP endpoint per MCP spec 2025-06-18.
  *
- * POST → JSON-RPC request  → JSON response (single message)
- * GET  → SSE stream for server-initiated notifications
+ * POST  → JSON-RPC request → JSON response (or SSE for batch with progressToken)
+ * GET   → SSE stream for server-initiated notifications
  * DELETE → close session
  *
- * Session management via MCP-Session-Id header.
- * Origin validation per spec security requirements.
+ * Event taxonomy for SSE streams:
+ *   event: progress  — batch operation progress notification
+ *   event: message   — JSON-RPC response (final result)
+ *   event: error     — error during streaming execution
  */
 @Path("/")
 @UnrestrictedAccess
 public class McpResource {
 
+    private static final Logger log = LoggerFactory.getLogger(McpResource.class);
+
     private static final String SUPPORTED_PROTOCOL_VERSION = "2025-06-18";
     private static final String SSE_CONTENT_TYPE = "text/event-stream";
+    private static final int HEARTBEAT_INTERVAL_MS = 30_000;
 
     private final JsonRpcHandler handler;
     private final McpPluginConfig config;
@@ -51,8 +60,14 @@ public class McpResource {
     /** Active sessions — static because JAX-RS creates a new resource instance per request. */
     private static final Map<String, SseSession> sessions = new ConcurrentHashMap<>();
 
-    /** Global event ID counter for SSE priming events. */
+    /** Global event ID counter — monotonically increasing across all streams. */
     private static final AtomicLong eventIdCounter = new AtomicLong(0);
+
+    // ── SSE lifecycle metrics ────────────────────────────────────────
+    private static final AtomicInteger activeStreams = new AtomicInteger(0);
+    private static final AtomicLong totalEventsSent = new AtomicLong(0);
+    private static final AtomicLong totalStreamsOpened = new AtomicLong(0);
+    private static final AtomicLong totalReconnects = new AtomicLong(0);
 
     @Inject
     public McpResource(
@@ -79,11 +94,9 @@ public class McpResource {
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     public Response handlePost(String body, @Context HttpServletRequest request) {
-        // Origin validation (MUST per spec — prevents DNS rebinding)
         Response originError = validateOrigin(request);
         if (originError != null) return originError;
 
-        // Auth checks
         Response authError = checkAuth(request);
         if (authError != null) return authError;
 
@@ -98,7 +111,6 @@ public class McpResource {
                     .build();
         }
 
-        // Protocol version check
         String protocolVersion = request.getHeader("MCP-Protocol-Version");
         boolean isInitialize = body != null && body.contains("\"initialize\"");
         if (!isInitialize && protocolVersion != null
@@ -113,7 +125,6 @@ public class McpResource {
         String authHeader = request.getHeader("Authorization");
         String sessionId = request.getHeader("MCP-Session-Id");
 
-        // Validate session if provided
         if (sessionId != null && !isInitialize && !sessions.containsKey(sessionId)) {
             return Response.status(404)
                     .entity("{\"error\":\"Unknown session. Send initialize first.\"}")
@@ -121,25 +132,23 @@ public class McpResource {
                     .build();
         }
 
-        // Check if this is a tools/call with progressToken on a streaming-capable tool
+        // Streaming path: tools/call with progressToken on a streaming-capable tool
         JsonRpcHandler.ToolCallInfo toolCall = handler.resolveToolCall(body, userKey);
         if (toolCall != null) {
-            // SSE streaming: progress notifications + final result
             return handleStreamingToolCall(toolCall, authHeader, sessionId);
         }
 
         // Standard path: single JSON response
         String result = handler.handle(body, userKey, authHeader);
 
-        // Notifications return 202 Accepted with no body (per spec)
         if (result == null) {
             return Response.status(202).build();
         }
 
-        // Session management for initialize
         if (isInitialize) {
             String newSessionId = UUID.randomUUID().toString();
             sessions.put(newSessionId, new SseSession(newSessionId, userKey, authHeader));
+            log.info("MCP session created: {}", newSessionId.substring(0, 8));
 
             return Response.ok(result, MediaType.APPLICATION_JSON_TYPE)
                     .header("MCP-Session-Id", newSessionId)
@@ -157,7 +166,6 @@ public class McpResource {
 
     @GET
     public Response handleGet(@Context HttpServletRequest request) {
-        // Origin validation
         Response originError = validateOrigin(request);
         if (originError != null) return originError;
 
@@ -170,33 +178,44 @@ public class McpResource {
 
         String sessionId = request.getHeader("MCP-Session-Id");
         if (sessionId == null || !sessions.containsKey(sessionId)) {
-            // Per spec: return 405 if server does not offer SSE at this endpoint
             return Response.status(405)
                     .entity("{\"error\":\"SSE requires a valid MCP-Session-Id. POST initialize first.\"}")
                     .type(MediaType.APPLICATION_JSON_TYPE)
                     .build();
         }
 
-        // Return SSE stream with priming event (per spec: SHOULD send event ID + empty data)
+        // Check for Last-Event-ID (client reconnecting after disconnect)
+        String lastEventId = request.getHeader("Last-Event-ID");
+        if (lastEventId != null) {
+            totalReconnects.incrementAndGet();
+            log.info("SSE reconnect for session {} from Last-Event-ID: {}",
+                    sessionId.substring(0, 8), lastEventId);
+        }
+
         StreamingOutput stream = output -> {
-            PrintWriter writer = new PrintWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8), true);
+            totalStreamsOpened.incrementAndGet();
+            activeStreams.incrementAndGet();
+            log.info("SSE stream opened for session {} (active: {})",
+                    sessionId.substring(0, 8), activeStreams.get());
 
-            // Priming event: event ID + empty data so client can reconnect with Last-Event-ID
-            long eventId = eventIdCounter.incrementAndGet();
-            writer.write("id: " + eventId + "\n");
-            writer.write("data: \n\n");
-            writer.flush();
-
-            // Hold connection for server-initiated events
-            // Currently we have no server-push use cases, so just keep-alive
             try {
+                PrintWriter writer = new PrintWriter(
+                        new OutputStreamWriter(output, StandardCharsets.UTF_8), true);
+
+                // Priming event with ID for reconnection
+                writeSseEvent(writer, null, "heartbeat", "");
+
+                // Heartbeat loop (30s interval keeps proxies from killing the connection)
                 while (!writer.checkError()) {
-                    Thread.sleep(30000);
-                    writer.write(": keep-alive\n\n");
-                    writer.flush();
+                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
+                    writeSseEvent(writer, null, "heartbeat", "");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+            } finally {
+                int remaining = activeStreams.decrementAndGet();
+                log.info("SSE stream closed for session {} (active: {})",
+                        sessionId.substring(0, 8), remaining);
             }
         };
 
@@ -217,6 +236,7 @@ public class McpResource {
         if (sessionId != null) {
             SseSession removed = sessions.remove(sessionId);
             if (removed != null) {
+                log.info("MCP session closed: {}", sessionId.substring(0, 8));
                 return Response.ok("{\"status\":\"session closed\"}").build();
             }
         }
@@ -227,51 +247,52 @@ public class McpResource {
 
     // ── SSE streaming for batch tools ─────────────────────────────────
 
-    /**
-     * Handles a tools/call with progressToken — returns SSE stream with
-     * progress notifications followed by the final CallToolResult.
-     */
     private Response handleStreamingToolCall(JsonRpcHandler.ToolCallInfo toolCall,
                                              String authHeader, String sessionId) {
         StreamingOutput stream = output -> {
-            PrintWriter writer = new PrintWriter(
-                    new OutputStreamWriter(output, StandardCharsets.UTF_8), true);
-            AtomicLong eventSeq = new AtomicLong(0);
+            totalStreamsOpened.incrementAndGet();
+            activeStreams.incrementAndGet();
             String streamId = UUID.randomUUID().toString().substring(0, 8);
+            log.info("SSE tool stream opened: {} for tool {} (active: {})",
+                    streamId, toolCall.tool().name(), activeStreams.get());
 
-            // 1. Priming event (per spec: SHOULD send event ID + empty data for reconnection)
-            writer.write("id: " + streamId + "-" + eventSeq.incrementAndGet() + "\n");
-            writer.write("data: \n\n");
-            writer.flush();
-
-            // 2. Execute tool with progress callback that writes SSE events
-            String resultText;
-            boolean isError;
             try {
-                resultText = toolCall.tool().executeWithProgress(
-                        toolCall.args(), authHeader,
-                        (current, total, message) -> {
-                            String notification = handler.buildProgressNotification(
-                                    toolCall.progressToken(), current, total, message);
-                            if (notification != null) {
-                                writer.write("id: " + streamId + "-" + eventSeq.incrementAndGet() + "\n");
-                                writer.write("event: message\n");
-                                writer.write("data: " + notification + "\n\n");
-                                writer.flush();
-                            }
-                        });
-                isError = false;
-            } catch (McpToolException e) {
-                resultText = e.getMessage();
-                isError = true;
-            }
+                PrintWriter writer = new PrintWriter(
+                        new OutputStreamWriter(output, StandardCharsets.UTF_8), true);
 
-            // 3. Final response — the complete CallToolResult
-            String response = handler.buildToolResult(toolCall.id(), resultText, isError);
-            writer.write("id: " + streamId + "-" + eventSeq.incrementAndGet() + "\n");
-            writer.write("event: message\n");
-            writer.write("data: " + response + "\n\n");
-            writer.flush();
+                // 1. Priming event
+                writeSseEvent(writer, streamId, "heartbeat", "");
+
+                // 2. Execute tool with progress callback
+                String resultText;
+                boolean isError;
+                try {
+                    resultText = toolCall.tool().executeWithProgress(
+                            toolCall.args(), authHeader,
+                            (current, total, message) -> {
+                                String notification = handler.buildProgressNotification(
+                                        toolCall.progressToken(), current, total, message);
+                                if (notification != null) {
+                                    writeSseEvent(writer, streamId, "progress", notification);
+                                }
+                            });
+                    isError = false;
+                } catch (McpToolException e) {
+                    // Send error event before final response
+                    writeSseEvent(writer, streamId, "error",
+                            "{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
+                    resultText = e.getMessage();
+                    isError = true;
+                }
+
+                // 3. Final response
+                String response = handler.buildToolResult(toolCall.id(), resultText, isError);
+                writeSseEvent(writer, streamId, "message", response);
+
+            } finally {
+                int remaining = activeStreams.decrementAndGet();
+                log.info("SSE tool stream closed: {} (active: {})", streamId, remaining);
+            }
         };
 
         Response.ResponseBuilder rb = Response.ok(stream)
@@ -283,20 +304,48 @@ public class McpResource {
         return rb.build();
     }
 
-    // ── Origin validation (MUST per spec) ────────────────────────────
+    // ── SSE event writer ─────────────────────────────────────────────
 
     /**
-     * Validates the Origin header to prevent DNS rebinding attacks.
-     * Per MCP spec: if Origin is present and invalid, MUST return 403.
+     * Writes a single SSE event with globally unique ID.
+     *
+     * Event taxonomy:
+     *   heartbeat — keep-alive / priming (empty data)
+     *   progress  — batch tool progress notification
+     *   message   — JSON-RPC response (final result)
+     *   error     — error during streaming execution
+     *
+     * @param streamPrefix optional prefix for event ID (null = global counter only)
+     * @param eventType the SSE event type
+     * @param data the event data (JSON string or empty for heartbeat)
      */
+    private void writeSseEvent(PrintWriter writer, String streamPrefix, String eventType, String data) {
+        long id = eventIdCounter.incrementAndGet();
+        totalEventsSent.incrementAndGet();
+
+        String eventId = streamPrefix != null ? streamPrefix + "-" + id : String.valueOf(id);
+
+        writer.write("id: " + eventId + "\n");
+        if (!"heartbeat".equals(eventType)) {
+            writer.write("event: " + eventType + "\n");
+        }
+        if (data != null && !data.isEmpty()) {
+            writer.write("data: " + data + "\n");
+        } else {
+            writer.write("data: \n");
+        }
+        writer.write("\n");
+        writer.flush();
+    }
+
+    // ── Origin validation (MUST per spec) ────────────────────────────
+
     private Response validateOrigin(HttpServletRequest request) {
         String origin = request.getHeader("Origin");
         if (origin == null) {
-            // No Origin header — allow (server-to-server calls, curl, etc. don't send Origin)
             return null;
         }
 
-        // Validate: Origin must match our Jira base URL's scheme+host+port
         String baseUrl = getJiraBaseUrl();
         try {
             URI baseUri = URI.create(baseUrl);
@@ -306,10 +355,8 @@ public class McpResource {
             String originHost = originUri.getHost();
 
             if (baseHost != null && baseHost.equalsIgnoreCase(originHost)) {
-                return null; // Same host — allowed
+                return null;
             }
-
-            // Also allow localhost for local development
             if ("localhost".equals(originHost) || "127.0.0.1".equals(originHost)) {
                 return null;
             }
@@ -371,7 +418,6 @@ public class McpResource {
 
     // ── Session tracking ─────────────────────────────────────────────
 
-    /** Tracks an active MCP session. */
     private static class SseSession {
         final String id;
         final String userKey;
@@ -384,5 +430,18 @@ public class McpResource {
             this.authHeader = authHeader;
             this.createdAt = System.currentTimeMillis();
         }
+    }
+
+    // ── Metrics (accessible for monitoring) ──────────────────────────
+
+    /** Returns current SSE lifecycle metrics. */
+    public static Map<String, Long> getSseMetrics() {
+        return Map.of(
+                "activeStreams", (long) activeStreams.get(),
+                "totalStreamsOpened", totalStreamsOpened.get(),
+                "totalEventsSent", totalEventsSent.get(),
+                "totalReconnects", totalReconnects.get(),
+                "activeSessions", (long) sessions.size()
+        );
     }
 }

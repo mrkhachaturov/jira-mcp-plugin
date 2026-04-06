@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.1] - 2026-04-07
+
+### Added
+
+- SSE event taxonomy: `heartbeat`, `progress`, `message`, `error` event types
+- `Last-Event-ID` reconnect handling for GET SSE streams
+- SSE lifecycle metrics: active streams, total events sent, reconnects, active sessions
+- Partial failure handling in `batch_get_changelogs` and `get_issues_development_info` (was fail-all-on-first-error)
+- Structured logging for session creation, SSE stream open/close, reconnects
+
+### Changed
+
+- SSE events now use distinct event types (`event: progress` instead of `event: message` for progress notifications)
+- All SSE events have globally unique, monotonically increasing IDs for reconnection support
+- Heartbeat events on GET streams use `event: heartbeat` with empty data
+
 ## [1.0.0] - 2026-04-07
 
 ### Added
