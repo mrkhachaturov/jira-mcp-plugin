@@ -18,7 +18,7 @@
     <!-- MCP REST endpoint -->
     <rest key="mcp-rest" path="/mcp" version="1.0">
         <description>MCP Streamable HTTP endpoint</description>
-        <package>com.atlassian.mcp.plugin</package>
+        <package>com.atlassian.mcp.plugin.rest</package>
     </rest>
 
     <!-- Admin REST endpoint -->

@@ -1,5 +1,6 @@
-package com.atlassian.mcp.plugin;
+package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.mcp.plugin.JsonRpcHandler;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
