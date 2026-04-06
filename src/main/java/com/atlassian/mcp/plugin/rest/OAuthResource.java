@@ -170,6 +170,82 @@ public class OAuthResource {
         return Response.temporaryRedirect(URI.create(clientCallback)).build();
     }
 
+    // ==================== Registration & Token Endpoints ====================
+
+    @POST
+    @Path("/register")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response register(Map<String, Object> body) {
+        if (!config.isOAuthEnabled()) {
+            return Response.status(404).entity("{\"error\":\"OAuth not configured\"}").build();
+        }
+
+        String clientName = (String) body.getOrDefault("client_name", "MCP Client");
+        @SuppressWarnings("unchecked")
+        List<String> redirectUris = (List<String>) body.getOrDefault("redirect_uris", List.of());
+
+        OAuthStateStore.RegisteredClient client = stateStore.registerClient(clientName, redirectUris);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("client_id", client.clientId);
+        resp.put("client_name", client.clientName);
+        resp.put("redirect_uris", client.redirectUris);
+        resp.put("grant_types", List.of("authorization_code"));
+        resp.put("response_types", List.of("code"));
+        resp.put("token_endpoint_auth_method", "none");
+        return Response.status(201).entity(resp).build();
+    }
+
+    @POST
+    @Path("/token")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response token(
+            @FormParam("grant_type") String grantType,
+            @FormParam("code") String code,
+            @FormParam("redirect_uri") String redirectUri,
+            @FormParam("client_id") String clientId,
+            @FormParam("code_verifier") String codeVerifier) {
+
+        if (!"authorization_code".equals(grantType)) {
+            return Response.status(400)
+                    .entity("{\"error\":\"unsupported_grant_type\"}").build();
+        }
+
+        OAuthStateStore.ProxyCode proxyCode = stateStore.consumeProxyCode(code);
+        if (proxyCode == null) {
+            return Response.status(400)
+                    .entity("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired code\"}").build();
+        }
+
+        // Validate client_id matches
+        if (!proxyCode.clientId.equals(clientId)) {
+            return Response.status(400)
+                    .entity("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}").build();
+        }
+
+        // Validate redirect_uri matches
+        if (redirectUri != null && !redirectUri.equals(proxyCode.redirectUri)) {
+            return Response.status(400)
+                    .entity("{\"error\":\"invalid_grant\",\"error_description\":\"redirect_uri mismatch\"}").build();
+        }
+
+        // Verify PKCE
+        if (!OAuthStateStore.verifyPkce(codeVerifier, proxyCode.codeChallenge, proxyCode.codeChallengeMethod)) {
+            return Response.status(400)
+                    .entity("{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}").build();
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("access_token", proxyCode.accessToken);
+        resp.put("token_type", "bearer");
+        resp.put("expires_in", 3600);
+        return Response.ok(resp).build();
+    }
+
+    // ==================== Private Helpers ====================
+
     private String exchangeCodeForToken(String code) throws IOException, InterruptedException {
         String tokenUrl = getJiraBaseUrl() + "/rest/oauth2/latest/token";
         String callbackUri = getMcpBaseUrl() + "/oauth/callback";
