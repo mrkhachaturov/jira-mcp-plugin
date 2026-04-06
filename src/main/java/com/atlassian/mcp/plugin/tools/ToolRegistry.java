@@ -78,6 +78,11 @@ public class ToolRegistry {
         return pluginAccessor.isPluginEnabled(requiredPlugin);
     }
 
+    /** Returns all registered tools (unfiltered). Used by admin UI. */
+    public Collection<McpTool> getAllTools() {
+        return allTools.values();
+    }
+
     public int totalRegistered() {
         return allTools.size();
     }

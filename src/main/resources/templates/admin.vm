@@ -6,31 +6,60 @@
 </head>
 <body>
     <h2>$i18n.getText("mcp.admin.title")</h2>
+
     <form id="mcp-admin-form" class="aui">
+        <!-- Enable toggle -->
         <div class="field-group">
             <label for="enabled">$i18n.getText("mcp.admin.enabled.label")</label>
-            <input type="checkbox" id="enabled" name="enabled" class="checkbox">
+            <aui-toggle id="enabled" label="Enable MCP Server"></aui-toggle>
         </div>
-        <div class="field-group">
-            <label for="allowedUsers">$i18n.getText("mcp.admin.allowedUsers.label")</label>
-            <textarea id="allowedUsers" name="allowedUsers" class="textarea" rows="4"></textarea>
-            <div class="description">$i18n.getText("mcp.admin.allowedUsers.description")</div>
-        </div>
-        <div class="field-group">
-            <label for="disabledTools">$i18n.getText("mcp.admin.disabledTools.label")</label>
-            <textarea id="disabledTools" name="disabledTools" class="textarea" rows="4"></textarea>
-        </div>
+
+        <!-- Read-only mode -->
         <div class="field-group">
             <label for="readOnlyMode">$i18n.getText("mcp.admin.readOnlyMode.label")</label>
-            <input type="checkbox" id="readOnlyMode" name="readOnlyMode" class="checkbox">
+            <aui-toggle id="readOnlyMode" label="Read-only Mode"></aui-toggle>
             <div class="description">$i18n.getText("mcp.admin.readOnlyMode.description")</div>
         </div>
+
+        <!-- Allowed Users (with search picker) -->
+        <div class="field-group">
+            <label for="mcp-user-search">$i18n.getText("mcp.admin.allowedUsers.label")</label>
+            <div class="mcp-user-picker">
+                <input type="text" id="mcp-user-search" class="text" placeholder="Search users..." autocomplete="off">
+                <div id="mcp-user-suggestions" class="mcp-user-suggestions" style="display:none;"></div>
+                <div id="mcp-allowed-users" class="mcp-user-tags"></div>
+            </div>
+            <div class="description">$i18n.getText("mcp.admin.allowedUsers.description")</div>
+        </div>
+
+        <!-- Internal Base URL -->
         <div class="field-group">
             <label for="jiraBaseUrl">$i18n.getText("mcp.admin.jiraBaseUrl.label")</label>
             <input type="text" id="jiraBaseUrl" name="jiraBaseUrl" class="text long-field">
             <div class="description">$i18n.getText("mcp.admin.jiraBaseUrl.description")</div>
         </div>
-        <div class="buttons-container">
+
+        <!-- Tool picker (dual-list) -->
+        <h3>Tools</h3>
+        <div class="mcp-tool-picker">
+            <div class="mcp-tool-column">
+                <h4>Enabled Tools</h4>
+                <input type="text" id="mcp-filter-enabled" class="text" placeholder="Filter...">
+                <div id="mcp-enabled-tools" class="mcp-tool-list"></div>
+            </div>
+            <div class="mcp-tool-arrows">
+                <button type="button" id="mcp-disable-tool" class="aui-button" title="Disable selected">&rsaquo;</button>
+                <button type="button" id="mcp-enable-tool" class="aui-button" title="Enable selected">&lsaquo;</button>
+            </div>
+            <div class="mcp-tool-column">
+                <h4>Disabled Tools</h4>
+                <input type="text" id="mcp-filter-disabled" class="text" placeholder="Filter...">
+                <div id="mcp-disabled-tools" class="mcp-tool-list"></div>
+            </div>
+        </div>
+
+        <!-- Save -->
+        <div class="buttons-container" style="margin-top: 20px;">
             <div class="buttons">
                 <input type="submit" value="$i18n.getText('mcp.admin.save')" class="aui-button aui-button-primary">
             </div>
