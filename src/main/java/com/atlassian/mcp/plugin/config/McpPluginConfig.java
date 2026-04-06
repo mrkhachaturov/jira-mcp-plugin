@@ -50,7 +50,25 @@ public class McpPluginConfig {
 
     public boolean isUserAllowed(String userKey) {
         Set<String> allowed = getAllowedUserKeys();
-        return allowed.isEmpty() || allowed.contains(userKey);
+        if (allowed.isEmpty() && getAllowedGroups().isEmpty()) {
+            return true; // no restrictions configured — allow all
+        }
+        return allowed.contains(userKey);
+    }
+
+    public Set<String> getAllowedGroups() {
+        String raw = (String) settings().get(PREFIX + "allowedGroups");
+        if (raw == null || raw.isBlank()) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    public void setAllowedGroups(String commaDelimited) {
+        settings().put(PREFIX + "allowedGroups", commaDelimited);
     }
 
     public Set<String> getDisabledTools() {
@@ -87,5 +105,30 @@ public class McpPluginConfig {
 
     public void setJiraBaseUrlOverride(String url) {
         settings().put(PREFIX + "jiraBaseUrl", url);
+    }
+
+    // OAuth 2.0 configuration
+    public String getOAuthClientId() {
+        String val = (String) settings().get(PREFIX + "oauthClientId");
+        return val == null ? "" : val;
+    }
+
+    public void setOAuthClientId(String clientId) {
+        settings().put(PREFIX + "oauthClientId", clientId);
+    }
+
+    public String getOAuthClientSecret() {
+        String val = (String) settings().get(PREFIX + "oauthClientSecret");
+        return val == null ? "" : val;
+    }
+
+    public void setOAuthClientSecret(String secret) {
+        settings().put(PREFIX + "oauthClientSecret", secret);
+    }
+
+    public boolean isOAuthEnabled() {
+        String id = getOAuthClientId();
+        String secret = getOAuthClientSecret();
+        return id != null && !id.isEmpty() && secret != null && !secret.isEmpty();
     }
 }
