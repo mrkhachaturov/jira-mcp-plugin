@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<atlassian-plugin key="atlassian-mcp-plugin"
+                  name="Atlassian MCP Plugin" plugins-version="2">
+    <plugin-info>
+        <description>MCP Server embedded in Jira Data Center</description>
+        <version>${project.version}</version>
+        <vendor name="Atlassian MCP" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
+        <param name="plugin-icon">images/pluginIcon.png</param>
+        <param name="plugin-logo">images/pluginLogo.png</param>
+        <param name="atlassian-data-center-status">compatible</param>
+        <param name="atlassian-data-center-compatible">true</param>
+        <param name="configure.url">/plugins/servlet/mcp-admin</param>
+    </plugin-info>
+
+    <!-- i18n -->
+    <resource type="i18n" name="i18n" location="mcp-plugin"/>
+
+    <!-- MCP REST endpoint -->
+    <rest key="mcp-rest" path="/mcp" version="1.0">
+        <description>MCP Streamable HTTP endpoint</description>
+        <package>com.atlassian.mcp.plugin</package>
+    </rest>
+
+    <!-- Admin REST endpoint -->
+    <rest key="mcp-admin-rest" path="/mcp-admin" version="1.0">
+        <description>MCP admin configuration API</description>
+        <package>com.atlassian.mcp.plugin.admin</package>
+    </rest>
+
+    <!-- Admin page servlet -->
+    <servlet key="mcp-admin-servlet"
+             class="com.atlassian.mcp.plugin.admin.AdminServlet">
+        <url-pattern>/mcp-admin</url-pattern>
+    </servlet>
+
+    <!-- Admin sidebar link -->
+    <web-item key="mcp-admin-link" name="MCP Server Configuration"
+              section="system.admin/globalsettings" weight="200"
+              application="jira">
+        <label key="mcp.admin.label"/>
+        <link linkId="mcp-admin-link">/plugins/servlet/mcp-admin</link>
+        <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserIsAdminCondition"/>
+    </web-item>
+
+    <!-- Admin web resources -->
+    <web-resource key="admin-resources" name="MCP Admin Resources">
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <resource type="download" name="admin.css" location="/css/admin.css"/>
+        <resource type="download" name="admin.js" location="/js/admin.js"/>
+        <context>mcp-admin</context>
+    </web-resource>
+</atlassian-plugin>

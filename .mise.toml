@@ -1,0 +1,4 @@
+[tools]
+just = "latest"
+java = "temurin-17"
+maven = "3.9"

@@ -1,0 +1,11 @@
+.upstream/
+
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.classpath
+.project
+.settings/
