@@ -182,7 +182,7 @@
             }
             var baseUrl = window.location.origin + AJS.contextPath();
             var mcpUrl = baseUrl + "/rest/mcp/1.0/";
-            $("#oauth-callback-url").text(mcpUrl + "oauth/callback");
+            $("#oauth-callback-url").text(baseUrl + "/plugins/servlet/mcp-oauth/callback");
             $("#oauth-mcp-config").text(JSON.stringify({
                 "mcpServers": {
                     "jira": { "type": "http", "url": mcpUrl }

@@ -7,7 +7,7 @@
 
     <groupId>com.atlassian.mcp</groupId>
     <artifactId>atlassian-mcp-plugin</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.2-SNAPSHOT</version>
     <packaging>atlassian-plugin</packaging>
 
     <name>Atlassian MCP Plugin</name>
@@ -34,6 +34,12 @@
             <groupId>com.atlassian.plugin</groupId>
             <artifactId>atlassian-spring-scanner-annotation</artifactId>
             <version>${atlassian.spring.scanner.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.atlassian.annotations</groupId>
+            <artifactId>atlassian-annotations</artifactId>
+            <version>5.1.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

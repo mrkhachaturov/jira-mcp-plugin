@@ -1,3 +1,4 @@
+# Upstream references (local only)
 .upstream/
 
 # Maven
@@ -9,3 +10,14 @@ target/
 .classpath
 .project
 .settings/
+
+# RKstack / Claude Code
+.rkstack/
+.mcp.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jira swagger spec (downloaded locally for reference)
+jira_software_dc_*_swagger*.json

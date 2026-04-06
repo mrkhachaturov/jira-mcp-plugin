@@ -1,6 +1,21 @@
 package com.atlassian.mcp.plugin.tools;
 
+import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
+import com.atlassian.mcp.plugin.tools.issues.*;
+import com.atlassian.mcp.plugin.tools.comments.*;
+import com.atlassian.mcp.plugin.tools.transitions.*;
+import com.atlassian.mcp.plugin.tools.worklogs.*;
+import com.atlassian.mcp.plugin.tools.boards.*;
+import com.atlassian.mcp.plugin.tools.links.*;
+import com.atlassian.mcp.plugin.tools.epics.*;
+import com.atlassian.mcp.plugin.tools.projects.*;
+import com.atlassian.mcp.plugin.tools.users.*;
+import com.atlassian.mcp.plugin.tools.attachments.*;
+import com.atlassian.mcp.plugin.tools.fields.*;
+import com.atlassian.mcp.plugin.tools.servicedesk.*;
+import com.atlassian.mcp.plugin.tools.forms.*;
+import com.atlassian.mcp.plugin.tools.metrics.*;
 import com.atlassian.plugin.PluginAccessor;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import javax.inject.Inject;
@@ -19,9 +34,87 @@ public class ToolRegistry {
     @Inject
     public ToolRegistry(
             @ComponentImport PluginAccessor pluginAccessor,
-            McpPluginConfig config) {
+            McpPluginConfig config,
+            JiraRestClient client) {
         this.pluginAccessor = pluginAccessor;
         this.config = config;
+        registerAllTools(client);
+    }
+
+    private void registerAllTools(JiraRestClient client) {
+        // Issues & Search (7)
+        register(new SearchTool(client));
+        register(new GetIssueTool(client));
+        register(new CreateIssueTool(client));
+        register(new UpdateIssueTool(client));
+        register(new DeleteIssueTool(client));
+        register(new BatchCreateIssuesTool(client));
+        register(new BatchGetChangelogsTool(client));
+
+        // Comments (2)
+        register(new AddCommentTool(client));
+        register(new EditCommentTool(client));
+
+        // Transitions (2)
+        register(new GetTransitionsTool(client));
+        register(new TransitionIssueTool(client));
+
+        // Worklogs (2)
+        register(new GetWorklogTool(client));
+        register(new AddWorklogTool(client));
+
+        // Boards & Sprints (4)
+        register(new GetAgileBoardsTool(client));
+        register(new GetBoardIssuesTool(client));
+        register(new GetSprintsFromBoardTool(client));
+        register(new GetSprintIssuesTool(client));
+
+        // Links (4)
+        register(new GetLinkTypesTool(client));
+        register(new CreateIssueLinkTool(client));
+        register(new CreateRemoteIssueLinkTool(client));
+        register(new RemoveIssueLinkTool(client));
+
+        // Epics (1)
+        register(new LinkToEpicTool(client));
+
+        // Projects & Versions (6)
+        register(new GetAllProjectsTool(client));
+        register(new GetProjectIssuesTool(client));
+        register(new GetProjectVersionsTool(client));
+        register(new GetProjectComponentsTool(client));
+        register(new CreateVersionTool(client));
+        register(new BatchCreateVersionsTool(client));
+
+        // Users & Watchers (4)
+        register(new GetUserProfileTool(client));
+        register(new GetIssueWatchersTool(client));
+        register(new AddWatcherTool(client));
+        register(new RemoveWatcherTool(client));
+
+        // Attachments (2)
+        register(new DownloadAttachmentsTool(client));
+        register(new GetIssueImagesTool(client));
+
+        // Fields (2)
+        register(new SearchFieldsTool(client));
+        register(new GetFieldOptionsTool(client));
+
+        // Service Desk (3)
+        register(new GetServiceDeskForProjectTool(client));
+        register(new GetServiceDeskQueuesTool(client));
+        register(new GetQueueIssuesTool(client));
+
+        // Forms (3)
+        register(new GetIssueProformaFormsTool(client));
+        register(new GetProformaFormDetailsTool(client));
+        register(new UpdateProformaFormAnswersTool(client));
+
+        // Dates & Metrics (4)
+        register(new GetIssueDatesTool(client));
+        register(new GetIssueSlaTool(client));
+        register(new GetIssueDevelopmentInfoTool(client));
+        register(new GetIssuesDevelopmentInfoTool(client));
     }
 
     public void register(McpTool tool) {

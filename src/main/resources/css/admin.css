@@ -1,10 +1,48 @@
 /* MCP Admin */
 #mcp-admin-form .field-group { margin-bottom: 16px; }
+#mcp-admin-form h3 { margin-top: 24px; border-bottom: 1px solid #344563; padding-bottom: 6px; }
 
 /* Scale down AUI toggles */
 #mcp-admin-form aui-toggle {
     transform: scale(0.8);
     transform-origin: left center;
+}
+
+/* Tag picker — shared for users & groups */
+.mcp-tag {
+    display: inline-block;
+    margin: 2px 4px 2px 0;
+    padding: 3px 8px;
+    background: #253858;
+    color: #b3bac5;
+    border: 1px solid #344563;
+    border-radius: 3px;
+    font-size: 13px;
+}
+.mcp-tag a {
+    margin-left: 6px;
+    color: #ff5630;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+/* Suggestion dropdown — shared */
+#mcp-user-suggestions, #mcp-group-suggestions {
+    position: absolute;
+    z-index: 100;
+    background: #1b2638;
+    border: 1px solid #344563;
+    border-radius: 3px;
+    max-height: 200px;
+    overflow-y: auto;
+    width: 400px;
+}
+.mcp-suggestion {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+.mcp-suggestion:hover {
+    background: #253858;
 }
 
 /* Tool list — click to toggle */

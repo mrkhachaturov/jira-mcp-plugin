@@ -4,7 +4,7 @@
     <plugin-info>
         <description>MCP Server embedded in Jira Data Center</description>
         <version>${project.version}</version>
-        <vendor name="AstraTeam" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
+        <vendor name="Ruben Khachaturov" url="https://github.com/mrkhachaturov/atlassian-mcp-plugin"/>
         <param name="plugin-icon">images/pluginIcon.png</param>
         <param name="plugin-logo">images/pluginLogo.png</param>
         <param name="atlassian-data-center-status">compatible</param>
@@ -45,12 +45,26 @@
         <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserLoggedInCondition"/>
     </web-item>
 
+    <!-- OAuth: bypass Jira login filter for servlet + well-known (BigPicture pattern) -->
+    <servlet-filter key="mcp-oauth-anon-filter" name="MCP OAuth Anonymous Filter"
+                    class="com.atlassian.mcp.plugin.rest.OAuthAnonymousFilter"
+                    location="before-login" weight="1">
+        <url-pattern>/plugins/servlet/mcp-oauth/*</url-pattern>
+        <url-pattern>/.well-known/*</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+
+    <!-- OAuth servlet — handles OAuth flow without REST auth -->
+    <servlet key="mcp-oauth-servlet"
+             class="com.atlassian.mcp.plugin.rest.OAuthServlet">
+        <url-pattern>/mcp-oauth/*</url-pattern>
+    </servlet>
+
     <!-- Admin web resources -->
-    <web-resource key="admin-resources" name="MCP Admin Resources">
+    <web-resource key="mcp-admin-ui" name="MCP Admin Resources">
         <dependency>com.atlassian.auiplugin:ajs</dependency>
-        <dependency>jira.webresources:jira-fields</dependency>
         <resource type="download" name="admin.css" location="/css/admin.css"/>
         <resource type="download" name="admin.js" location="/js/admin.js"/>
-        <context>mcp-admin</context>
     </web-resource>
 </atlassian-plugin>

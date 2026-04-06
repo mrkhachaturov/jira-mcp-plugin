@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Set up Atlassian Maven repositories
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << 'SETTINGS'
+          <settings>
+            <profiles>
+              <profile>
+                <id>atlassian</id>
+                <repositories>
+                  <repository>
+                    <id>atlassian-public</id>
+                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external/</url>
+                  </repository>
+                </repositories>
+                <pluginRepositories>
+                  <pluginRepository>
+                    <id>atlassian-public</id>
+                    <url>https://packages.atlassian.com/mvn/maven-atlassian-external/</url>
+                  </pluginRepository>
+                </pluginRepositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>atlassian</activeProfile>
+            </activeProfiles>
+          </settings>
+          SETTINGS
+
+      - name: Build
+        run: mvn package -DskipTests -B
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlassian-mcp-plugin
+          path: |
+            target/atlassian-mcp-plugin-*.jar
+            target/atlassian-mcp-plugin-*.obr
+          if-no-files-found: error

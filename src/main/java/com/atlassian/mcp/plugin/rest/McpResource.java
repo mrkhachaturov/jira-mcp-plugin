@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.crowd.embedded.api.Group;
 import com.atlassian.jira.security.groups.GroupManager;
 import com.atlassian.mcp.plugin.JsonRpcHandler;
@@ -16,6 +17,7 @@ import java.util.Collection;
 import java.util.Set;
 
 @Path("/")
+@UnrestrictedAccess
 public class McpResource {
 
     private static final String SUPPORTED_PROTOCOL_VERSION = "2025-06-18";
@@ -62,7 +64,7 @@ public class McpResource {
         if (user == null) {
             if (config.isOAuthEnabled()) {
                 String resourceMetadata = getJiraBaseUrl()
-                        + "/rest/mcp/1.0/oauth/protected-resource";
+                        + "/plugins/servlet/mcp-oauth/protected-resource";
                 return Response.status(Response.Status.UNAUTHORIZED)
                         .header("WWW-Authenticate",
                                 "Bearer resource_metadata=\"" + resourceMetadata + "\"")
