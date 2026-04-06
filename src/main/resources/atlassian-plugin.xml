@@ -33,8 +33,17 @@
         <url-pattern>/mcp-admin</url-pattern>
     </servlet>
 
-    <!-- Admin access via: Manage Apps > Atlassian MCP Plugin > Configure -->
-    <!-- (configure.url in plugin-info handles this — same pattern as SAML SSO, ScriptRunner) -->
+    <!-- Admin sidebar section (BigPicture pattern: web-section + web-item with UserLoggedInCondition) -->
+    <web-section key="mcp-admin-section" location="admin_plugins_menu" name="MCP Server" weight="100">
+        <label key="MCP Server"/>
+    </web-section>
+
+    <web-item key="mcp-admin-link" name="MCP Configuration"
+              section="admin_plugins_menu/mcp-admin-section">
+        <label key="MCP Configuration"/>
+        <link linkId="mcp-admin-config">/plugins/servlet/mcp-admin</link>
+        <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserLoggedInCondition"/>
+    </web-item>
 
     <!-- Admin web resources -->
     <web-resource key="admin-resources" name="MCP Admin Resources">
