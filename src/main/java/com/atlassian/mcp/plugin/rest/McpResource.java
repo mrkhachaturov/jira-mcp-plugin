@@ -1,14 +1,19 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.crowd.embedded.api.Group;
+import com.atlassian.jira.security.groups.GroupManager;
 import com.atlassian.mcp.plugin.JsonRpcHandler;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.atlassian.sal.api.ApplicationProperties;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.*;
 import javax.ws.rs.core.*;
+import java.util.Collection;
+import java.util.Set;
 
 @Path("/")
 public class McpResource {
@@ -18,15 +23,27 @@ public class McpResource {
     private final JsonRpcHandler handler;
     private final McpPluginConfig config;
     private final UserManager userManager;
+    private final GroupManager groupManager;
+    private final ApplicationProperties applicationProperties;
 
     @Inject
     public McpResource(
             JsonRpcHandler handler,
             McpPluginConfig config,
-            @ComponentImport UserManager userManager) {
+            @ComponentImport UserManager userManager,
+            @ComponentImport GroupManager groupManager,
+            @ComponentImport ApplicationProperties applicationProperties) {
         this.handler = handler;
         this.config = config;
         this.userManager = userManager;
+        this.groupManager = groupManager;
+        this.applicationProperties = applicationProperties;
+    }
+
+    private String getJiraBaseUrl() {
+        String override = config.getJiraBaseUrlOverride();
+        if (override != null && !override.isEmpty()) return override;
+        return applicationProperties.getBaseUrl().toString();
     }
 
     @POST
@@ -43,15 +60,25 @@ public class McpResource {
         // Get authenticated user
         UserProfile user = userManager.getRemoteUser(request);
         if (user == null) {
+            if (config.isOAuthEnabled()) {
+                String resourceMetadata = getJiraBaseUrl()
+                        + "/rest/mcp/1.0/oauth/protected-resource";
+                return Response.status(Response.Status.UNAUTHORIZED)
+                        .header("WWW-Authenticate",
+                                "Bearer resource_metadata=\"" + resourceMetadata + "\"")
+                        .entity("{\"error\":\"Authentication required\"}")
+                        .build();
+            }
             return Response.status(Response.Status.UNAUTHORIZED)
-                    .entity("{\"error\":\"Authentication required\"}")
+                    .entity("{\"error\":\"Authentication required. Provide a Bearer token (PAT or OAuth).\"}")
                     .build();
         }
 
         String userKey = user.getUserKey().getStringValue();
+        String username = user.getUsername();
 
-        // Check allowlist
-        if (!config.isUserAllowed(userKey)) {
+        // Check access: user list (highest priority), then group membership
+        if (!isAccessAllowed(username, userKey)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("{\"error\":\"User not authorized for MCP access\"}")
                     .build();
@@ -77,6 +104,26 @@ public class McpResource {
         }
 
         return Response.ok(result, MediaType.APPLICATION_JSON_TYPE).build();
+    }
+
+    private boolean isAccessAllowed(String username, String userKey) {
+        // If user is explicitly listed, allow (highest priority)
+        if (config.isUserAllowed(userKey) || config.isUserAllowed(username)) {
+            return true;
+        }
+        // Check group membership
+        Set<String> allowedGroups = config.getAllowedGroups();
+        if (!allowedGroups.isEmpty()) {
+            Collection<Group> userGroups = groupManager.getGroupsForUser(username);
+            for (Group group : userGroups) {
+                if (allowedGroups.contains(group.getName())) {
+                    return true;
+                }
+            }
+        }
+        // No users and no groups configured = allow all
+        // (handled inside config.isUserAllowed which returns true when both lists empty)
+        return false;
     }
 
     @GET
