@@ -2,8 +2,8 @@ package com.atlassian.mcp.plugin;
 
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
-import jakarta.inject.Inject;
-import jakarta.inject.Named;
+import javax.inject.Inject;
+import javax.inject.Named;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
