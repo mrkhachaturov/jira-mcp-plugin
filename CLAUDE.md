@@ -52,7 +52,7 @@ All commands via `just`. Env vars auto-loaded by mise from `.credentials/jira.en
 just build            # atlas-package (compile + JAR)
 just deploy           # build + upload JAR to Jira UPM + verify enabled
 just test             # unit tests (excludes e2e)
-just e2e              # 43 e2e tests against live Jira instance
+just e2e              # 44 e2e tests against live Jira instance
 just deploy-and-test  # build + deploy + e2e in one shot
 just codegen          # regenerate tools from upstream
 just clean            # atlas-clean
@@ -202,7 +202,7 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 
 ## E2E Tests
 
-43 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
+44 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
 
 | Category | What |
 |----------|------|
@@ -215,6 +215,7 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 | Error handling | missing param, invalid key, unknown tool |
 | Access control | CEO user via group allowlist |
 | Security | GET/DELETE without auth → 401, oversized body → 413, session-user binding → 403, trailing slash redirect → 307, OAuth well-known endpoints, DCR + PKCE enforcement, security headers |
+| OAuth refresh | metadata advertises refresh_token grant, error paths (missing token, bogus token, unsupported grant) |
 
 Tests skip automatically when `JIRA_URL`/`JIRA_PAT_RKADMIN` are not set.
 
