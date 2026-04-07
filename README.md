@@ -174,11 +174,15 @@ The server tracks active streams, total events sent, reconnects, and active sess
 
 ### OAuth 2.0 (recommended) 🌐
 
-The plugin proxies between MCP clients and Jira's built-in OAuth provider. Users click Authenticate, consent in the browser, and the token exchange happens automatically.
+The plugin proxies between MCP clients and Jira's built-in OAuth provider. Users click Authenticate, consent in the browser, and the token exchange happens automatically. Refresh tokens keep the session alive indefinitely — authenticate once, works forever.
 
 ```text
 🤖 MCP Client → 🔌 Plugin OAuth Proxy → 🦊 Jira OAuth 2.0 → ✅ Consent → 🔑 Token → Done
+
+Token expires? → 🔄 Automatic refresh (no user interaction)
 ```
+
+Supports `grant_type=authorization_code` and `grant_type=refresh_token`. Token lifecycle managed by Jira's database — stateless on plugin side, survives plugin restarts and upgrades.
 
 ### Personal Access Tokens 🔑
 
@@ -250,7 +254,7 @@ mise trust && mise install
 # 🏗️ Build
 just build
 
-# 🚀 Build + deploy + run 43 e2e tests
+# 🚀 Build + deploy + run 44 e2e tests
 just deploy-and-test
 
 # 📋 Or step by step
