@@ -12,12 +12,17 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * OAuth 2.0 proxy servlet. Served at /plugins/servlet/mcp-oauth/*.
@@ -27,19 +32,36 @@ import java.util.*;
 @UnrestrictedAccess
 public class OAuthServlet extends HttpServlet {
 
+    private static final Logger log = LoggerFactory.getLogger(OAuthServlet.class);
+
+    private static final int MAX_REGISTER_BODY = 65_536; // 64 KB
+    private static final int MAX_TOKEN_BODY = 8_192; // 8 KB
+
+    // Rate limits per minute per IP
+    private static final int RATE_REGISTER = 5;
+    private static final int RATE_TOKEN = 20;
+    private static final int RATE_AUTHORIZE = 10;
+    private static final int RATE_METADATA = 60;
+
     private final McpPluginConfig config;
     private final OAuthStateStore stateStore;
+    private final RateLimiter rateLimiter;
     private final ApplicationProperties applicationProperties;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
 
     @Inject
     public OAuthServlet(
             McpPluginConfig config,
             OAuthStateStore stateStore,
+            RateLimiter rateLimiter,
             @ComponentImport ApplicationProperties applicationProperties) {
         this.config = config;
         this.stateStore = stateStore;
+        this.rateLimiter = rateLimiter;
         this.applicationProperties = applicationProperties;
     }
 
@@ -57,8 +79,14 @@ public class OAuthServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
         if (path == null) path = "";
+        String ip = getClientIp(req);
 
         if (path.equals("/protected-resource") || path.equals("/protected-resource/")) {
+            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
+                sendRateLimited(resp);
+                return;
+            }
+            addSecurityHeaders(resp);
             resp.setContentType("application/json");
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.put("resource", getBaseUrl() + "/rest/mcp/1.0/");
@@ -66,8 +94,12 @@ public class OAuthServlet extends HttpServlet {
             mapper.writeValue(resp.getWriter(), meta);
 
         } else if (path.equals("/metadata") || path.equals("/metadata/")) {
+            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
+                sendRateLimited(resp);
+                return;
+            }
+            addSecurityHeaders(resp);
             resp.setContentType("application/json");
-            // config is injected via constructor
             if (!config.isOAuthEnabled()) {
                 resp.setStatus(404);
                 resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
@@ -87,6 +119,10 @@ public class OAuthServlet extends HttpServlet {
             mapper.writeValue(resp.getWriter(), meta);
 
         } else if (path.startsWith("/authorize")) {
+            if (!rateLimiter.isAllowed(ip, "oauth-authorize", RATE_AUTHORIZE)) {
+                sendRateLimited(resp);
+                return;
+            }
             handleAuthorize(req, resp);
 
         } else if (path.startsWith("/callback")) {
@@ -103,11 +139,22 @@ public class OAuthServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
         if (path == null) path = "";
+        String ip = getClientIp(req);
         resp.setContentType("application/json");
 
         if (path.equals("/register") || path.equals("/register/")) {
+            if (!rateLimiter.isAllowed(ip, "oauth-register", RATE_REGISTER)) {
+                log.warn("[MCP-SEC] Rate limit on /register from {}", ip);
+                sendRateLimited(resp);
+                return;
+            }
             handleRegister(req, resp);
         } else if (path.equals("/token") || path.equals("/token/")) {
+            if (!rateLimiter.isAllowed(ip, "oauth-token", RATE_TOKEN)) {
+                log.warn("[MCP-SEC] Rate limit on /token from {}", ip);
+                sendRateLimited(resp);
+                return;
+            }
             handleToken(req, resp);
         } else {
             resp.setStatus(404);
@@ -117,17 +164,33 @@ public class OAuthServlet extends HttpServlet {
 
     @SuppressWarnings("unchecked")
     private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // config is injected via constructor
         if (!config.isOAuthEnabled()) {
             resp.setStatus(404);
             resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
             return;
         }
-        Map<String, Object> body = mapper.readValue(req.getInputStream(), Map.class);
+
+        // Body size limit
+        byte[] bodyBytes = readLimited(req.getInputStream(), MAX_REGISTER_BODY);
+        if (bodyBytes == null) {
+            resp.setStatus(413);
+            resp.getWriter().write("{\"error\":\"Request body too large\"}");
+            return;
+        }
+
+        Map<String, Object> body = mapper.readValue(bodyBytes, Map.class);
         String clientName = (String) body.getOrDefault("client_name", "MCP Client");
         List<String> redirectUris = (List<String>) body.getOrDefault("redirect_uris", List.of());
 
         OAuthStateStore.RegisteredClient client = stateStore.registerClient(clientName, redirectUris);
+        if (client == null) {
+            resp.setStatus(503);
+            resp.getWriter().write("{\"error\":\"Registration capacity reached\"}");
+            return;
+        }
+
+        log.info("[MCP-SEC] Client registered: id={} name='{}' from {}",
+                client.clientId.substring(0, 8), sanitizeLog(clientName), getClientIp(req));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("client_id", client.clientId);
@@ -141,7 +204,6 @@ public class OAuthServlet extends HttpServlet {
     }
 
     private void handleAuthorize(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // config is injected via constructor
         if (!config.isOAuthEnabled()) {
             resp.setStatus(400);
             resp.getWriter().write("OAuth not configured");
@@ -155,16 +217,35 @@ public class OAuthServlet extends HttpServlet {
         String codeChallengeMethod = req.getParameter("code_challenge_method");
         String scope = req.getParameter("scope");
 
-        OAuthStateStore store = stateStore;
-        OAuthStateStore.RegisteredClient client = store.getClient(clientId);
+        // PKCE is mandatory — reject if missing
+        if (codeChallenge == null || codeChallenge.isEmpty()) {
+            log.warn("[MCP-SEC] Authorize without code_challenge from {}", getClientIp(req));
+            resp.setStatus(400);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"code_challenge is required\"}");
+            return;
+        }
+        if (!"S256".equals(codeChallengeMethod)) {
+            resp.setStatus(400);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"Only S256 code_challenge_method is supported\"}");
+            return;
+        }
+
+        OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
         if (client == null) {
             resp.setStatus(400);
             resp.getWriter().write("Unknown client_id");
             return;
         }
 
-        String internalState = store.createPendingAuth(
+        String internalState = stateStore.createPendingAuth(
                 redirectUri, state, codeChallenge, codeChallengeMethod, clientId);
+        if (internalState == null) {
+            resp.setStatus(503);
+            resp.getWriter().write("Server at capacity");
+            return;
+        }
 
         String jiraAuthorize = getBaseUrl() + "/rest/oauth2/latest/authorize";
         String callbackUri = getOAuthBase() + "/callback";
@@ -182,19 +263,22 @@ public class OAuthServlet extends HttpServlet {
     private void handleCallback(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String error = req.getParameter("error");
         if (error != null) {
+            addSecurityHeaders(resp);
             resp.setContentType("text/html");
+            resp.setHeader("Content-Security-Policy", "default-src 'none'");
             resp.setStatus(400);
-            resp.getWriter().write("<h1>OAuth Error</h1><p>" + error + "</p>");
+            resp.getWriter().write("<h1>OAuth Error</h1><p>" + htmlEncode(error) + "</p>");
             return;
         }
 
         String jiraCode = req.getParameter("code");
         String internalState = req.getParameter("state");
 
-        OAuthStateStore store = stateStore;
-        OAuthStateStore.PendingAuth pending = store.consumePendingAuth(internalState);
+        OAuthStateStore.PendingAuth pending = stateStore.consumePendingAuth(internalState);
         if (pending == null) {
+            addSecurityHeaders(resp);
             resp.setContentType("text/html");
+            resp.setHeader("Content-Security-Policy", "default-src 'none'");
             resp.setStatus(400);
             resp.getWriter().write("<h1>Error</h1><p>Invalid or expired state</p>");
             return;
@@ -204,15 +288,24 @@ public class OAuthServlet extends HttpServlet {
         try {
             accessToken = exchangeCodeForToken(jiraCode);
         } catch (Exception e) {
+            log.warn("[MCP-SEC] Token exchange failed: {}", e.getMessage());
+            addSecurityHeaders(resp);
             resp.setContentType("text/html");
+            resp.setHeader("Content-Security-Policy", "default-src 'none'");
             resp.setStatus(500);
-            resp.getWriter().write("<h1>Error</h1><p>Token exchange failed: " + e.getMessage() + "</p>");
+            resp.getWriter().write("<h1>Error</h1><p>Token exchange failed</p>");
             return;
         }
 
-        String proxyCode = store.createProxyCode(accessToken,
+        String proxyCode = stateStore.createProxyCode(accessToken,
                 pending.clientId, pending.clientRedirectUri,
                 pending.codeChallenge, pending.codeChallengeMethod);
+        if (proxyCode == null) {
+            resp.setStatus(503);
+            resp.setContentType("text/html");
+            resp.getWriter().write("<h1>Error</h1><p>Server at capacity</p>");
+            return;
+        }
 
         String clientCallback = pending.clientRedirectUri
                 + (pending.clientRedirectUri.contains("?") ? "&" : "?")
@@ -223,6 +316,13 @@ public class OAuthServlet extends HttpServlet {
     }
 
     private void handleToken(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        // Body size check via content length
+        if (req.getContentLength() > MAX_TOKEN_BODY) {
+            resp.setStatus(413);
+            resp.getWriter().write("{\"error\":\"Request body too large\"}");
+            return;
+        }
+
         String grantType = req.getParameter("grant_type");
         String code = req.getParameter("code");
         String redirectUri = req.getParameter("redirect_uri");
@@ -237,12 +337,14 @@ public class OAuthServlet extends HttpServlet {
 
         OAuthStateStore.ProxyCode proxyCode = stateStore.consumeProxyCode(code);
         if (proxyCode == null) {
+            log.warn("[MCP-SEC] Invalid/expired proxy code from {}", getClientIp(req));
             resp.setStatus(400);
             resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired code\"}");
             return;
         }
 
         if (!proxyCode.clientId.equals(clientId)) {
+            log.warn("[MCP-SEC] client_id mismatch on token exchange from {}", getClientIp(req));
             resp.setStatus(400);
             resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}");
             return;
@@ -255,6 +357,7 @@ public class OAuthServlet extends HttpServlet {
         }
 
         if (!OAuthStateStore.verifyPkce(codeVerifier, proxyCode.codeChallenge, proxyCode.codeChallengeMethod)) {
+            log.warn("[MCP-SEC] PKCE verification failed from {}", getClientIp(req));
             resp.setStatus(400);
             resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
             return;
@@ -264,11 +367,11 @@ public class OAuthServlet extends HttpServlet {
         result.put("access_token", proxyCode.accessToken);
         result.put("token_type", "bearer");
         result.put("expires_in", 3600);
+        addSecurityHeaders(resp);
         mapper.writeValue(resp.getWriter(), result);
     }
 
     private String exchangeCodeForToken(String code) throws IOException, InterruptedException {
-        // config is injected via constructor
         String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
         String callbackUri = getOAuthBase() + "/callback";
 
@@ -281,13 +384,14 @@ public class OAuthServlet extends HttpServlet {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(java.net.URI.create(tokenUrl))
                 .header("Content-Type", "application/x-www-form-urlencoded")
+                .timeout(Duration.ofSeconds(10))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
-            throw new IOException("HTTP " + response.statusCode() + " " + response.body());
+            throw new IOException("HTTP " + response.statusCode());
         }
 
         JsonNode json = mapper.readTree(response.body());
@@ -298,7 +402,56 @@ public class OAuthServlet extends HttpServlet {
         return tokenNode.asText();
     }
 
+    // ── Security helpers ─────────────────────────────────────────────
+
     private static String enc(String s) {
         return s == null ? "" : URLEncoder.encode(s, StandardCharsets.UTF_8);
+    }
+
+    private static String htmlEncode(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#x27;");
+    }
+
+    private static String sanitizeLog(String input) {
+        if (input == null) return "null";
+        return input.replaceAll("[\\r\\n\\t]", "_");
+    }
+
+    private static String getClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isEmpty()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private static void addSecurityHeaders(HttpServletResponse resp) {
+        resp.setHeader("X-Content-Type-Options", "nosniff");
+        resp.setHeader("X-Frame-Options", "DENY");
+        resp.setHeader("Cache-Control", "no-store");
+    }
+
+    private static void sendRateLimited(HttpServletResponse resp) throws IOException {
+        resp.setStatus(429);
+        resp.setContentType("application/json");
+        resp.setHeader("Retry-After", "60");
+        resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+    }
+
+    /** Read up to maxBytes from stream. Returns null if exceeded. */
+    private static byte[] readLimited(InputStream in, int maxBytes) throws IOException {
+        byte[] buf = new byte[Math.min(maxBytes + 1, 65537)];
+        int total = 0;
+        int read;
+        while ((read = in.read(buf, total, buf.length - total)) > 0) {
+            total += read;
+            if (total > maxBytes) return null;
+        }
+        return Arrays.copyOf(buf, total);
     }
 }

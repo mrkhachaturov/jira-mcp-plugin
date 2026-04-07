@@ -7,10 +7,19 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Named
 public class OAuthStateStore {
 
+    private static final Logger log = LoggerFactory.getLogger(OAuthStateStore.class);
+
     private static final long EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+    private static final long CLIENT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+    private static final int MAX_PENDING_AUTHS = 500;
+    private static final int MAX_PROXY_CODES = 500;
+    private static final int MAX_REGISTERED_CLIENTS = 1000;
 
     public static class PendingAuth {
         public final String clientRedirectUri;
@@ -62,11 +71,17 @@ public class OAuthStateStore {
         public final String clientId;
         public final String clientName;
         public final List<String> redirectUris;
+        public final long createdAt;
 
         public RegisteredClient(String clientId, String clientName, List<String> redirectUris) {
             this.clientId = clientId;
             this.clientName = clientName;
             this.redirectUris = redirectUris;
+            this.createdAt = System.currentTimeMillis();
+        }
+
+        public boolean isExpired() {
+            return System.currentTimeMillis() - createdAt > CLIENT_EXPIRY_MS;
         }
     }
 
@@ -77,6 +92,10 @@ public class OAuthStateStore {
     public String createPendingAuth(String clientRedirectUri, String clientState,
                                      String codeChallenge, String codeChallengeMethod, String clientId) {
         cleanup();
+        if (pendingAuths.size() >= MAX_PENDING_AUTHS) {
+            log.warn("[MCP-SEC] Pending auth capacity reached ({}), rejecting", MAX_PENDING_AUTHS);
+            return null;
+        }
         String internalState = UUID.randomUUID().toString();
         pendingAuths.put(internalState, new PendingAuth(clientRedirectUri, clientState,
                 codeChallenge, codeChallengeMethod, clientId));
@@ -91,6 +110,10 @@ public class OAuthStateStore {
     public String createProxyCode(String accessToken, String clientId, String redirectUri,
                                    String codeChallenge, String codeChallengeMethod) {
         cleanup();
+        if (proxyCodes.size() >= MAX_PROXY_CODES) {
+            log.warn("[MCP-SEC] Proxy code capacity reached ({}), rejecting", MAX_PROXY_CODES);
+            return null;
+        }
         String code = UUID.randomUUID().toString();
         proxyCodes.put(code, new ProxyCode(accessToken, clientId, redirectUri,
                 codeChallenge, codeChallengeMethod));
@@ -102,7 +125,13 @@ public class OAuthStateStore {
         return (pc != null && !pc.isExpired()) ? pc : null;
     }
 
+    /** Register a dynamic client. Returns null if capacity reached. */
     public RegisteredClient registerClient(String clientName, List<String> redirectUris) {
+        cleanup();
+        if (registeredClients.size() >= MAX_REGISTERED_CLIENTS) {
+            log.warn("[MCP-SEC] Client registration capacity reached ({}), rejecting", MAX_REGISTERED_CLIENTS);
+            return null;
+        }
         String clientId = UUID.randomUUID().toString();
         RegisteredClient client = new RegisteredClient(clientId, clientName, redirectUris);
         registeredClients.put(clientId, client);
@@ -110,19 +139,24 @@ public class OAuthStateStore {
     }
 
     public RegisteredClient getClient(String clientId) {
-        return registeredClients.get(clientId);
+        RegisteredClient client = registeredClients.get(clientId);
+        if (client != null && client.isExpired()) {
+            registeredClients.remove(clientId);
+            return null;
+        }
+        return client;
     }
 
-    /** Verify PKCE code_verifier against stored code_challenge */
+    /** Verify PKCE code_verifier against stored code_challenge. Rejects if no challenge was set. */
     public static boolean verifyPkce(String codeVerifier, String codeChallenge, String method) {
         if (codeChallenge == null || codeChallenge.isEmpty()) {
-            return true; // no PKCE was used
+            return false; // PKCE is mandatory
         }
         if (codeVerifier == null || codeVerifier.isEmpty()) {
-            return false; // challenge was set but no verifier provided
+            return false;
         }
-        if ("plain".equals(method)) {
-            return codeChallenge.equals(codeVerifier);
+        if (!"S256".equals(method)) {
+            return false; // only S256 allowed
         }
         // S256: BASE64URL(SHA256(code_verifier)) == code_challenge
         try {
@@ -138,5 +172,6 @@ public class OAuthStateStore {
     private void cleanup() {
         pendingAuths.entrySet().removeIf(e -> e.getValue().isExpired());
         proxyCodes.entrySet().removeIf(e -> e.getValue().isExpired());
+        registeredClients.entrySet().removeIf(e -> e.getValue().isExpired());
     }
 }

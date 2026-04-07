@@ -697,4 +697,187 @@ public class McpEndpointE2ETest {
 
         return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
+
+    // ── Security Tests ──────────────────────────────────────────────
+
+    @Test
+    public void t80_security_noAuthOnGet_returns401() throws Exception {
+        // GET without auth should return 401, not expose SSE
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Content-Type", "application/json")
+                .GET()
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] GET without auth should be 401", 401, resp.statusCode());
+        System.out.println("[e2e] Security: GET without auth = " + resp.statusCode());
+    }
+
+    @Test
+    public void t81_security_noAuthOnDelete_returns401() throws Exception {
+        // DELETE without auth should return 401
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("MCP-Session-Id", "fake-session-id")
+                .DELETE()
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] DELETE without auth should be 401", 401, resp.statusCode());
+        System.out.println("[e2e] Security: DELETE without auth = " + resp.statusCode());
+    }
+
+    @Test
+    public void t82_security_oversizedBody_returns413() throws Exception {
+        // 2 MB body should be rejected
+        String bigBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{},\"padding\":\""
+                + "X".repeat(2_000_000) + "\"}";
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(bigBody))
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] Oversized body should be 413", 413, resp.statusCode());
+        System.out.println("[e2e] Security: oversized body = " + resp.statusCode());
+    }
+
+    @Test
+    public void t83_security_sessionUserBinding() throws Exception {
+        Assume.assumeTrue("JIRA_PAT_CEO not set — skipping", JIRA_PAT_CEO != null);
+
+        // Create session as admin
+        String initBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
+        HttpResponse<String> initResp = streamablePost(initBody, null);
+        assertEquals(200, initResp.statusCode());
+        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
+        assertNotNull("Should get session ID", sessionId);
+
+        // Try to use that session as CEO user — should be forbidden
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT_CEO)
+                .header("Content-Type", "application/json")
+                .header("MCP-Session-Id", sessionId)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}"))
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] Session user mismatch should be 403", 403, resp.statusCode());
+
+        // Cleanup session
+        HttpRequest del = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT)
+                .header("MCP-Session-Id", sessionId)
+                .DELETE()
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HTTP.send(del, HttpResponse.BodyHandlers.ofString());
+
+        System.out.println("[e2e] Security: session user binding enforced");
+    }
+
+    @Test
+    public void t84_security_trailingSlashRedirect() throws Exception {
+        // /rest/mcp/1.0 (no trailing slash) should 307 → /rest/mcp/1.0/
+        HttpClient noRedirect = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/rest/mcp/1.0"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> resp = noRedirect.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] No-trailing-slash should 307", 307, resp.statusCode());
+        String location = resp.headers().firstValue("Location").orElse("");
+        assertTrue("[SEC] Redirect should add trailing slash", location.endsWith("/rest/mcp/1.0/"));
+        System.out.println("[e2e] Security: trailing slash redirect = " + resp.statusCode());
+    }
+
+    @Test
+    public void t85_security_oauthWellKnownEndpoints() throws Exception {
+        // Protected resource metadata
+        HttpRequest prReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/.well-known/oauth-protected-resource"))
+                .GET().timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> prResp = HTTP.send(prReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, prResp.statusCode());
+        JsonNode prJson = MAPPER.readTree(prResp.body());
+        assertTrue("Should have resource field", prJson.has("resource"));
+        assertTrue("Should have authorization_servers", prJson.has("authorization_servers"));
+
+        // Auth server metadata
+        HttpRequest asReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/.well-known/oauth-authorization-server"))
+                .GET().timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> asResp = HTTP.send(asReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, asResp.statusCode());
+        JsonNode asJson = MAPPER.readTree(asResp.body());
+        assertTrue("Should have token_endpoint", asJson.has("token_endpoint"));
+        assertTrue("Should have registration_endpoint", asJson.has("registration_endpoint"));
+        // PKCE must be S256 only
+        JsonNode methods = asJson.path("code_challenge_methods_supported");
+        assertTrue("Should support S256", methods.isArray() && methods.size() == 1
+                && "S256".equals(methods.get(0).asText()));
+
+        System.out.println("[e2e] Security: OAuth well-known endpoints OK");
+    }
+
+    @Test
+    public void t86_security_dcrAndPkceEnforcement() throws Exception {
+        // Register a client
+        String regBody = "{\"client_name\":\"E2E Test\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}";
+        HttpRequest regReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/register"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(regBody))
+                .timeout(Duration.ofSeconds(10))
+                .build();
+        HttpResponse<String> regResp = HTTP.send(regReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals("DCR should return 201", 201, regResp.statusCode());
+        JsonNode regJson = MAPPER.readTree(regResp.body());
+        String clientId = regJson.path("client_id").asText();
+        assertFalse("Should have client_id", clientId.isEmpty());
+
+        // Try authorize without code_challenge — should be rejected
+        String authUrl = JIRA_URL + "/plugins/servlet/mcp-oauth/authorize"
+                + "?client_id=" + clientId
+                + "&redirect_uri=http%3A%2F%2Flocalhost%3A9999%2Fcb"
+                + "&response_type=code&scope=READ&state=test123";
+        HttpClient noRedirect = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        HttpRequest authReq = HttpRequest.newBuilder()
+                .uri(URI.create(authUrl))
+                .GET().timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> authResp = noRedirect.send(authReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals("[SEC] Authorize without PKCE should be 400", 400, authResp.statusCode());
+        assertTrue("Should mention code_challenge", authResp.body().contains("code_challenge"));
+
+        System.out.println("[e2e] Security: DCR + PKCE enforcement OK");
+    }
+
+    @Test
+    public void t87_security_securityHeaders() throws Exception {
+        // Check security headers on MCP response
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
+        HttpResponse<String> resp = streamablePost(body, null);
+        assertEquals(200, resp.statusCode());
+
+        assertTrue("[SEC] Should have X-Content-Type-Options",
+                resp.headers().firstValue("X-Content-Type-Options").isPresent());
+        assertEquals("nosniff",
+                resp.headers().firstValue("X-Content-Type-Options").orElse(""));
+
+        System.out.println("[e2e] Security: response headers present");
+    }
 }

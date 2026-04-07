@@ -35,11 +35,6 @@ import org.slf4j.LoggerFactory;
  * POST  → JSON-RPC request → JSON response (or SSE for batch with progressToken)
  * GET   → SSE stream for server-initiated notifications
  * DELETE → close session
- *
- * Event taxonomy for SSE streams:
- *   event: progress  — batch operation progress notification
- *   event: message   — JSON-RPC response (final result)
- *   event: error     — error during streaming execution
  */
 @Path("/")
 @UnrestrictedAccess
@@ -51,11 +46,18 @@ public class McpResource {
     private static final String SSE_CONTENT_TYPE = "text/event-stream";
     private static final int HEARTBEAT_INTERVAL_MS = 30_000;
 
+    // ── Security limits ─────────────────────────────────────────────
+    private static final int MAX_SESSIONS = 200;
+    private static final long SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+    private static final int MAX_BODY_BYTES = 1_048_576; // 1 MB
+    private static final int MCP_RATE_PER_MIN = 120; // per user
+
     private final JsonRpcHandler handler;
     private final McpPluginConfig config;
     private final UserManager userManager;
     private final GroupManager groupManager;
     private final ApplicationProperties applicationProperties;
+    private final RateLimiter rateLimiter;
 
     /** Active sessions — static because JAX-RS creates a new resource instance per request. */
     private static final Map<String, SseSession> sessions = new ConcurrentHashMap<>();
@@ -73,11 +75,13 @@ public class McpResource {
     public McpResource(
             JsonRpcHandler handler,
             McpPluginConfig config,
+            RateLimiter rateLimiter,
             @ComponentImport UserManager userManager,
             @ComponentImport GroupManager groupManager,
             @ComponentImport ApplicationProperties applicationProperties) {
         this.handler = handler;
         this.config = config;
+        this.rateLimiter = rateLimiter;
         this.userManager = userManager;
         this.groupManager = groupManager;
         this.applicationProperties = applicationProperties;
@@ -97,6 +101,15 @@ public class McpResource {
         Response originError = validateOrigin(request);
         if (originError != null) return originError;
 
+        // Body size limit
+        if (body != null && body.length() > MAX_BODY_BYTES) {
+            log.warn("[MCP-SEC] Oversized request body ({} bytes) from {}", body.length(), getClientIp(request));
+            return Response.status(413)
+                    .entity("{\"error\":\"Request body too large\"}")
+                    .type(MediaType.APPLICATION_JSON_TYPE)
+                    .build();
+        }
+
         Response authError = checkAuth(request);
         if (authError != null) return authError;
 
@@ -105,8 +118,19 @@ public class McpResource {
         String username = user.getUsername();
 
         if (!isAccessAllowed(username, userKey)) {
+            log.warn("[MCP-SEC] Access denied for user '{}' from {}", username, getClientIp(request));
             return Response.status(Response.Status.FORBIDDEN)
                     .entity("{\"error\":\"User not authorized for MCP access\"}")
+                    .type(MediaType.APPLICATION_JSON_TYPE)
+                    .build();
+        }
+
+        // Rate limit per user
+        if (!rateLimiter.isAllowed(userKey, "mcp", MCP_RATE_PER_MIN)) {
+            log.warn("[MCP-SEC] Rate limit exceeded for user '{}' from {}", username, getClientIp(request));
+            return Response.status(429)
+                    .header("Retry-After", "60")
+                    .entity("{\"error\":\"Rate limit exceeded\"}")
                     .type(MediaType.APPLICATION_JSON_TYPE)
                     .build();
         }
@@ -125,11 +149,24 @@ public class McpResource {
         String authHeader = request.getHeader("Authorization");
         String sessionId = request.getHeader("MCP-Session-Id");
 
-        if (sessionId != null && !isInitialize && !sessions.containsKey(sessionId)) {
-            return Response.status(404)
-                    .entity("{\"error\":\"Unknown session. Send initialize first.\"}")
-                    .type(MediaType.APPLICATION_JSON_TYPE)
-                    .build();
+        if (sessionId != null && !isInitialize) {
+            SseSession session = sessions.get(sessionId);
+            if (session == null || session.isExpired()) {
+                if (session != null) sessions.remove(sessionId);
+                return Response.status(404)
+                        .entity("{\"error\":\"Unknown or expired session. Send initialize first.\"}")
+                        .type(MediaType.APPLICATION_JSON_TYPE)
+                        .build();
+            }
+            // Session-user binding: verify the session belongs to this user
+            if (!session.userKey.equals(userKey)) {
+                log.warn("[MCP-SEC] Session user mismatch: session owner '{}', request user '{}'",
+                        session.userKey, userKey);
+                return Response.status(Response.Status.FORBIDDEN)
+                        .entity("{\"error\":\"Session does not belong to this user\"}")
+                        .type(MediaType.APPLICATION_JSON_TYPE)
+                        .build();
+            }
         }
 
         // Streaming path: tools/call with progressToken on a streaming-capable tool
@@ -146,16 +183,24 @@ public class McpResource {
         }
 
         if (isInitialize) {
+            cleanupSessions();
+            if (sessions.size() >= MAX_SESSIONS) {
+                log.warn("[MCP-SEC] Session capacity reached ({}), rejecting new session", MAX_SESSIONS);
+                return Response.status(503)
+                        .entity("{\"error\":\"Server at session capacity\"}")
+                        .type(MediaType.APPLICATION_JSON_TYPE)
+                        .build();
+            }
             String newSessionId = UUID.randomUUID().toString();
             sessions.put(newSessionId, new SseSession(newSessionId, userKey, authHeader));
-            log.info("MCP session created: {}", newSessionId.substring(0, 8));
+            log.info("MCP session created: {} for user '{}'", newSessionId.substring(0, 8), username);
 
-            return Response.ok(result, MediaType.APPLICATION_JSON_TYPE)
+            return addSecurityHeaders(Response.ok(result, MediaType.APPLICATION_JSON_TYPE))
                     .header("MCP-Session-Id", newSessionId)
                     .build();
         }
 
-        Response.ResponseBuilder rb = Response.ok(result, MediaType.APPLICATION_JSON_TYPE);
+        Response.ResponseBuilder rb = addSecurityHeaders(Response.ok(result, MediaType.APPLICATION_JSON_TYPE));
         if (sessionId != null) {
             rb.header("MCP-Session-Id", sessionId);
         }
@@ -169,17 +214,38 @@ public class McpResource {
         Response originError = validateOrigin(request);
         if (originError != null) return originError;
 
-        if (!config.isEnabled()) {
-            return Response.status(503)
-                    .entity("{\"error\":\"MCP server is disabled\"}")
+        // Auth required on GET (was missing — security fix)
+        Response authError = checkAuth(request);
+        if (authError != null) return authError;
+
+        UserProfile user = userManager.getRemoteUser(request);
+        String userKey = user.getUserKey().getStringValue();
+        String username = user.getUsername();
+
+        if (!isAccessAllowed(username, userKey)) {
+            log.warn("[MCP-SEC] SSE access denied for user '{}' from {}", username, getClientIp(request));
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\":\"User not authorized for MCP access\"}")
                     .type(MediaType.APPLICATION_JSON_TYPE)
                     .build();
         }
 
         String sessionId = request.getHeader("MCP-Session-Id");
-        if (sessionId == null || !sessions.containsKey(sessionId)) {
+        SseSession session = sessionId != null ? sessions.get(sessionId) : null;
+        if (session == null || session.isExpired()) {
+            if (session != null) sessions.remove(sessionId);
             return Response.status(405)
                     .entity("{\"error\":\"SSE requires a valid MCP-Session-Id. POST initialize first.\"}")
+                    .type(MediaType.APPLICATION_JSON_TYPE)
+                    .build();
+        }
+
+        // Session-user binding
+        if (!session.userKey.equals(userKey)) {
+            log.warn("[MCP-SEC] SSE session user mismatch: session owner '{}', request user '{}'",
+                    session.userKey, userKey);
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity("{\"error\":\"Session does not belong to this user\"}")
                     .type(MediaType.APPLICATION_JSON_TYPE)
                     .build();
         }
@@ -232,10 +298,28 @@ public class McpResource {
     @DELETE
     @Produces(MediaType.APPLICATION_JSON)
     public Response handleDelete(@Context HttpServletRequest request) {
+        Response originError = validateOrigin(request);
+        if (originError != null) return originError;
+
+        Response authError = checkAuth(request);
+        if (authError != null) return authError;
+
+        UserProfile user = userManager.getRemoteUser(request);
+        String userKey = user.getUserKey().getStringValue();
+
         String sessionId = request.getHeader("MCP-Session-Id");
         if (sessionId != null) {
-            SseSession removed = sessions.remove(sessionId);
-            if (removed != null) {
+            SseSession session = sessions.get(sessionId);
+            if (session != null) {
+                // Session-user binding
+                if (!session.userKey.equals(userKey)) {
+                    log.warn("[MCP-SEC] DELETE session user mismatch from {}", getClientIp(request));
+                    return Response.status(Response.Status.FORBIDDEN)
+                            .entity("{\"error\":\"Session does not belong to this user\"}")
+                            .type(MediaType.APPLICATION_JSON_TYPE)
+                            .build();
+                }
+                sessions.remove(sessionId);
                 log.info("MCP session closed: {}", sessionId.substring(0, 8));
                 return Response.ok("{\"status\":\"session closed\"}").build();
             }
@@ -278,7 +362,6 @@ public class McpResource {
                             });
                     isError = false;
                 } catch (McpToolException e) {
-                    // Send error event before final response
                     writeSseEvent(writer, streamId, "error",
                             "{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
                     resultText = e.getMessage();
@@ -306,19 +389,6 @@ public class McpResource {
 
     // ── SSE event writer ─────────────────────────────────────────────
 
-    /**
-     * Writes a single SSE event with globally unique ID.
-     *
-     * Event taxonomy:
-     *   heartbeat — keep-alive / priming (empty data)
-     *   progress  — batch tool progress notification
-     *   message   — JSON-RPC response (final result)
-     *   error     — error during streaming execution
-     *
-     * @param streamPrefix optional prefix for event ID (null = global counter only)
-     * @param eventType the SSE event type
-     * @param data the event data (JSON string or empty for heartbeat)
-     */
     private void writeSseEvent(PrintWriter writer, String streamPrefix, String eventType, String data) {
         long id = eventIdCounter.incrementAndGet();
         totalEventsSent.incrementAndGet();
@@ -364,7 +434,6 @@ public class McpResource {
             if ("localhost".equals(originHost) || "127.0.0.1".equals(originHost)) {
                 return null;
             }
-            // Allow Claude Desktop / claude.ai as MCP client
             if (originHost != null && ALLOWED_ORIGINS.contains(originHost.toLowerCase())) {
                 return null;
             }
@@ -372,6 +441,7 @@ public class McpResource {
             // Malformed Origin — reject
         }
 
+        log.warn("[MCP-SEC] Rejected Origin '{}' from {}", sanitizeLog(origin), getClientIp(request));
         return Response.status(Response.Status.FORBIDDEN)
                 .entity("{\"error\":\"Invalid Origin header\"}")
                 .type(MediaType.APPLICATION_JSON_TYPE)
@@ -390,6 +460,7 @@ public class McpResource {
 
         UserProfile user = userManager.getRemoteUser(request);
         if (user == null) {
+            log.warn("[MCP-SEC] Unauthenticated request from {}", getClientIp(request));
             if (config.isOAuthEnabled()) {
                 String resourceMetadata = getJiraBaseUrl()
                         + "/plugins/servlet/mcp-oauth/protected-resource";
@@ -424,7 +495,31 @@ public class McpResource {
         return false;
     }
 
+    // ── Security helpers ─────────────────────────────────────────────
+
+    private static String getClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isEmpty()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    /** Strip control characters to prevent log injection. */
+    private static String sanitizeLog(String input) {
+        if (input == null) return "null";
+        return input.replaceAll("[\\r\\n\\t]", "_");
+    }
+
+    private static Response.ResponseBuilder addSecurityHeaders(Response.ResponseBuilder rb) {
+        return rb.header("X-Content-Type-Options", "nosniff")
+                 .header("Cache-Control", "no-store")
+                 .header("X-Frame-Options", "DENY");
+    }
+
     // ── Session tracking ─────────────────────────────────────────────
+
+    private static final int MAX_SESSION_ID_LOG_LEN = 8;
 
     private static class SseSession {
         final String id;
@@ -438,6 +533,14 @@ public class McpResource {
             this.authHeader = authHeader;
             this.createdAt = System.currentTimeMillis();
         }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - createdAt > SESSION_TTL_MS;
+        }
+    }
+
+    private static void cleanupSessions() {
+        sessions.entrySet().removeIf(e -> e.getValue().isExpired());
     }
 
     // ── Metrics (accessible for monitoring) ──────────────────────────
