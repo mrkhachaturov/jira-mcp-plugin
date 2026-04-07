@@ -193,11 +193,16 @@ The plugin runs inside the Jira JVM. No data leaves your infrastructure. It uses
 | | Concern | How it's handled |
 |---|---------|-----------------|
 | 🏠 | Data residency | Runs inside Jira JVM, no outbound connections |
-| 🔐 | Authentication | Jira's own OAuth 2.0 and PATs |
+| 🔐 | Authentication | Jira's own OAuth 2.0 and PATs — required on all endpoints (POST, GET, DELETE) |
 | 🔒 | Authorization | Same Jira permissions, same project access |
 | 👥 | Admin control | Group and user allowlists, per-tool enable/disable, read-only mode |
-| 📋 | Audit trail | All requests go through Jira's standard auth pipeline |
+| 🔗 | Session binding | Sessions tied to authenticated user — cross-user hijacking blocked |
+| 🛡️ | PKCE S256 | Mandatory on OAuth flow — prevents authorization code interception |
+| 🔀 | Redirect validation | OAuth `redirect_uri` checked against registered client URIs |
+| ⏱️ | Rate limiting | IP-based for anonymous endpoints, per-user for MCP calls |
+| 📏 | Body limits | 1 MB for MCP, 64 KB for registration, 8 KB for token exchange |
 | 🌐 | Origin validation | `Origin` header checked per MCP spec (DNS rebinding protection) |
+| 📋 | Security logging | All rejections logged with `[MCP-SEC]` prefix and client IP |
 
 > [!CAUTION]
 > The plugin makes localhost HTTP calls to Jira's own REST API. No outbound network connections are made. Verify this by checking your firewall logs after installation.
@@ -245,7 +250,7 @@ mise trust && mise install
 # 🏗️ Build
 just build
 
-# 🚀 Build + deploy + run 35 e2e tests
+# 🚀 Build + deploy + run 43 e2e tests
 just deploy-and-test
 
 # 📋 Or step by step

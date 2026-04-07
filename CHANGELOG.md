@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.2] - 2026-04-07
+
+### Added
+
+- **Security hardening** for public-facing deployment:
+  - IP-based rate limiter: `/register` 5/min, `/token` 20/min, `/authorize` 10/min, MCP 120/min per user
+  - Request body size limits: 1 MB for MCP, 64 KB for register, 8 KB for token
+  - Security event logging with `[MCP-SEC]` prefix for incident response
+  - Security response headers: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Frame-Options: DENY`
+  - 8 security e2e tests (auth on GET/DELETE, body limits, session binding, PKCE enforcement, redirect validation)
+- **Claude Desktop connectivity**: `claude.ai`/`claude.com` added to Origin allowlist, 307 redirect for missing trailing slash
+
+### Changed
+
+- Auth required on GET (SSE) and DELETE endpoints — previously unauthenticated
+- Session-user binding: sessions are tied to the authenticated user, preventing cross-user session hijacking
+- PKCE S256 now mandatory on OAuth authorize (was silently skipped if `code_challenge` omitted)
+- `redirect_uri` validated against registered client URIs on `/authorize` (closes open redirect / token theft)
+- `redirect_uri` now mandatory on `/token` per RFC 6749 §4.1.3
+- In-memory maps capped: sessions (200, 4h TTL), DCR clients (1000, 24h TTL), pending auths/codes (500, 10min TTL)
+- Token exchange HttpClient hardened: no redirects, 5s connect timeout, 10s request timeout
+- XSS fix: OAuth callback error page now HTML-encodes user input
+
+### Fixed
+
+- Claude Desktop could not connect — `/rest/mcp/1.0` (no trailing slash) was redirected to Jira login page by Jira's auth filter
+- Reflected XSS in OAuth callback error parameter
+- Open redirect via unvalidated `redirect_uri` in OAuth authorize flow
+
 ## [1.0.1] - 2026-04-07
 
 ### Added

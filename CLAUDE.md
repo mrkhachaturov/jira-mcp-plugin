@@ -52,7 +52,7 @@ All commands via `just`. Env vars auto-loaded by mise from `.credentials/jira.en
 just build            # atlas-package (compile + JAR)
 just deploy           # build + upload JAR to Jira UPM + verify enabled
 just test             # unit tests (excludes e2e)
-just e2e              # 35 e2e tests against live Jira instance
+just e2e              # 43 e2e tests against live Jira instance
 just deploy-and-test  # build + deploy + e2e in one shot
 just codegen          # regenerate tools from upstream
 just clean            # atlas-clean
@@ -112,12 +112,24 @@ Otherwise, the response is always plain JSON. SSE is for sending **multiple JSON
 
 - `MCP-Session-Id` returned on `initialize`, required on subsequent requests
 - Sessions stored in static `ConcurrentHashMap` (survives JAX-RS per-request instantiation)
-- DELETE closes session, 404 returned for expired/unknown sessions
+- Session-user binding: each session is tied to the authenticated user; cross-user access returns 403
+- Sessions capped at 200 with 4-hour TTL; expired sessions cleaned lazily
+- DELETE closes session (requires auth + user match), 404 returned for expired/unknown sessions
 
 ### Security
 
-- **Origin validation** (MUST per spec): `Origin` header checked against Jira base URL. Invalid Origin → 403. Localhost always allowed
+- **Auth on all methods**: POST, GET (SSE), and DELETE all require valid auth + access control
+- **Origin validation** (MUST per spec): `Origin` header checked against Jira base URL + `claude.ai`/`claude.com`. Invalid Origin → 403. Localhost always allowed
 - **MCP-Protocol-Version** header validated on non-initialize requests
+- **Rate limiting**: IP-based for anonymous endpoints (`/register` 5/min, `/token` 20/min, `/authorize` 10/min), per-user for MCP (120/min). Implemented in `RateLimiter.java`
+- **Request body size limits**: 1 MB for MCP POST, 64 KB for DCR register, 8 KB for token exchange
+- **Session-user binding**: sessions cannot be used by a different user than the one who created them
+- **PKCE S256 mandatory**: `code_challenge` required on `/authorize`, only `S256` method accepted
+- **Redirect URI validation**: `/authorize` validates `redirect_uri` against registered client URIs (prevents open redirect / token theft)
+- **Security event logging**: all rejections logged with `[MCP-SEC]` prefix and client IP
+- **Security headers**: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Frame-Options: DENY`
+- **In-memory map caps**: DCR clients (1000, 24h TTL), pending auths (500, 10min), proxy codes (500, 10min)
+- **Token exchange hardened**: `HttpClient` with `Redirect.NEVER`, 5s connect timeout, 10s request timeout
 | `ping` | Keep-alive |
 
 ## Tools — 49 Total
@@ -190,7 +202,7 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 
 ## E2E Tests
 
-27 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
+43 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
 
 | Category | What |
 |----------|------|
@@ -202,6 +214,7 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 | Service desk | get_service_desk_for_project |
 | Error handling | missing param, invalid key, unknown tool |
 | Access control | CEO user via group allowlist |
+| Security | GET/DELETE without auth → 401, oversized body → 413, session-user binding → 403, trailing slash redirect → 307, OAuth well-known endpoints, DCR + PKCE enforcement, security headers |
 
 Tests skip automatically when `JIRA_URL`/`JIRA_PAT_RKADMIN` are not set.
 
@@ -212,7 +225,8 @@ src/main/java/com/atlassian/mcp/plugin/
 ├── rest/
 │   ├── McpResource.java              # JAX-RS MCP endpoint (POST/GET/DELETE)
 │   ├── OAuthServlet.java             # OAuth proxy servlet
-│   └── OAuthAnonymousFilter.java     # before-login filter for anonymous OAuth access
+│   ├── OAuthAnonymousFilter.java     # before-login filter for anonymous OAuth access
+│   └── RateLimiter.java              # IP-based rate limiter for anonymous + authenticated endpoints
 ├── JsonRpcHandler.java                # JSON-RPC dispatch
 ├── JiraRestClient.java                # HTTP client → Jira REST API (+ ResponseTrimmer)
 ├── ResponseTrimmer.java               # Strip verbose fields from Jira JSON responses
