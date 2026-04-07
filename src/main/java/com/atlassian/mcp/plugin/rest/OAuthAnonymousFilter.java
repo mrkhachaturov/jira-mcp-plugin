@@ -13,6 +13,7 @@ import java.io.IOException;
  * Filter with location="before-login" that:
  * 1. Passes through /plugins/servlet/mcp-oauth/* requests (handled by OAuthServlet)
  * 2. Directly serves /.well-known/oauth-* responses (can't use servlets at root)
+ * 3. Redirects /rest/mcp/1.0 → /rest/mcp/1.0/ (JAX-RS needs trailing slash)
  */
 @UnrestrictedAccess
 public class OAuthAnonymousFilter implements Filter {
@@ -34,6 +35,16 @@ public class OAuthAnonymousFilter implements Filter {
         // Handle /.well-known/* directly — servlets can't serve at root
         if (uri.contains("/.well-known/oauth-")) {
             handleWellKnown(uri, resp);
+            return;
+        }
+
+        // Redirect /rest/mcp/1.0 → /rest/mcp/1.0/ (Claude sends without trailing slash;
+        // without this, Jira's login filter intercepts before JAX-RS can match)
+        if (uri.endsWith("/rest/mcp/1.0")) {
+            String query = req.getQueryString();
+            String target = uri + "/" + (query != null ? "?" + query : "");
+            resp.setStatus(307); // preserve method (POST)
+            resp.setHeader("Location", target);
             return;
         }
 

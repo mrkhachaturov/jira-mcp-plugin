@@ -46,12 +46,12 @@ public class SearchToolTest {
     }
 
     @Test
-    public void testExecuteEnforcesMaxResults() throws Exception {
+    public void testExecutePassesLimit() throws Exception {
         when(client.get(anyString(), anyString())).thenReturn("{}");
 
-        tool.execute(Map.of("jql", "test", "maxResults", 999), "Bearer t");
+        tool.execute(Map.of("jql", "test", "limit", 25), "Bearer t");
 
-        verify(client).get(contains("maxResults=200"), anyString());
+        verify(client).get(contains("maxResults=25"), anyString());
     }
 
     @Test(expected = McpToolException.class)

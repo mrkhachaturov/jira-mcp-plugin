@@ -45,12 +45,13 @@
         <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserLoggedInCondition"/>
     </web-item>
 
-    <!-- OAuth: bypass Jira login filter for servlet + well-known (BigPicture pattern) -->
+    <!-- OAuth + well-known: bypass Jira login filter (BigPicture pattern) -->
     <servlet-filter key="mcp-oauth-anon-filter" name="MCP OAuth Anonymous Filter"
                     class="com.atlassian.mcp.plugin.rest.OAuthAnonymousFilter"
                     location="before-login" weight="1">
         <url-pattern>/plugins/servlet/mcp-oauth/*</url-pattern>
         <url-pattern>/.well-known/*</url-pattern>
+        <url-pattern>/rest/mcp/1.0</url-pattern>
         <dispatcher>REQUEST</dispatcher>
     </servlet-filter>
 

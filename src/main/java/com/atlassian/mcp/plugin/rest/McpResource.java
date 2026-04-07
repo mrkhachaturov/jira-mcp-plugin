@@ -340,6 +340,10 @@ public class McpResource {
 
     // ── Origin validation (MUST per spec) ────────────────────────────
 
+    /** Hosts allowed as Origin besides the Jira base URL itself. */
+    private static final Set<String> ALLOWED_ORIGINS = Set.of(
+            "claude.ai", "www.claude.ai", "claude.com", "www.claude.com");
+
     private Response validateOrigin(HttpServletRequest request) {
         String origin = request.getHeader("Origin");
         if (origin == null) {
@@ -358,6 +362,10 @@ public class McpResource {
                 return null;
             }
             if ("localhost".equals(originHost) || "127.0.0.1".equals(originHost)) {
+                return null;
+            }
+            // Allow Claude Desktop / claude.ai as MCP client
+            if (originHost != null && ALLOWED_ORIGINS.contains(originHost.toLowerCase())) {
                 return null;
             }
         } catch (IllegalArgumentException e) {
