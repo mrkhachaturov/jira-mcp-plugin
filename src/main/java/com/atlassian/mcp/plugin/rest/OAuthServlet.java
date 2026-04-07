@@ -239,6 +239,17 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
+        // Validate redirect_uri against registered URIs (prevents open redirect / token theft)
+        if (redirectUri == null || redirectUri.isEmpty()
+                || client.redirectUris.isEmpty()
+                || !client.redirectUris.contains(redirectUri)) {
+            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}", clientId, getClientIp(req));
+            resp.setStatus(400);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri does not match registered URIs\"}");
+            return;
+        }
+
         String internalState = stateStore.createPendingAuth(
                 redirectUri, state, codeChallenge, codeChallengeMethod, clientId);
         if (internalState == null) {
@@ -350,9 +361,10 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
-        if (redirectUri != null && !redirectUri.equals(proxyCode.redirectUri)) {
+        // redirect_uri is mandatory per RFC 6749 Section 4.1.3
+        if (redirectUri == null || !redirectUri.equals(proxyCode.redirectUri)) {
             resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"redirect_uri mismatch\"}");
+            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"redirect_uri mismatch or missing\"}");
             return;
         }
 

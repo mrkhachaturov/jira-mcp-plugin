@@ -140,7 +140,7 @@ public class McpResource {
         if (!isInitialize && protocolVersion != null
                 && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion)) {
             return Response.status(400)
-                    .entity("{\"error\":\"Unsupported MCP-Protocol-Version: " + protocolVersion
+                    .entity("{\"error\":\"Unsupported MCP-Protocol-Version: " + sanitizeLog(protocolVersion)
                             + ". Supported: " + SUPPORTED_PROTOCOL_VERSION + "\"}")
                     .type(MediaType.APPLICATION_JSON_TYPE)
                     .build();
