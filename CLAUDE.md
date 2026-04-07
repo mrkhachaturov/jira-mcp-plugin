@@ -37,7 +37,7 @@ After generation, copy files to `src/main/java/.../tools/` and update `ToolRegis
 | Layer | What |
 |-------|------|
 | MCP endpoint | JAX-RS at `/rest/mcp/1.0/` — Streamable HTTP (JSON-RPC 2.0 + SSE) |
-| OAuth proxy | Servlet at `/plugins/servlet/mcp-oauth/` — bridges MCP client OAuth with Jira OAuth 2.0 |
+| OAuth proxy | Servlet at `/plugins/servlet/mcp-oauth/` — bridges MCP client OAuth with Jira OAuth 2.0. Supports `authorization_code` + `refresh_token` grants. Tokens passed through from Jira (stateless — Jira's DB manages lifecycle) |
 | Tools | 49 classes in `tools/` — each calls Jira REST API internally via `JiraRestClient` |
 | Response trimmer | `ResponseTrimmer` — strips verbose fields (`self`, `avatarUrls`, `iconUrl`, `groups`, `applicationRoles`) to match upstream's `to_simplified_dict()` |
 | Admin | Servlet at `/plugins/servlet/mcp-admin` + REST at `/rest/mcp-admin/1.0/` |
@@ -130,7 +130,7 @@ Otherwise, the response is always plain JSON. SSE is for sending **multiple JSON
 - **Security headers**: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Frame-Options: DENY`
 - **In-memory map caps**: DCR clients (1000, 24h TTL), pending auths (500, 10min), proxy codes (500, 10min)
 - **Token exchange hardened**: `HttpClient` with `Redirect.NEVER`, 5s connect timeout, 10s request timeout
-| `ping` | Keep-alive |
+- **Refresh tokens**: passed through from Jira — no proxy state, Jira's DB manages lifecycle and rotation
 
 ## Tools — 49 Total
 
