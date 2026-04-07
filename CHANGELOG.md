@@ -4,25 +4,19 @@
 
 ### Added
 
-- **OAuth refresh token support** — token endpoint now accepts `grant_type=refresh_token`, enabling silent token renewal without re-prompting the user
-- Proxy refresh token rotation per OAuth 2.1 (one-time use, new token issued on each refresh)
-- Jira refresh token passthrough — captured from Jira's token response and proxied to MCP clients
-- Real `expires_in` from Jira replaces hardcoded 3600
-- `RefreshTokenMapping` store with 1000 capacity cap and 24h TTL
+- **OAuth refresh token support** — token endpoint accepts `grant_type=refresh_token`, enabling silent token renewal. User authenticates once, session stays alive indefinitely via automatic refresh
+- Real `expires_in` from Jira passed through to clients (was hardcoded 3600)
 - E2e test for refresh token grant type: metadata validation + error paths (44 tests total)
-- Reference docs: MCP authorization spec, Claude connector docs
+- Reference docs: MCP authorization spec, Claude connector docs, Jira OAuth 2.0 DB schema
 
 ### Changed
 
-- OAuth metadata now advertises `grant_types_supported: ["authorization_code", "refresh_token"]`
-- `exchangeCodeForToken()` refactored to extract `refresh_token` and `expires_in` from Jira response
+- OAuth metadata advertises `grant_types_supported: ["authorization_code", "refresh_token"]`
+- Token exchange captures both `access_token` and `refresh_token` from Jira's response
 - `handleToken()` split into `handleAuthorizationCodeGrant()` + `handleRefreshTokenGrant()`
+- Refresh token lifecycle managed by Jira's database — stateless on plugin side, survives restarts
 - Deploy recipe: `clean` before `build`, resolve JAR glob via variable, skip tests on build
 - Removed unused `Import-Package` entries (`spring.osgi`, `gemini.blueprint`, `jakarta.inject`)
-
-### Fixed
-
-- Consumed proxy refresh token restored on upstream Jira failure (prevents permanent client lockout)
 
 ## [1.1.0] - 2026-04-07
 

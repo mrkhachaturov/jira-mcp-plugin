@@ -388,12 +388,9 @@ public class OAuthServlet extends HttpServlet {
         result.put("token_type", "bearer");
         result.put("expires_in", proxyCode.expiresIn);
 
-        // Issue a proxy refresh token if Jira gave us one
+        // Pass through Jira's refresh token directly — Jira's DB manages lifecycle
         if (proxyCode.refreshToken != null) {
-            String proxyRefreshToken = stateStore.createRefreshToken(proxyCode.refreshToken, clientId);
-            if (proxyRefreshToken != null) {
-                result.put("refresh_token", proxyRefreshToken);
-            }
+            result.put("refresh_token", proxyCode.refreshToken);
         }
 
         addSecurityHeaders(resp);
@@ -402,40 +399,22 @@ public class OAuthServlet extends HttpServlet {
 
     private void handleRefreshTokenGrant(HttpServletRequest req, HttpServletResponse resp,
                                           String clientId) throws IOException {
-        String proxyRefreshToken = req.getParameter("refresh_token");
+        String refreshToken = req.getParameter("refresh_token");
 
-        if (proxyRefreshToken == null || proxyRefreshToken.isEmpty()) {
+        if (refreshToken == null || refreshToken.isEmpty()) {
             resp.setStatus(400);
             resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"refresh_token is required\"}");
             return;
         }
 
-        // Consume (one-time use — rotation per OAuth 2.1 for public clients)
-        OAuthStateStore.RefreshTokenMapping mapping = stateStore.consumeRefreshToken(proxyRefreshToken);
-        if (mapping == null) {
-            log.warn("[MCP-SEC] Invalid/expired refresh token from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired refresh token\"}");
-            return;
-        }
-
-        if (!mapping.clientId.equals(clientId)) {
-            log.warn("[MCP-SEC] client_id mismatch on refresh from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}");
-            return;
-        }
-
-        // Exchange Jira refresh token for new tokens
+        // Forward Jira's refresh token directly — Jira validates and rotates in its DB
         JiraTokenResponse jiraTokens;
         try {
-            jiraTokens = refreshJiraToken(mapping.jiraRefreshToken);
+            jiraTokens = refreshJiraToken(refreshToken);
         } catch (Exception e) {
-            // Restore consumed token so client can retry
-            stateStore.createRefreshToken(mapping.jiraRefreshToken, mapping.clientId);
             log.warn("[MCP-SEC] Jira refresh token exchange failed: {}", e.getMessage());
-            resp.setStatus(502);
-            resp.getWriter().write("{\"error\":\"temporarily_unavailable\",\"error_description\":\"Upstream token refresh failed\"}");
+            resp.setStatus(400);
+            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Refresh token invalid or expired\"}");
             return;
         }
 
@@ -444,11 +423,9 @@ public class OAuthServlet extends HttpServlet {
         result.put("token_type", "bearer");
         result.put("expires_in", jiraTokens.expiresIn);
 
-        // Rotate: issue new proxy refresh token mapped to Jira's (possibly rotated) refresh token
-        String jiraRefresh = jiraTokens.refreshToken != null ? jiraTokens.refreshToken : mapping.jiraRefreshToken;
-        String newProxyRefresh = stateStore.createRefreshToken(jiraRefresh, clientId);
-        if (newProxyRefresh != null) {
-            result.put("refresh_token", newProxyRefresh);
+        // Pass through Jira's rotated refresh token
+        if (jiraTokens.refreshToken != null) {
+            result.put("refresh_token", jiraTokens.refreshToken);
         }
 
         addSecurityHeaders(resp);

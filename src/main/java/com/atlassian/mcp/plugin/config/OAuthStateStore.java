@@ -20,7 +20,6 @@ public class OAuthStateStore {
     private static final int MAX_PENDING_AUTHS = 500;
     private static final int MAX_PROXY_CODES = 500;
     private static final int MAX_REGISTERED_CLIENTS = 1000;
-    private static final int MAX_REFRESH_TOKENS = 1000;
 
     public static class PendingAuth {
         public final String clientRedirectUri;
@@ -73,22 +72,6 @@ public class OAuthStateStore {
         }
     }
 
-    public static class RefreshTokenMapping {
-        public final String jiraRefreshToken;
-        public final String clientId;
-        public final long createdAt;
-
-        public RefreshTokenMapping(String jiraRefreshToken, String clientId) {
-            this.jiraRefreshToken = jiraRefreshToken;
-            this.clientId = clientId;
-            this.createdAt = System.currentTimeMillis();
-        }
-
-        public boolean isExpired() {
-            return System.currentTimeMillis() - createdAt > CLIENT_EXPIRY_MS;
-        }
-    }
-
     public static class RegisteredClient {
         public final String clientId;
         public final String clientName;
@@ -110,7 +93,6 @@ public class OAuthStateStore {
     private final Map<String, PendingAuth> pendingAuths = new ConcurrentHashMap<>();
     private final Map<String, ProxyCode> proxyCodes = new ConcurrentHashMap<>();
     private final Map<String, RegisteredClient> registeredClients = new ConcurrentHashMap<>();
-    private final Map<String, RefreshTokenMapping> refreshTokens = new ConcurrentHashMap<>();
 
     public String createPendingAuth(String clientRedirectUri, String clientState,
                                      String codeChallenge, String codeChallengeMethod, String clientId) {
@@ -171,24 +153,6 @@ public class OAuthStateStore {
         return client;
     }
 
-    /** Create a proxy refresh token mapped to a Jira refresh token. Returns null if capacity reached. */
-    public String createRefreshToken(String jiraRefreshToken, String clientId) {
-        cleanup();
-        if (refreshTokens.size() >= MAX_REFRESH_TOKENS) {
-            log.warn("[MCP-SEC] Refresh token capacity reached ({}), rejecting", MAX_REFRESH_TOKENS);
-            return null;
-        }
-        String proxyToken = UUID.randomUUID().toString();
-        refreshTokens.put(proxyToken, new RefreshTokenMapping(jiraRefreshToken, clientId));
-        return proxyToken;
-    }
-
-    /** Consume a proxy refresh token (one-time use — rotation per OAuth 2.1). */
-    public RefreshTokenMapping consumeRefreshToken(String proxyRefreshToken) {
-        RefreshTokenMapping mapping = refreshTokens.remove(proxyRefreshToken);
-        return (mapping != null && !mapping.isExpired()) ? mapping : null;
-    }
-
     /** Verify PKCE code_verifier against stored code_challenge. Rejects if no challenge was set. */
     public static boolean verifyPkce(String codeVerifier, String codeChallenge, String method) {
         if (codeChallenge == null || codeChallenge.isEmpty()) {
@@ -215,6 +179,5 @@ public class OAuthStateStore {
         pendingAuths.entrySet().removeIf(e -> e.getValue().isExpired());
         proxyCodes.entrySet().removeIf(e -> e.getValue().isExpired());
         registeredClients.entrySet().removeIf(e -> e.getValue().isExpired());
-        refreshTokens.entrySet().removeIf(e -> e.getValue().isExpired());
     }
 }
