@@ -10,7 +10,7 @@ default:
 # Build the plugin JAR/OBR
 [group('build')]
 build:
-    atlas-package
+    atlas-package -DskipTests
 
 # Clean build artifacts
 [group('build')]
@@ -29,9 +29,10 @@ e2e:
 
 # Deploy plugin to Jira instance
 [group('deploy')]
-deploy: build
+deploy: clean build
     #!/usr/bin/env bash
     set -euo pipefail
+    JAR=$(ls target/jira-mcp-plugin-*.jar)
     UPM_TOKEN=$(curl -sI \
       -H "Authorization: Bearer $JIRA_PAT_RKADMIN" \
       -H "X-Atlassian-Token: no-check" \
@@ -39,7 +40,7 @@ deploy: build
     curl -s -w '\n%{http_code}' \
       -H "Authorization: Bearer $JIRA_PAT_RKADMIN" \
       -H "X-Atlassian-Token: no-check" \
-      -F "plugin=@target/jira-mcp-plugin-*.jar" \
+      -F "plugin=@$JAR" \
       "$JIRA_URL/rest/plugins/1.0/?token=$UPM_TOKEN"
     echo "Waiting for plugin to enable..."
     sleep 20

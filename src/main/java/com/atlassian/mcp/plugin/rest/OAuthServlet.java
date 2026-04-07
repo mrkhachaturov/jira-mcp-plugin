@@ -112,7 +112,7 @@ public class OAuthServlet extends HttpServlet {
             meta.put("token_endpoint", base + "/token");
             meta.put("registration_endpoint", base + "/register");
             meta.put("response_types_supported", List.of("code"));
-            meta.put("grant_types_supported", List.of("authorization_code"));
+            meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
             meta.put("token_endpoint_auth_methods_supported", List.of("none"));
             meta.put("code_challenge_methods_supported", List.of("S256"));
             meta.put("scopes_supported", List.of("WRITE", "READ"));
@@ -295,9 +295,9 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
-        String accessToken;
+        JiraTokenResponse jiraTokens;
         try {
-            accessToken = exchangeCodeForToken(jiraCode);
+            jiraTokens = exchangeCodeForToken(jiraCode);
         } catch (Exception e) {
             log.warn("[MCP-SEC] Token exchange failed: {}", e.getMessage());
             addSecurityHeaders(resp);
@@ -308,7 +308,8 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
-        String proxyCode = stateStore.createProxyCode(accessToken,
+        String proxyCode = stateStore.createProxyCode(jiraTokens.accessToken,
+                jiraTokens.refreshToken, jiraTokens.expiresIn,
                 pending.clientId, pending.clientRedirectUri,
                 pending.codeChallenge, pending.codeChallengeMethod);
         if (proxyCode == null) {
@@ -335,16 +336,23 @@ public class OAuthServlet extends HttpServlet {
         }
 
         String grantType = req.getParameter("grant_type");
-        String code = req.getParameter("code");
-        String redirectUri = req.getParameter("redirect_uri");
         String clientId = req.getParameter("client_id");
-        String codeVerifier = req.getParameter("code_verifier");
 
-        if (!"authorization_code".equals(grantType)) {
+        if ("authorization_code".equals(grantType)) {
+            handleAuthorizationCodeGrant(req, resp, clientId);
+        } else if ("refresh_token".equals(grantType)) {
+            handleRefreshTokenGrant(req, resp, clientId);
+        } else {
             resp.setStatus(400);
             resp.getWriter().write("{\"error\":\"unsupported_grant_type\"}");
-            return;
         }
+    }
+
+    private void handleAuthorizationCodeGrant(HttpServletRequest req, HttpServletResponse resp,
+                                               String clientId) throws IOException {
+        String code = req.getParameter("code");
+        String redirectUri = req.getParameter("redirect_uri");
+        String codeVerifier = req.getParameter("code_verifier");
 
         OAuthStateStore.ProxyCode proxyCode = stateStore.consumeProxyCode(code);
         if (proxyCode == null) {
@@ -378,12 +386,88 @@ public class OAuthServlet extends HttpServlet {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("access_token", proxyCode.accessToken);
         result.put("token_type", "bearer");
-        result.put("expires_in", 3600);
+        result.put("expires_in", proxyCode.expiresIn);
+
+        // Issue a proxy refresh token if Jira gave us one
+        if (proxyCode.refreshToken != null) {
+            String proxyRefreshToken = stateStore.createRefreshToken(proxyCode.refreshToken, clientId);
+            if (proxyRefreshToken != null) {
+                result.put("refresh_token", proxyRefreshToken);
+            }
+        }
+
         addSecurityHeaders(resp);
         mapper.writeValue(resp.getWriter(), result);
     }
 
-    private String exchangeCodeForToken(String code) throws IOException, InterruptedException {
+    private void handleRefreshTokenGrant(HttpServletRequest req, HttpServletResponse resp,
+                                          String clientId) throws IOException {
+        String proxyRefreshToken = req.getParameter("refresh_token");
+
+        if (proxyRefreshToken == null || proxyRefreshToken.isEmpty()) {
+            resp.setStatus(400);
+            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"refresh_token is required\"}");
+            return;
+        }
+
+        // Consume (one-time use — rotation per OAuth 2.1 for public clients)
+        OAuthStateStore.RefreshTokenMapping mapping = stateStore.consumeRefreshToken(proxyRefreshToken);
+        if (mapping == null) {
+            log.warn("[MCP-SEC] Invalid/expired refresh token from {}", getClientIp(req));
+            resp.setStatus(400);
+            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired refresh token\"}");
+            return;
+        }
+
+        if (!mapping.clientId.equals(clientId)) {
+            log.warn("[MCP-SEC] client_id mismatch on refresh from {}", getClientIp(req));
+            resp.setStatus(400);
+            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}");
+            return;
+        }
+
+        // Exchange Jira refresh token for new tokens
+        JiraTokenResponse jiraTokens;
+        try {
+            jiraTokens = refreshJiraToken(mapping.jiraRefreshToken);
+        } catch (Exception e) {
+            // Restore consumed token so client can retry
+            stateStore.createRefreshToken(mapping.jiraRefreshToken, mapping.clientId);
+            log.warn("[MCP-SEC] Jira refresh token exchange failed: {}", e.getMessage());
+            resp.setStatus(502);
+            resp.getWriter().write("{\"error\":\"temporarily_unavailable\",\"error_description\":\"Upstream token refresh failed\"}");
+            return;
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("access_token", jiraTokens.accessToken);
+        result.put("token_type", "bearer");
+        result.put("expires_in", jiraTokens.expiresIn);
+
+        // Rotate: issue new proxy refresh token mapped to Jira's (possibly rotated) refresh token
+        String jiraRefresh = jiraTokens.refreshToken != null ? jiraTokens.refreshToken : mapping.jiraRefreshToken;
+        String newProxyRefresh = stateStore.createRefreshToken(jiraRefresh, clientId);
+        if (newProxyRefresh != null) {
+            result.put("refresh_token", newProxyRefresh);
+        }
+
+        addSecurityHeaders(resp);
+        mapper.writeValue(resp.getWriter(), result);
+    }
+
+    private static class JiraTokenResponse {
+        final String accessToken;
+        final String refreshToken; // may be null
+        final int expiresIn;
+
+        JiraTokenResponse(String accessToken, String refreshToken, int expiresIn) {
+            this.accessToken = accessToken;
+            this.refreshToken = refreshToken;
+            this.expiresIn = expiresIn;
+        }
+    }
+
+    private JiraTokenResponse exchangeCodeForToken(String code) throws IOException, InterruptedException {
         String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
         String callbackUri = getOAuthBase() + "/callback";
 
@@ -392,6 +476,21 @@ public class OAuthServlet extends HttpServlet {
                 + "&client_secret=" + enc(config.getOAuthClientSecret())
                 + "&code=" + enc(code)
                 + "&redirect_uri=" + enc(callbackUri);
+
+        return callJiraTokenEndpoint(body);
+    }
+
+    private JiraTokenResponse refreshJiraToken(String jiraRefreshToken) throws IOException, InterruptedException {
+        String body = "grant_type=refresh_token"
+                + "&client_id=" + enc(config.getOAuthClientId())
+                + "&client_secret=" + enc(config.getOAuthClientSecret())
+                + "&refresh_token=" + enc(jiraRefreshToken);
+
+        return callJiraTokenEndpoint(body);
+    }
+
+    private JiraTokenResponse callJiraTokenEndpoint(String body) throws IOException, InterruptedException {
+        String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(java.net.URI.create(tokenUrl))
@@ -411,7 +510,11 @@ public class OAuthServlet extends HttpServlet {
         if (tokenNode == null) {
             throw new IOException("No access_token in response");
         }
-        return tokenNode.asText();
+
+        String refreshToken = json.has("refresh_token") ? json.get("refresh_token").asText() : null;
+        int expiresIn = json.has("expires_in") ? json.get("expires_in").asInt() : 3600;
+
+        return new JiraTokenResponse(tokenNode.asText(), refreshToken, expiresIn);
     }
 
     // ── Security helpers ─────────────────────────────────────────────

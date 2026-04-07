@@ -867,7 +867,71 @@ public class McpEndpointE2ETest {
     }
 
     @Test
-    public void t87_security_securityHeaders() throws Exception {
+    public void t87_oauth_refreshTokenGrantType() throws Exception {
+        // 1. Metadata must advertise refresh_token grant type
+        HttpRequest metaReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/metadata"))
+                .GET().timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> metaResp = HTTP.send(metaReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, metaResp.statusCode());
+        JsonNode metaJson = MAPPER.readTree(metaResp.body());
+        JsonNode grantTypes = metaJson.path("grant_types_supported");
+        assertTrue("Should be array", grantTypes.isArray());
+        List<String> grants = new ArrayList<>();
+        grantTypes.forEach(n -> grants.add(n.asText()));
+        assertTrue("Must include authorization_code", grants.contains("authorization_code"));
+        assertTrue("Must include refresh_token", grants.contains("refresh_token"));
+
+        // 2. Register a DCR client for token endpoint tests
+        String regBody = "{\"client_name\":\"Refresh Test\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}";
+        HttpRequest regReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/register"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(regBody))
+                .timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> regResp = HTTP.send(regReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, regResp.statusCode());
+        String clientId = MAPPER.readTree(regResp.body()).path("client_id").asText();
+
+        // 3. refresh_token grant with missing refresh_token → 400 invalid_request
+        String missingBody = "grant_type=refresh_token&client_id=" + clientId;
+        HttpRequest missingReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(missingBody))
+                .timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> missingResp = HTTP.send(missingReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, missingResp.statusCode());
+        assertTrue("Should be invalid_request", missingResp.body().contains("invalid_request"));
+
+        // 4. refresh_token grant with bogus token → 400 invalid_grant
+        String bogusBody = "grant_type=refresh_token&client_id=" + clientId
+                + "&refresh_token=bogus-token-12345";
+        HttpRequest bogusReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(bogusBody))
+                .timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> bogusResp = HTTP.send(bogusReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, bogusResp.statusCode());
+        assertTrue("Should be invalid_grant", bogusResp.body().contains("invalid_grant"));
+
+        // 5. unsupported grant type → 400 unsupported_grant_type
+        String badGrantBody = "grant_type=client_credentials&client_id=" + clientId;
+        HttpRequest badGrantReq = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(badGrantBody))
+                .timeout(Duration.ofSeconds(10)).build();
+        HttpResponse<String> badGrantResp = HTTP.send(badGrantReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, badGrantResp.statusCode());
+        assertTrue("Should be unsupported_grant_type", badGrantResp.body().contains("unsupported_grant_type"));
+
+        System.out.println("[e2e] OAuth: refresh_token grant type + error paths OK");
+    }
+
+    @Test
+    public void t88_security_securityHeaders() throws Exception {
         // Check security headers on MCP response
         String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
         HttpResponse<String> resp = streamablePost(body, null);
