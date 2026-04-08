@@ -87,9 +87,17 @@ public class UpdateIssueTool implements McpTool {
 
         try {
             String jsonBody = mapper.writeValueAsString(Map.of("fields", updateFields));
-            return client.put("/rest/api/2/issue/" + issueKey, jsonBody, authHeader);
+            client.put("/rest/api/2/issue/" + issueKey, jsonBody, authHeader);
+            // Return the updated issue (matches upstream: {"success": true, "issue": {...}})
+            String updatedIssue = client.get("/rest/api/2/issue/" + issueKey, authHeader);
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("success", true);
+            result.put("issue", mapper.readTree(updatedIssue));
+            return mapper.writeValueAsString(result);
+        } catch (McpToolException e) {
+            throw e;
         } catch (Exception e) {
-            throw new McpToolException("Failed to serialize request: " + e.getMessage());
+            throw new McpToolException("Failed to update issue: " + e.getMessage());
         }
     }
 }

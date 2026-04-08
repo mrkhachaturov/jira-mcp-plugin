@@ -90,9 +90,23 @@ public class CreateIssueTool implements McpTool {
 
         try {
             String jsonBody = mapper.writeValueAsString(Map.of("fields", fields));
-            return client.post("/rest/api/2/issue", jsonBody, authHeader);
+            String createResponse = client.post("/rest/api/2/issue", jsonBody, authHeader);
+            // Return structured response matching upstream: {"success": true, "issue": {...}}
+            com.fasterxml.jackson.databind.JsonNode created = mapper.readTree(createResponse);
+            String newKey = created.path("key").asText(null);
+            if (newKey != null) {
+                // Fetch the full issue to return rich data (matches upstream)
+                String fullIssue = client.get("/rest/api/2/issue/" + newKey, authHeader);
+                Map<String, Object> result = new java.util.LinkedHashMap<>();
+                result.put("success", true);
+                result.put("issue", mapper.readTree(fullIssue));
+                return mapper.writeValueAsString(result);
+            }
+            return createResponse;
+        } catch (McpToolException e) {
+            throw e;
         } catch (Exception e) {
-            throw new McpToolException("Failed to serialize request: " + e.getMessage());
+            throw new McpToolException("Failed to create issue: " + e.getMessage());
         }
     }
 }

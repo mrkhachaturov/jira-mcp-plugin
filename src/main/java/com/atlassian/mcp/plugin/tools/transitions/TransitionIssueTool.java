@@ -50,18 +50,38 @@ public class TransitionIssueTool implements McpTool {
         if (transitionId == null || transitionId.isBlank()) {
             throw new McpToolException("'transition_id' parameter is required");
         }
-        String fields = (String) args.get("fields");
+        String fieldsJson = (String) args.get("fields");
         String comment = (String) args.get("comment");
 
+        // Jira API expects: {"transition": {"id": "..."}, "fields": {...}, "update": {...}}
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("transition_id", transitionId);
-        if (fields != null) requestBody.put("fields", fields);
-        if (comment != null) requestBody.put("comment", comment);
+        requestBody.put("transition", Map.of("id", transitionId));
+
+        if (fieldsJson != null && !fieldsJson.isBlank()) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> fields = mapper.readValue(fieldsJson, Map.class);
+                requestBody.put("fields", fields);
+            } catch (Exception e) {
+                throw new McpToolException("Invalid fields JSON: " + e.getMessage());
+            }
+        }
+
+        if (comment != null && !comment.isBlank()) {
+            requestBody.put("update", Map.of(
+                    "comment", List.of(Map.of("add", Map.of("body", comment)))
+            ));
+        }
+
         try {
             String jsonBody = mapper.writeValueAsString(requestBody);
-            return client.post("/rest/api/2/issue/" + issueKey + "/transitions", jsonBody, authHeader);
+            client.post("/rest/api/2/issue/" + issueKey + "/transitions", jsonBody, authHeader);
+            // Return the updated issue (matches upstream behavior)
+            return client.get("/rest/api/2/issue/" + issueKey, authHeader);
+        } catch (McpToolException e) {
+            throw e;
         } catch (Exception e) {
-            throw new McpToolException("Failed to serialize request: " + e.getMessage());
+            throw new McpToolException("Failed to transition issue: " + e.getMessage());
         }
     }
 }

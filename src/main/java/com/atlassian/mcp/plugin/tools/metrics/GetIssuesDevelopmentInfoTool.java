@@ -4,17 +4,24 @@ import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Batch version of get_issue_development_info.
+ * Delegates to GetIssueDevelopmentInfoTool per-issue (matches upstream pattern).
+ */
 public class GetIssuesDevelopmentInfoTool implements McpTool {
     private final JiraRestClient client;
+    private final GetIssueDevelopmentInfoTool singleTool;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public GetIssuesDevelopmentInfoTool(JiraRestClient client) {
         this.client = client;
+        this.singleTool = new GetIssueDevelopmentInfoTool(client);
     }
 
     @Override public String name() { return "get_issues_development_info"; }
@@ -63,41 +70,38 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
         }
 
         int total = trimmedKeys.size();
-        List<String> results = new ArrayList<>();
-
-        List<String> errors = new ArrayList<>();
+        List<Object> results = new ArrayList<>();
 
         for (int i = 0; i < total; i++) {
             String key = trimmedKeys.get(i);
             progress.report(i, total, "Fetching dev info for " + key + " (" + (i + 1) + "/" + total + ")");
 
             try {
-                StringBuilder query = new StringBuilder("?issueKey=");
-                query.append(URLEncoder.encode(key, StandardCharsets.UTF_8));
-                if (applicationType != null && !applicationType.isBlank()) {
-                    query.append("&applicationType=").append(URLEncoder.encode(applicationType, StandardCharsets.UTF_8));
-                }
-                if (dataType != null && !dataType.isBlank()) {
-                    query.append("&dataType=").append(URLEncoder.encode(dataType, StandardCharsets.UTF_8));
-                }
+                // Delegate to single-issue tool (handles numeric ID resolution etc.)
+                Map<String, Object> singleArgs = new LinkedHashMap<>();
+                singleArgs.put("issue_key", key);
+                if (applicationType != null) singleArgs.put("application_type", applicationType);
+                if (dataType != null) singleArgs.put("data_type", dataType);
 
-                String devInfo = client.get("/rest/dev-status/latest/issue/detail" + query, authHeader);
-                results.add("\"" + key + "\":" + devInfo);
+                String devInfo = singleTool.execute(singleArgs, authHeader);
+                results.add(mapper.readTree(devInfo));
             } catch (Exception e) {
-                errors.add("\"" + key + "\":{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
+                Map<String, Object> errorResult = new LinkedHashMap<>();
+                errorResult.put("issue_key", key);
+                errorResult.put("error", e.getMessage());
+                errorResult.put("pullRequests", List.of());
+                errorResult.put("branches", List.of());
+                errorResult.put("commits", List.of());
+                results.add(errorResult);
             }
         }
 
-        progress.report(total, total, "Completed: " + results.size() + " fetched, " + errors.size() + " errors");
+        progress.report(total, total, "Completed: " + total + " issues processed");
 
-        StringBuilder sb = new StringBuilder("{\"devInfo\":{");
-        sb.append(String.join(",", results));
-        sb.append("},\"fetched\":").append(results.size());
-        sb.append(",\"errors\":").append(errors.size());
-        if (!errors.isEmpty()) {
-            sb.append(",\"failed\":{").append(String.join(",", errors)).append("}");
+        try {
+            return mapper.writeValueAsString(results);
+        } catch (Exception e) {
+            throw new McpToolException("Failed to serialize results: " + e.getMessage());
         }
-        sb.append("}");
-        return sb.toString();
     }
 }

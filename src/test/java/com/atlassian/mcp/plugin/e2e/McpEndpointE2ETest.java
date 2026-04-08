@@ -227,13 +227,15 @@ public class McpEndpointE2ETest {
     // ── Response Trimming Tests ──────────────────────────────────────
 
     @Test
-    public void t30_responseTrimming_noSelfLinks() throws Exception {
+    public void t30_responseTrimming_noAvatarSizeKeys() throws Exception {
         JsonNode result = callTool("get_all_projects", Map.of());
         String raw = getContentText(result);
         assertNotNull(raw);
 
-        assertFalse("Response should not contain \"self\" links",
-                raw.contains("\"self\""));
+        // "self" links are now kept (upstream JiraIssueLinkType and JiraUser include them)
+        // but avatar size keys should still be stripped
+        assertFalse("Response should not contain avatar size keys",
+                raw.contains("\"48x48\"") || raw.contains("\"32x32\""));
     }
 
     @Test

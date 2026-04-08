@@ -49,13 +49,22 @@ public class LinkToEpicTool implements McpTool {
             throw new McpToolException("'epic_key' parameter is required");
         }
 
+        // Jira Agile API expects: {"issues": ["PROJ-123"]}
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("issue_key", issueKey);
+        requestBody.put("issues", List.of(issueKey));
         try {
             String jsonBody = mapper.writeValueAsString(requestBody);
-            return client.post("/rest/agile/1.0/epic/" + epicKey + "/issue", jsonBody, authHeader);
+            client.post("/rest/agile/1.0/epic/" + epicKey + "/issue", jsonBody, authHeader);
+            // Return the updated issue with a message (matches upstream)
+            String updatedIssue = client.get("/rest/api/2/issue/" + issueKey, authHeader);
+            Map<String, Object> result = new HashMap<>();
+            result.put("message", "Issue " + issueKey + " has been linked to epic " + epicKey + ".");
+            result.put("issue", mapper.readTree(updatedIssue));
+            return mapper.writeValueAsString(result);
+        } catch (McpToolException e) {
+            throw e;
         } catch (Exception e) {
-            throw new McpToolException("Failed to serialize request: " + e.getMessage());
+            throw new McpToolException("Failed to link issue to epic: " + e.getMessage());
         }
     }
 }

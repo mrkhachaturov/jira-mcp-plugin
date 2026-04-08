@@ -181,7 +181,9 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 
 `ResponseTrimmer` runs on all `JiraRestClient` responses. It strips fields that the upstream's Pydantic `to_simplified_dict()` never includes:
 
-**Stripped recursively:** `self`, `avatarUrls`, `iconUrl`, `expand`, `groups`, `applicationRoles`, avatar size keys (`48x48`, `32x32`, etc.)
+**Stripped recursively:** `avatarUrls`, `iconUrl`, `expand`, `groups`, `applicationRoles`, avatar size keys (`48x48`, `32x32`, etc.)
+
+**Note:** `self` links are **kept** — upstream's `JiraIssueLinkType.to_simplified_dict()` includes them, and `JiraUser` converts the 48x48 avatar URL to `avatar_url`.
 
 **Stripped at top level:** `renderedFields`, `names`, `schema`, `editmeta`, `versionedRepresentations`, `operations`
 
