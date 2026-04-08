@@ -38,6 +38,8 @@ public class RemoveWatcherTool implements McpTool {
 
     @Override public boolean isWriteTool() { return true; }
 
+    @Override public boolean isDestructiveTool() { return true; }
+
     @Override
     public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
         String issueKey = (String) args.get("issue_key");

@@ -55,6 +55,14 @@ public interface McpTool {
         return execute(args, authHeader);
     }
 
+    /**
+     * Whether this tool performs destructive operations (delete, remove).
+     * Used for MCP tool annotations (destructiveHint).
+     */
+    default boolean isDestructiveTool() {
+        return false;
+    }
+
     /** Callback for reporting progress during streaming execution. */
     @FunctionalInterface
     interface ProgressCallback {
