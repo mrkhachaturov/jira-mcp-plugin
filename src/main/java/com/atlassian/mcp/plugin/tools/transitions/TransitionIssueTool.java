@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.tools.transitions;
 
+import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
@@ -69,7 +70,7 @@ public class TransitionIssueTool implements McpTool {
 
         if (comment != null && !comment.isBlank()) {
             requestBody.put("update", Map.of(
-                    "comment", List.of(Map.of("add", Map.of("body", comment)))
+                    "comment", List.of(Map.of("add", Map.of("body", JiraMarkupConverter.markdownToJira(comment))))
             ));
         }
 

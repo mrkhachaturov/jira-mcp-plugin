@@ -47,7 +47,9 @@ public class GetProjectIssuesTool implements McpTool {
         int limit = Math.min(getInt(args, "limit", 10), 50);
         int startAt = getInt(args, "start_at", 0);
 
-        return client.get("/rest/api/2/search", authHeader);
+        String jql = "project=" + encode(projectKey) + " ORDER BY created DESC";
+        String query = "?jql=" + encode(jql) + "&maxResults=" + limit + "&startAt=" + startAt;
+        return client.get("/rest/api/2/search" + query, authHeader);
     }
 
     private static String encode(String s) {

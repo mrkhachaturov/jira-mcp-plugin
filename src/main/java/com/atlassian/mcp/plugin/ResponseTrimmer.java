@@ -74,6 +74,17 @@ public final class ResponseTrimmer {
     );
 
     /**
+     * Text fields that contain Jira wiki markup and should be converted
+     * to Markdown for AI agent consumption. Mirrors upstream's
+     * jira_to_markdown() preprocessing.
+     */
+    private static final Set<String> WIKI_MARKUP_FIELDS = Set.of(
+            "description",
+            "body",
+            "environment"
+    );
+
+    /**
      * Trim a JSON response string to match upstream's simplified output.
      * Returns the original string unchanged if it's not valid JSON.
      */
@@ -108,6 +119,15 @@ public final class ResponseTrimmer {
                 JsonNode val = obj.remove(entry.getKey());
                 if (val != null) {
                     obj.set(entry.getValue(), val);
+                }
+            }
+
+            // Convert wiki markup text fields to Markdown
+            for (String field : WIKI_MARKUP_FIELDS) {
+                JsonNode val = obj.get(field);
+                if (val != null && val.isTextual()) {
+                    String converted = JiraMarkupConverter.jiraToMarkdown(val.asText());
+                    obj.put(field, converted);
                 }
             }
 

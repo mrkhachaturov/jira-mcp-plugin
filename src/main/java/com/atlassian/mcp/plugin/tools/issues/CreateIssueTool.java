@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.tools.issues;
 
+import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
@@ -67,7 +68,7 @@ public class CreateIssueTool implements McpTool {
         fields.put("summary", summary);
         fields.put("issuetype", Map.of("name", issueType));
 
-        if (description != null) fields.put("description", description);
+        if (description != null) fields.put("description", JiraMarkupConverter.markdownToJira(description));
         if (assignee != null) fields.put("assignee", Map.of("name", assignee));
         if (components != null) {
             fields.put("components",

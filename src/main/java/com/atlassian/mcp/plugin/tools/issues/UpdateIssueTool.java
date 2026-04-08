@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.tools.issues;
 
+import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
@@ -74,6 +75,11 @@ public class UpdateIssueTool implements McpTool {
             } catch (Exception e) {
                 throw new McpToolException("Invalid additional_fields JSON: " + e.getMessage());
             }
+        }
+
+        // Convert description from Markdown to Jira wiki markup
+        if (updateFields.containsKey("description") && updateFields.get("description") instanceof String desc) {
+            updateFields.put("description", JiraMarkupConverter.markdownToJira(desc));
         }
 
         // Parse components
