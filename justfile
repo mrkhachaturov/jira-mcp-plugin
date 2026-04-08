@@ -7,9 +7,16 @@ set dotenv-load := false
 default:
     @just --list
 
+# Build the MCP App widget (React → single HTML)
+[group('build')]
+build-app:
+    cd mcp-app && npm ci && npm run build
+    mkdir -p src/main/resources/mcp-app
+    cp mcp-app/dist/issue-card.html src/main/resources/mcp-app/
+
 # Build the plugin JAR/OBR
 [group('build')]
-build:
+build: build-app
     atlas-package -DskipTests
 
 # Clean build artifacts
@@ -67,3 +74,8 @@ debug:
 [group('dev')]
 codegen:
     python3 .codegen/translate.py
+
+# Widget dev server (hot reload)
+[group('dev')]
+dev-app:
+    cd mcp-app && npm run dev

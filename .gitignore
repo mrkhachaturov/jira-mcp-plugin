@@ -25,3 +25,8 @@ Thumbs.db
 
 # Jira swagger spec (downloaded locally for reference)
 jira_software_dc_*_swagger*.json
+
+# MCP App widget (build artifacts)
+mcp-app/dist/
+mcp-app/node_modules/
+src/main/resources/mcp-app/
