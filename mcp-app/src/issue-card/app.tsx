@@ -3,6 +3,9 @@ import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import type { StructuredContent } from './types'
 import { Loading } from './components/loading'
 import { Empty } from './components/empty'
+import { IssueList } from './components/issue-list'
+import { IssueDetail } from './components/issue-detail'
+import { ActionBar } from './components/action-bar'
 import './styles/global.css'
 
 export function App() {
@@ -60,14 +63,34 @@ export function App() {
   if (error) return <div style={{ color: 'var(--error)', padding: '12px' }}>{error}</div>
   if (!data || data.issues.length === 0) return <Empty />
 
-  // Placeholder — replaced in Tasks 11-13 with real components
+  if (data.issues.length === 1) {
+    return (
+      <IssueDetail issue={data.issues[0]} baseUrl={data.baseUrl}>
+        {app && (
+          <ActionBar
+            app={app}
+            issue={data.issues[0]}
+            currentUser={data.currentUser}
+            onRefresh={() => refreshIssue(data.issues[0].key)}
+          />
+        )}
+      </IssueDetail>
+    )
+  }
+
   return (
-    <div>
-      {data.issues.map(issue => (
-        <div key={issue.key} style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>
-          <strong>{issue.key}</strong> {issue.summary} — {issue.status.name}
-        </div>
-      ))}
-    </div>
+    <IssueList
+      issues={data.issues}
+      baseUrl={data.baseUrl}
+      totalCount={data.totalCount}
+      renderActions={issue => app ? (
+        <ActionBar
+          app={app}
+          issue={issue}
+          currentUser={data.currentUser}
+          onRefresh={() => refreshIssue(issue.key)}
+        />
+      ) : undefined}
+    />
   )
 }
