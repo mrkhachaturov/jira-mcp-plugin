@@ -329,6 +329,10 @@ public final class JiraMarkupConverter {
         output = Pattern.compile("<([^>]+)>")
                 .matcher(output).replaceAll("[$1]");
 
+        // ── Blockquotes > text → bq. text ──
+        output = Pattern.compile("^> (.*)$", Pattern.MULTILINE)
+                .matcher(output).replaceAll("bq. $1");
+
         // ── User mentions @username → [~username] ──
         output = Pattern.compile("@(\\w+)")
                 .matcher(output).replaceAll("[~$1]");

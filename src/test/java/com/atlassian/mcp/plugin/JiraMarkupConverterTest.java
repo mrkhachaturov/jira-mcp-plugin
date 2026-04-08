@@ -400,6 +400,12 @@ public class JiraMarkupConverterTest {
     }
 
     @Test
+    public void mdToJira_blockquote() {
+        assertEquals("bq. This is a quote",
+                JiraMarkupConverter.markdownToJira("> This is a quote"));
+    }
+
+    @Test
     public void mdToJira_codeBlockProtectsContent() {
         // Bold/italic inside code blocks should NOT be converted
         String md = "```\n**not jira bold**\n*not jira italic*\n```";
