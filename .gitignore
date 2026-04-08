@@ -17,6 +17,7 @@ target/
 # RKstack / Claude Code
 .rkstack/
 .mcp.json
+.worktrees/
 
 # OS
 .DS_Store
