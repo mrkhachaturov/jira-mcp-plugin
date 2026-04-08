@@ -176,7 +176,7 @@ public class McpResource {
         }
 
         // Standard path: single JSON response
-        String result = handler.handle(body, userKey, authHeader);
+        String result = handler.handle(body, userKey, username, authHeader);
 
         if (result == null) {
             return Response.status(202).build();
@@ -412,7 +412,8 @@ public class McpResource {
 
     /** Hosts allowed as Origin besides the Jira base URL itself. */
     private static final Set<String> ALLOWED_ORIGINS = Set.of(
-            "claude.ai", "www.claude.ai", "claude.com", "www.claude.com");
+            "claude.ai", "www.claude.ai", "claude.com", "www.claude.com",
+            "chatgpt.com", "www.chatgpt.com", "openai.com", "www.openai.com");
 
     private Response validateOrigin(HttpServletRequest request) {
         String origin = request.getHeader("Origin");
