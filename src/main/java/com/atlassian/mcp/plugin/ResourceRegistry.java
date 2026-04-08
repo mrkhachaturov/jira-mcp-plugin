@@ -114,6 +114,7 @@ public class ResourceRegistry {
             content.put("uri", resourceUri);
             content.put("mimeType", MIME_TYPE);
             content.put("text", html);
+            content.set("_meta", buildResourceMeta());
             contents.add(content);
             result.set("contents", contents);
             return mapper.writeValueAsString(result);
@@ -125,38 +126,42 @@ public class ResourceRegistry {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    /** Build the resource metadata node shared by resources/list. */
+    /** Build the resource node for resources/list. */
     private ObjectNode buildResourceNode() {
-        String baseUrl = resolveBaseUrl();
         ObjectNode node = mapper.createObjectNode();
         node.put("uri", resourceUri);
         node.put("name", "Jira Issue Card");
         node.put("description", "Interactive Jira issue viewer with status transitions and comments");
         node.put("mimeType", MIME_TYPE);
+        node.set("_meta", buildResourceMeta());
+        return node;
+    }
 
-        // MCP Apps standard fields
+    /** Build the _meta object for resource content — shared between resources/list and resources/read. */
+    private ObjectNode buildResourceMeta() {
+        String baseUrl = resolveBaseUrl();
+        ObjectNode meta = mapper.createObjectNode();
+
+        // MCP Apps standard fields (Claude, VS Code, Goose)
         ObjectNode ui = mapper.createObjectNode();
         ui.put("prefersBorder", true);
-        ArrayNode empty = mapper.createArrayNode();
         ObjectNode csp = mapper.createObjectNode();
-        csp.set("connectDomains", empty);
-        csp.set("resourceDomains", empty);
+        csp.set("connectDomains", mapper.createArrayNode());
+        csp.set("resourceDomains", mapper.createArrayNode());
         ui.set("csp", csp);
-        node.set("ui", ui);
+        meta.set("ui", ui);
 
-        // OpenAI compatibility fields (x- annotations)
-        ObjectNode annotations = mapper.createObjectNode();
-        annotations.put("openai/widgetDescription",
+        // OpenAI / ChatGPT compatibility fields
+        meta.put("openai/widgetDescription",
                 "Interactive Jira issue viewer with status transitions and comments");
-        annotations.put("openai/widgetPrefersBorder", true);
+        meta.put("openai/widgetPrefersBorder", true);
         ObjectNode widgetCsp = mapper.createObjectNode();
         widgetCsp.set("connect_domains", mapper.createArrayNode());
         widgetCsp.set("resource_domains", mapper.createArrayNode());
-        annotations.set("openai/widgetCSP", widgetCsp);
-        annotations.put("openai/widgetDomain", baseUrl);
-        node.set("annotations", annotations);
+        meta.set("openai/widgetCSP", widgetCsp);
+        meta.put("openai/widgetDomain", baseUrl);
 
-        return node;
+        return meta;
     }
 
     /**
