@@ -337,6 +337,98 @@ public class McpEndpointE2ETest {
         assertFalse("Get issue dates should not error", isError(result));
     }
 
+    // ── Markup Conversion Round-Trip Tests ─────────────────────────
+
+    @Test
+    public void t46_markdownDescription_roundTrip() throws Exception {
+        // Create issue with Markdown description
+        String mdDescription = "## Overview\n\n"
+                + "This is **bold** and *italic* text.\n\n"
+                + "- Bullet 1\n- Bullet 2\n\n"
+                + "```java\npublic void test() {}\n```\n\n"
+                + "[Link](https://example.com)";
+
+        JsonNode createResult = callTool("create_issue", Map.of(
+                "project_key", PROJECT_KEY,
+                "summary", "[E2E Test] Markup conversion test",
+                "issue_type", "Task",
+                "description", mdDescription
+        ));
+
+        assertFalse("Create should not error: " + getContentText(createResult), isError(createResult));
+        String createText = getContentText(createResult);
+        JsonNode created = MAPPER.readTree(createText);
+        String issueKey = created.path("issue").path("key").asText(
+                created.path("key").asText(null));
+        assertNotNull("Should return issue key", issueKey);
+
+        // Read back the issue — response should be in Markdown (converted from wiki)
+        JsonNode getResult = callTool("get_issue", Map.of("issue_key", issueKey));
+        assertFalse("Get should not error", isError(getResult));
+        String issueJson = getContentText(getResult);
+        JsonNode issue = MAPPER.readTree(issueJson);
+        String returnedDesc = issue.path("fields").path("description").asText("");
+
+        // Verify key Markdown elements survived the round-trip
+        assertTrue("Should contain ## heading, got: " + returnedDesc,
+                returnedDesc.contains("## Overview") || returnedDesc.contains("##  Overview"));
+        assertTrue("Should contain **bold**, got: " + returnedDesc,
+                returnedDesc.contains("**bold**"));
+        assertTrue("Should contain *italic*, got: " + returnedDesc,
+                returnedDesc.contains("*italic*"));
+        assertTrue("Should contain code fence, got: " + returnedDesc,
+                returnedDesc.contains("```java"));
+        assertTrue("Should contain link, got: " + returnedDesc,
+                returnedDesc.contains("[Link](https://example.com)"));
+
+        // Verify it's NOT raw wiki markup
+        assertFalse("Should NOT contain h2. (wiki markup)", returnedDesc.contains("h2."));
+        assertFalse("Should NOT contain {code} (wiki markup)", returnedDesc.contains("{code}"));
+
+        System.out.println("[e2e] Markdown description round-trip: OK");
+
+        // Cleanup
+        callTool("delete_issue", Map.of("issue_key", issueKey));
+    }
+
+    @Test
+    public void t47_markdownComment_roundTrip() throws Exception {
+        Assume.assumeTrue("No issue created", createdIssueKey != null);
+
+        // Add a comment with Markdown formatting
+        String mdComment = "**Action required:**\n\n"
+                + "1. Review the code\n2. Run tests\n\n"
+                + "`npm test` should pass";
+
+        JsonNode addResult = callTool("add_comment", Map.of(
+                "issue_key", createdIssueKey,
+                "body", mdComment
+        ));
+        assertFalse("Add comment should not error: " + getContentText(addResult), isError(addResult));
+
+        // Read back the issue with comments
+        JsonNode getResult = callTool("get_issue", Map.of("issue_key", createdIssueKey));
+        String issueJson = getContentText(getResult);
+        JsonNode issue = MAPPER.readTree(issueJson);
+
+        // Find the latest comment body
+        JsonNode comments = issue.path("fields").path("comment").path("comments");
+        assertTrue("Should have comments", comments.isArray() && comments.size() > 0);
+        String lastBody = comments.get(comments.size() - 1).path("body").asText("");
+
+        // Verify Markdown formatting in the returned comment
+        assertTrue("Comment should contain **bold**, got: " + lastBody,
+                lastBody.contains("**Action required:**"));
+        assertTrue("Comment should contain inline code, got: " + lastBody,
+                lastBody.contains("`npm test`"));
+
+        // Verify it's NOT raw wiki markup
+        assertFalse("Should NOT contain *bold* (single asterisk wiki)", lastBody.contains("*Action required:*\n"));
+        assertFalse("Should NOT contain {{code}} (wiki)", lastBody.contains("{{npm test}}"));
+
+        System.out.println("[e2e] Markdown comment round-trip: OK");
+    }
+
     @Test
     public void t48_deleteCreatedIssue() throws Exception {
         Assume.assumeTrue("No issue created", createdIssueKey != null);
