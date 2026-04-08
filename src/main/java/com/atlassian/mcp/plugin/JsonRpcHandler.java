@@ -12,6 +12,7 @@ import javax.inject.Named;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Named
 public class JsonRpcHandler {
@@ -21,14 +22,19 @@ public class JsonRpcHandler {
     private static final String SERVER_VERSION = "1.0.0";
     private static final String PROTOCOL_VERSION = "2025-06-18";
 
+    private static final Set<String> UI_TOOLS = Set.of(
+            "get_issue", "search", "get_project_issues", "get_board_issues", "get_sprint_issues");
+
     private final ObjectMapper mapper = new ObjectMapper();
     private final ToolRegistry toolRegistry;
     private final McpPluginConfig config;
+    private final ResourceRegistry resourceRegistry;
 
     @Inject
-    public JsonRpcHandler(ToolRegistry toolRegistry, McpPluginConfig config) {
+    public JsonRpcHandler(ToolRegistry toolRegistry, McpPluginConfig config, ResourceRegistry resourceRegistry) {
         this.toolRegistry = toolRegistry;
         this.config = config;
+        this.resourceRegistry = resourceRegistry;
     }
 
     /**
@@ -64,6 +70,8 @@ public class JsonRpcHandler {
             case "ping" -> successResponse(id, mapper.createObjectNode());
             case "tools/list" -> handleToolsList(id, userKey);
             case "tools/call" -> handleToolsCall(id, params, userKey, authHeader);
+            case "resources/list" -> handleResourcesList(id);
+            case "resources/read" -> handleResourcesRead(id, params);
             default -> {
                 if (isNotification) yield null;
                 yield errorResponse(id, -32601, "Method not found: " + method);
@@ -84,8 +92,15 @@ public class JsonRpcHandler {
         ObjectNode tools = mapper.createObjectNode();
         tools.put("listChanged", false);
         capabilities.set("tools", tools);
-        result.set("capabilities", capabilities);
 
+        if (resourceRegistry.isAvailable()) {
+            capabilities.set("resources", mapper.createObjectNode());
+            ObjectNode experimental = mapper.createObjectNode();
+            experimental.set("io.modelcontextprotocol/ui", mapper.createObjectNode());
+            capabilities.set("experimental", experimental);
+        }
+
+        result.set("capabilities", capabilities);
         return successResponse(id, result);
     }
 
@@ -99,11 +114,55 @@ public class JsonRpcHandler {
             toolNode.put("name", tool.name());
             toolNode.put("description", tool.description());
             toolNode.set("inputSchema", mapper.valueToTree(tool.inputSchema()));
+
+            // Annotations (on every tool)
+            ObjectNode annotations = mapper.createObjectNode();
+            annotations.put("readOnlyHint", !tool.isWriteTool());
+            annotations.put("destructiveHint", tool.isDestructiveTool());
+            toolNode.set("annotations", annotations);
+
+            // _meta.ui (on UI-linked tools, only when widget is available)
+            if (resourceRegistry.isAvailable() && UI_TOOLS.contains(tool.name())) {
+                ObjectNode meta = mapper.createObjectNode();
+                ObjectNode ui = mapper.createObjectNode();
+                ui.put("resourceUri", resourceRegistry.getResourceUri());
+                meta.set("ui", ui);
+                toolNode.set("_meta", meta);
+            }
+
             toolsArray.add(toolNode);
         }
 
         result.set("tools", toolsArray);
         return successResponse(id, result);
+    }
+
+    private String handleResourcesList(JsonNode id) {
+        String result = resourceRegistry.buildResourcesList();
+        if (result == null) {
+            return successResponse(id, mapper.createObjectNode());
+        }
+        try {
+            return successResponse(id, mapper.readTree(result));
+        } catch (Exception e) {
+            return errorResponse(id, -32603, "Failed to build resources list");
+        }
+    }
+
+    private String handleResourcesRead(JsonNode id, JsonNode params) {
+        String uri = params.has("uri") ? params.get("uri").asText() : null;
+        if (uri == null || uri.isEmpty()) {
+            return errorResponse(id, -32602, "Missing 'uri' in params");
+        }
+        String result = resourceRegistry.buildResourceRead(uri);
+        if (result == null) {
+            return errorResponse(id, -32602, "Resource not found: " + uri);
+        }
+        try {
+            return successResponse(id, mapper.readTree(result));
+        } catch (Exception e) {
+            return errorResponse(id, -32603, "Failed to read resource");
+        }
     }
 
     @SuppressWarnings("unchecked")
