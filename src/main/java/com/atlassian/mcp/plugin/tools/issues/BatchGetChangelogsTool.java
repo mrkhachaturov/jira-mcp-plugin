@@ -19,7 +19,7 @@ public class BatchGetChangelogsTool implements McpTool {
 
     @Override
     public String description() {
-        return "Get changelogs for multiple Jira issues (Cloud only).";
+        return "Get changelogs for multiple Jira issues. Retrieves the change history for each issue showing field changes, status transitions, and who made each change.";
     }
 
     @Override
@@ -67,7 +67,9 @@ public class BatchGetChangelogsTool implements McpTool {
             progress.report(i, total, "Fetching changelog for " + key + " (" + (i + 1) + "/" + total + ")");
 
             try {
-                String changelog = client.get("/rest/api/2/issue/" + key + "/changelog", authHeader);
+                // Use expand=changelog which works on both Cloud and DC
+                // (the /changelog endpoint is Cloud-only)
+                String changelog = client.get("/rest/api/2/issue/" + key + "?expand=changelog&fields=key,summary", authHeader);
                 results.add("\"" + key + "\":" + changelog);
             } catch (Exception e) {
                 errors.add("\"" + key + "\":{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");

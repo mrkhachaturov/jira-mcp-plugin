@@ -34,10 +34,15 @@ public final class ResponseTrimmer {
     /**
      * Fields to remove recursively from ALL JSON objects.
      * Upstream Pydantic models never serialize these.
+     *
+     * Note: "self" is kept — upstream JiraIssueLinkType includes it, and
+     * JiraUser converts it to "avatar_url" (the 48x48 URL). Removing "self"
+     * globally breaks link type and user responses. Individual avatar dimension
+     * keys (48x48 etc.) inside "avatarUrls" are stripped along with the
+     * "avatarUrls" container itself.
      */
     private static final Set<String> STRIP_RECURSIVE = Set.of(
             "avatarUrls",
-            "self",
             "iconUrl",
             "expand",
             "48x48", "32x32", "24x24", "16x16",
