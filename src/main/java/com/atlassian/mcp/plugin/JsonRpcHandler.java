@@ -49,7 +49,7 @@ public class JsonRpcHandler {
     /**
      * Handle a JSON-RPC request. Returns null for notifications (caller should return 202).
      */
-    public String handle(String jsonBody, String userKey, String username, String authHeader) {
+    public String handle(String jsonBody, String userKey, String username, String userDisplayName, String authHeader) {
         JsonNode request;
         try {
             request = mapper.readTree(jsonBody);
@@ -78,7 +78,7 @@ public class JsonRpcHandler {
             case "notifications/initialized" -> null; // notification
             case "ping" -> successResponse(id, mapper.createObjectNode());
             case "tools/list" -> handleToolsList(id, userKey);
-            case "tools/call" -> handleToolsCall(id, params, userKey, username, authHeader);
+            case "tools/call" -> handleToolsCall(id, params, userKey, username, userDisplayName, authHeader);
             case "resources/list" -> handleResourcesList(id);
             case "resources/read" -> handleResourcesRead(id, params);
             default -> {
@@ -175,7 +175,7 @@ public class JsonRpcHandler {
     }
 
     @SuppressWarnings("unchecked")
-    private String handleToolsCall(JsonNode id, JsonNode params, String userKey, String username, String authHeader) {
+    private String handleToolsCall(JsonNode id, JsonNode params, String userKey, String username, String userDisplayName, String authHeader) {
         String toolName = params.has("name") ? params.get("name").asText() : null;
         if (toolName == null) {
             return errorResponse(id, -32602, "Missing 'name' in params");
@@ -213,7 +213,7 @@ public class JsonRpcHandler {
             if (resourceRegistry.isAvailable() && UI_TOOLS.contains(toolName)) {
                 try {
                     JsonNode parsed = mapper.readTree(resultText);
-                    ObjectNode structured = buildStructuredContent(toolName, parsed, username);
+                    ObjectNode structured = buildStructuredContent(toolName, parsed, username, userDisplayName);
                     if (structured != null) {
                         result.set("structuredContent", structured);
                     }
@@ -263,13 +263,13 @@ public class JsonRpcHandler {
      * Build the structuredContent node for a UI-linked tool result.
      * Returns null if the data cannot be normalized.
      */
-    private ObjectNode buildStructuredContent(String toolName, JsonNode data, String username) {
+    private ObjectNode buildStructuredContent(String toolName, JsonNode data, String username, String userDisplayName) {
         ObjectNode sc = mapper.createObjectNode();
 
         // currentUser (needed for "Assign to me" actions)
         ObjectNode currentUser = mapper.createObjectNode();
         currentUser.put("name", username != null ? username : "");
-        currentUser.put("displayName", "");
+        currentUser.put("displayName", userDisplayName != null ? userDisplayName : "");
         sc.set("currentUser", currentUser);
 
         // baseUrl (needed to build browse URLs and API calls in the widget)

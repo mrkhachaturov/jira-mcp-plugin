@@ -32,7 +32,7 @@ public class JsonRpcHandlerTest {
     @Test
     public void testInitialize() throws Exception {
         String request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
-        String response = handler.handle(request, "user1", "user1", "Bearer token");
+        String response = handler.handle(request, "user1", "user1", "User One", "Bearer token");
 
         JsonNode json = mapper.readTree(response);
         assertEquals("2.0", json.get("jsonrpc").asText());
@@ -45,7 +45,7 @@ public class JsonRpcHandlerTest {
     @Test
     public void testPing() throws Exception {
         String request = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}";
-        String response = handler.handle(request, "user1", "user1", "Bearer token");
+        String response = handler.handle(request, "user1", "user1", "User One", "Bearer token");
 
         JsonNode json = mapper.readTree(response);
         assertEquals(2, json.get("id").asInt());
@@ -55,14 +55,14 @@ public class JsonRpcHandlerTest {
     @Test
     public void testNotificationReturnsNull() {
         String request = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}";
-        String response = handler.handle(request, "user1", "user1", "Bearer token");
+        String response = handler.handle(request, "user1", "user1", "User One", "Bearer token");
         assertNull(response);
     }
 
     @Test
     public void testUnknownMethodReturnsError() throws Exception {
         String request = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"unknown/method\"}";
-        String response = handler.handle(request, "user1", "user1", "Bearer token");
+        String response = handler.handle(request, "user1", "user1", "User One", "Bearer token");
 
         JsonNode json = mapper.readTree(response);
         assertEquals(-32601, json.get("error").get("code").asInt());
@@ -70,7 +70,7 @@ public class JsonRpcHandlerTest {
 
     @Test
     public void testMalformedJsonReturnsParseError() throws Exception {
-        String response = handler.handle("not json at all", "user1", "user1", "Bearer token");
+        String response = handler.handle("not json at all", "user1", "user1", "User One", "Bearer token");
 
         JsonNode json = mapper.readTree(response);
         assertEquals(-32700, json.get("error").get("code").asInt());
@@ -78,7 +78,7 @@ public class JsonRpcHandlerTest {
 
     @Test
     public void testBatchRequestRejected() throws Exception {
-        String response = handler.handle("[{},{}]", "user1", "user1", "Bearer token");
+        String response = handler.handle("[{},{}]", "user1", "user1", "User One", "Bearer token");
 
         JsonNode json = mapper.readTree(response);
         assertEquals(-32600, json.get("error").get("code").asInt());

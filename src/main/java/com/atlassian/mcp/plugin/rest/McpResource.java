@@ -176,7 +176,8 @@ public class McpResource {
         }
 
         // Standard path: single JSON response
-        String result = handler.handle(body, userKey, username, authHeader);
+        String userDisplayName = user.getFullName();
+        String result = handler.handle(body, userKey, username, userDisplayName, authHeader);
 
         if (result == null) {
             return Response.status(202).build();
