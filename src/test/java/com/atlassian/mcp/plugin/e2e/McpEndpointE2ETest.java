@@ -2,6 +2,7 @@ package com.atlassian.mcp.plugin.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
@@ -723,6 +724,103 @@ public class McpEndpointE2ETest {
         assertFalse("CEO should not get error", result.has("error"));
 
         System.out.println("[e2e] CEO access: GRANTED");
+    }
+
+    // ── MCP Apps: Resources, Annotations, structuredContent ─────────
+
+    @Test
+    public void test_A01_initialize_advertises_resources() throws Exception {
+        JsonNode result = mcpCall("initialize", MAPPER.createObjectNode()).path("result");
+        JsonNode capabilities = result.path("capabilities");
+        if (capabilities.has("resources")) {
+            assertTrue("capabilities.experimental should exist when resources does",
+                    capabilities.has("experimental"));
+        }
+    }
+
+    @Test
+    public void test_B20_tools_list_has_annotations() throws Exception {
+        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
+        JsonNode tools = result.path("result").path("tools");
+        for (JsonNode tool : tools) {
+            assertTrue("Tool " + tool.path("name").asText() + " must have annotations",
+                    tool.has("annotations"));
+            JsonNode annotations = tool.get("annotations");
+            assertTrue("annotations must have readOnlyHint", annotations.has("readOnlyHint"));
+            assertTrue("annotations must have destructiveHint", annotations.has("destructiveHint"));
+        }
+    }
+
+    @Test
+    public void test_B21_delete_issue_is_destructive() throws Exception {
+        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
+        JsonNode tools = result.path("result").path("tools");
+        for (JsonNode tool : tools) {
+            if ("delete_issue".equals(tool.path("name").asText())) {
+                assertTrue("delete_issue must have destructiveHint=true",
+                        tool.path("annotations").path("destructiveHint").asBoolean());
+                assertFalse("delete_issue must have readOnlyHint=false",
+                        tool.path("annotations").path("readOnlyHint").asBoolean());
+            }
+        }
+    }
+
+    @Test
+    public void test_B22_search_is_readonly() throws Exception {
+        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
+        JsonNode tools = result.path("result").path("tools");
+        for (JsonNode tool : tools) {
+            if ("search".equals(tool.path("name").asText())) {
+                assertTrue("search must have readOnlyHint=true",
+                        tool.path("annotations").path("readOnlyHint").asBoolean());
+                assertFalse("search must have destructiveHint=false",
+                        tool.path("annotations").path("destructiveHint").asBoolean());
+            }
+        }
+    }
+
+    @Test
+    public void test_B23_issue_tools_have_meta_ui() throws Exception {
+        Set<String> uiTools = Set.of("get_issue", "search", "get_project_issues",
+                "get_board_issues", "get_sprint_issues");
+        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
+        JsonNode tools = result.path("result").path("tools");
+        for (JsonNode tool : tools) {
+            String name = tool.path("name").asText();
+            if (uiTools.contains(name) && tool.has("_meta")) {
+                assertTrue("Tool " + name + " must have _meta.ui.resourceUri",
+                        tool.path("_meta").path("ui").has("resourceUri"));
+                String uri = tool.path("_meta").path("ui").path("resourceUri").asText();
+                assertTrue("resourceUri must start with ui://", uri.startsWith("ui://"));
+            }
+        }
+    }
+
+    @Test
+    public void test_E01_resources_list() throws Exception {
+        JsonNode result = mcpCall("resources/list", MAPPER.createObjectNode()).path("result");
+        JsonNode resources = result.path("resources");
+        assertTrue("resources should be an array", resources.isArray());
+    }
+
+    @Test
+    public void test_E02_resources_read_unknown_uri() throws Exception {
+        ObjectNode params = MAPPER.createObjectNode();
+        params.put("uri", "ui://nonexistent/widget");
+        JsonNode result = mcpCall("resources/read", params);
+        assertTrue("Should return error for unknown URI", result.has("error"));
+    }
+
+    @Test
+    public void test_E03_search_has_structured_content() throws Exception {
+        JsonNode result = callTool("search", Map.of("jql", "order by updated DESC", "limit", "1"));
+        JsonNode callResult = result.path("result");
+        if (callResult.has("structuredContent")) {
+            JsonNode sc = callResult.get("structuredContent");
+            assertTrue("structuredContent must have issues", sc.has("issues"));
+            assertTrue("structuredContent must have baseUrl", sc.has("baseUrl"));
+            assertTrue("structuredContent must have currentUser", sc.has("currentUser"));
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
