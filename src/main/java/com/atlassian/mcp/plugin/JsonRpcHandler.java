@@ -337,21 +337,23 @@ public class JsonRpcHandler {
             statusOut.put("name", status.has("name") ? status.get("name").asText("") : "");
             JsonNode statusCategory = status.has("statusCategory") ? status.get("statusCategory") : null;
             if (statusCategory != null && statusCategory.isObject()) {
-                statusOut.put("statusCategoryKey",
+                statusOut.put("category",
                         statusCategory.has("key") ? statusCategory.get("key").asText("") : "");
             } else {
-                statusOut.put("statusCategoryKey", "");
+                statusOut.put("category", "");
             }
         } else {
             statusOut.put("name", "");
-            statusOut.put("statusCategoryKey", "");
+            statusOut.put("category", "");
         }
         out.set("status", statusOut);
 
-        // Priority
+        // Priority (as object with name)
+        ObjectNode priorityOut = mapper.createObjectNode();
         JsonNode priority = fields.has("priority") ? fields.get("priority") : null;
-        out.put("priority", (priority != null && priority.isObject() && priority.has("name"))
+        priorityOut.put("name", (priority != null && priority.isObject() && priority.has("name"))
                 ? priority.get("name").asText("") : "");
+        out.set("priority", priorityOut);
 
         // Issue type — ResponseTrimmer renames issuetype → issue_type, handle both
         JsonNode issueType = null;
@@ -360,8 +362,10 @@ public class JsonRpcHandler {
         } else if (fields.has("issuetype")) {
             issueType = fields.get("issuetype");
         }
-        out.put("issueType", (issueType != null && issueType.isObject() && issueType.has("name"))
+        ObjectNode issueTypeOut = mapper.createObjectNode();
+        issueTypeOut.put("name", (issueType != null && issueType.isObject() && issueType.has("name"))
                 ? issueType.get("name").asText("") : "");
+        out.set("issue_type", issueTypeOut);
 
         // Assignee (nullable)
         JsonNode assignee = fields.has("assignee") ? fields.get("assignee") : null;
