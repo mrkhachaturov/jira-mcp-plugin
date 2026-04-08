@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.tools.comments;
 
+import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
@@ -54,7 +55,7 @@ public class AddCommentTool implements McpTool {
         boolean isPublic = getBoolean(args, "public", false);
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("body", body);
+        requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
         if (visibility != null) requestBody.put("visibility", visibility);
         requestBody.put("public", isPublic);
         try {
