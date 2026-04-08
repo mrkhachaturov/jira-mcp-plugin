@@ -12,7 +12,7 @@ default:
 build-app:
     cd mcp-app && npm ci && npm run build
     mkdir -p src/main/resources/mcp-app
-    cp mcp-app/dist/issue-card.html src/main/resources/mcp-app/
+    cp mcp-app/dist/index.html src/main/resources/mcp-app/issue-card.html
 
 # Build the plugin JAR/OBR
 [group('build')]

@@ -64,7 +64,7 @@ jobs:
           npm ci
           npm run build
           mkdir -p ../src/main/resources/mcp-app
-          cp dist/issue-card.html ../src/main/resources/mcp-app/
+          cp dist/index.html ../src/main/resources/mcp-app/issue-card.html
 
       - name: Extract version
         id: version
