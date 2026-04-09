@@ -733,8 +733,8 @@ public class McpEndpointE2ETest {
         JsonNode result = mcpCall("initialize", MAPPER.createObjectNode()).path("result");
         JsonNode capabilities = result.path("capabilities");
         if (capabilities.has("resources")) {
-            assertTrue("capabilities.experimental should exist when resources does",
-                    capabilities.has("experimental"));
+            assertTrue("capabilities.extensions should exist when resources does",
+                    capabilities.has("extensions"));
         }
     }
 
