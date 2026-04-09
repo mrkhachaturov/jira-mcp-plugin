@@ -7,7 +7,7 @@
 
     <groupId>com.atlassian.mcp</groupId>
     <artifactId>jira-mcp-plugin</artifactId>
-    <version>1.2.0</version>
+    <version>1.2.1-SNAPSHOT</version>
     <packaging>atlassian-plugin</packaging>
 
     <name>Jira MCP Plugin</name>
