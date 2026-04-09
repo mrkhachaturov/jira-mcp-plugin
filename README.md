@@ -81,6 +81,37 @@ On first connection, click Authenticate, consent on the Jira page, and you're in
 
 ---
 
+## 🎨 MCP Apps — Interactive UI
+
+[MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) is an extension to the MCP protocol that lets servers return interactive HTML interfaces rendered directly inside the chat conversation. Instead of plain text, AI clients show rich widgets with buttons, dropdowns, and live data.
+
+This plugin implements the MCP Apps extension. When you ask about Jira issues, supported clients render an **interactive Issue Card** inline:
+
+- **Issue list** with issue type icons, status badges (colors from Jira), and expand/collapse
+- **Issue detail** with Jira-native layout: type, priority, assignee, reporter, description (Markdown rendered), comments
+- **Status transitions** — click the status badge to see a dropdown of available workflow transitions, just like in Jira
+- **Add comments** directly from the card
+- **Assign to me** link under the assignee field
+- **Open in Jira** — click the issue key to open it in your browser
+
+### Supported clients
+
+| Client | MCP Apps |
+|--------|:---:|
+| Claude Desktop | Yes |
+| ChatGPT | Yes |
+| VS Code GitHub Copilot | Yes |
+| Goose | Yes |
+| Claude Code / Cursor | No (CLI, text only — tools still work) |
+
+### How it works
+
+The plugin advertises the `io.modelcontextprotocol/ui` extension during initialization. Five tools (`get_issue`, `search`, `get_project_issues`, `get_board_issues`, `get_sprint_issues`) include `_meta.ui.resourceUri` pointing to a bundled React widget. When the client calls one of these tools, it fetches the widget HTML via `resources/read` and renders it in a sandboxed iframe. The widget communicates with the server through the MCP Apps postMessage bridge — calling tools like `get_transitions`, `transition_issue`, `add_comment` directly from the UI.
+
+Text-only clients are unaffected — they receive the same text responses as before. The widget is an enhancement, not a replacement.
+
+---
+
 ## 🛠️ Available tools
 
 <details>
