@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.2.0] - 2026-04-09
+
+### Added
+
+- **MCP Apps interactive UI** — Jira issues render as rich interactive cards inside Claude Desktop, ChatGPT, VS Code Copilot, and other MCP Apps-compatible clients
+  - Issue Card widget with list view (expand/collapse) and detail view
+  - Status transition dropdown (click status badge to change workflow state)
+  - Inline comment form
+  - "Assign to me" link
+  - Markdown rendering in descriptions and comments
+  - Issue type icons (Bug, Epic, Task, Story, Sub-task, IT Help, Service Request)
+  - Priority icons from Jira (Highest, High, Medium, Low, Lowest, Blocker, Minor)
+  - Status badge colors from Jira's `statusCategory.colorName` (not hardcoded)
+  - Clickable issue keys open in Jira via `app.openLink()`
+  - i18n support (English + Russian)
+- **MCP resources protocol** — `resources/list` and `resources/read` for `ui://` resources
+- **Tool annotations** on all 49 tools (`readOnlyHint`, `destructiveHint`)
+- **`structuredContent`** normalization for 5 issue-returning tools
+- **`extensions` capability** — `io.modelcontextprotocol/ui` advertised in initialize
+- **Dual metadata** for Claude (`_meta.ui`) and ChatGPT (`openai/widget*`) compatibility
+- **ChatGPT MCP integration** — Origin allowlist includes `chatgpt.com`, `openai.com`
+- **Widget build pipeline** — React 19 + Vite + viteSingleFile, integrated in justfile and GitHub Actions CI
+- 10 new e2e tests (54 total): resources, annotations, structuredContent, extensions capability
+
+### Changed
+
+- `isDestructiveTool()` added to McpTool interface; `delete_issue`, `remove_issue_link`, `remove_watcher` marked destructive
+- `JsonRpcHandler.handle()` accepts `username` and `userDisplayName` for structuredContent
+- `ResourceRegistry` loads widget HTML from classpath, degrades gracefully if absent
+- Upstream parity: 11 tools aligned with mcp-atlassian behavior
+- Bidirectional Markdown/Jira wiki markup conversion (`JiraMarkupConverter`)
+
 ## [1.1.1] - 2026-04-07
 
 ### Added

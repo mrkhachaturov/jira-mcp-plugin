@@ -43,17 +43,21 @@ After generation, copy files to `src/main/java/.../tools/` and update `ToolRegis
 | Admin | Servlet at `/plugins/servlet/mcp-admin` + REST at `/rest/mcp-admin/1.0/` |
 | Config | `McpPluginConfig` backed by Jira `PluginSettings` (key-value) |
 | Auth | OAuth 2.0 (via Application Link) or PAT — Jira validates tokens, plugin checks access control |
+| MCP Apps | Interactive UI widget rendered in Claude Desktop, ChatGPT, VS Code Copilot. React app bundled as single HTML, served via `resources/read`. 5 tools linked via `_meta.ui.resourceUri` |
+| Resources | `ResourceRegistry` — serves `ui://jira/issue-card@{hash}` HTML from classpath. Dual metadata for Claude (`_meta.ui`) and ChatGPT (`openai/widget*`) |
 
 ## Build & Deploy
 
 All commands via `just`. Env vars auto-loaded by mise from `.credentials/jira.env`.
 
 ```bash
-just build            # atlas-package (compile + JAR)
-just deploy           # build + upload JAR to Jira UPM + verify enabled
+just build            # build widget + atlas-package (compile + JAR)
+just build-app        # build MCP App widget only (React → single HTML)
+just deploy           # clean + build + upload JAR to Jira UPM + verify enabled
 just test             # unit tests (excludes e2e)
-just e2e              # 44 e2e tests against live Jira instance
+just e2e              # 54 e2e tests against live Jira instance
 just deploy-and-test  # build + deploy + e2e in one shot
+just dev-app          # widget dev server (Vite hot reload)
 just codegen          # regenerate tools from upstream
 just clean            # atlas-clean
 ```
@@ -230,7 +234,8 @@ src/main/java/com/atlassian/mcp/plugin/
 │   ├── OAuthServlet.java             # OAuth proxy servlet
 │   ├── OAuthAnonymousFilter.java     # before-login filter for anonymous OAuth access
 │   └── RateLimiter.java              # IP-based rate limiter for anonymous + authenticated endpoints
-├── JsonRpcHandler.java                # JSON-RPC dispatch
+├── JsonRpcHandler.java                # JSON-RPC dispatch (tools/*, resources/*)
+├── ResourceRegistry.java              # MCP Apps ui:// resource registry
 ├── JiraRestClient.java                # HTTP client → Jira REST API (+ ResponseTrimmer)
 ├── ResponseTrimmer.java               # Strip verbose fields from Jira JSON responses
 ├── McpToolException.java              # Checked exception for tool failures
@@ -264,6 +269,17 @@ src/main/java/com/atlassian/mcp/plugin/
 .upstream/
 ├── mcp-atlassian/                     # Upstream Python project (git subtree/submodule)
 └── java-sdk/                          # Official MCP Java SDK (reference)
+
+mcp-app/                               # React widget project (MCP Apps)
+├── src/issue-card/                    # Issue Card widget source
+│   ├── app.tsx                        # Root component (useApp, refreshIssue)
+│   ├── i18n.ts                        # Localization (en/ru)
+│   ├── types.ts                       # TypeScript types for structuredContent
+│   ├── icons/                         # Issue type SVGs + registry
+│   │   └── priorities/                # Priority SVGs + registry
+│   └── components/                    # UI components
+├── vite.config.ts                     # Vite + viteSingleFile bundler
+└── dist/                              # Build output (gitignored)
 
 .credentials/                          # gitignored — PATs, OAuth config, deploy workflow
 ```

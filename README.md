@@ -9,8 +9,10 @@
 ![Jira DC](https://img.shields.io/badge/Jira%20DC-10.x-0052CC)
 ![MCP Tools](https://img.shields.io/badge/MCP%20tools-49-10b981)
 ![Transport](https://img.shields.io/badge/transport-Streamable%20HTTP-6366f1)
+![MCP Apps](https://img.shields.io/badge/MCP%20Apps-interactive%20UI-f59e0b)
+![E2E Tests](https://img.shields.io/badge/e2e%20tests-54-10b981)
 
-[MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that runs inside your Jira Data Center JVM. Claude Code, Cursor, and other MCP-compatible tools connect to it and work with issues, projects, boards, sprints, and more. Everything stays inside your infrastructure.
+[MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that runs inside your Jira Data Center JVM. Claude Desktop, ChatGPT, VS Code Copilot, and other MCP-compatible clients connect to it and work with issues, projects, boards, sprints, and more. Everything stays inside your infrastructure.
 
 | | Scope | Meaning |
 |---|-------|---------|
@@ -18,6 +20,7 @@
 | 🔐 | Auth | OAuth 2.0 (browser consent) + Personal Access Tokens |
 | 🛠️ | Tools | 49 tools mirrored 1:1 from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) upstream |
 | 📡 | Transport | Streamable HTTP (MCP spec 2025-06-18) with SSE progress streaming |
+| 🎨 | MCP Apps | Interactive Issue Card widget with transitions, comments, and assign (Claude Desktop, ChatGPT, VS Code) |
 
 > [!IMPORTANT]
 > This plugin runs entirely inside Jira. No data leaves your infrastructure.
