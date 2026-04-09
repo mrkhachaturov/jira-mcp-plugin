@@ -104,9 +104,9 @@ public class JsonRpcHandler {
 
         if (resourceRegistry.isAvailable()) {
             capabilities.set("resources", mapper.createObjectNode());
-            ObjectNode experimental = mapper.createObjectNode();
-            experimental.set("io.modelcontextprotocol/ui", mapper.createObjectNode());
-            capabilities.set("experimental", experimental);
+            ObjectNode extensions = mapper.createObjectNode();
+            extensions.set("io.modelcontextprotocol/ui", mapper.createObjectNode());
+            capabilities.set("extensions", extensions);
         }
 
         result.set("capabilities", capabilities);
