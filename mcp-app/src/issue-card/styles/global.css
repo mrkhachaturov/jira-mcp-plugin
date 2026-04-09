@@ -14,6 +14,7 @@
   background: var(--bg);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #ffffff !important; color: #1a1a1a !important; }
 body { padding: 12px; }
 button {
   cursor: pointer;
