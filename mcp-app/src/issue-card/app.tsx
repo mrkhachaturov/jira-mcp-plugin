@@ -5,7 +5,8 @@ import { Loading } from './components/loading'
 import { Empty } from './components/empty'
 import { IssueList } from './components/issue-list'
 import { IssueDetail } from './components/issue-detail'
-import { ActionBar } from './components/action-bar'
+import { CommentForm } from './components/comment-form'
+import { t } from './i18n'
 import './styles/global.css'
 
 export function App() {
@@ -60,19 +61,21 @@ export function App() {
   }, [app])
 
   if (loading) return <Loading />
-  if (error) return <div style={{ color: 'var(--error)', padding: '12px' }}>{error}</div>
+  if (error) return <div style={{ color: 'var(--error)', padding: '12px' }}>{t('failedToLoad')}</div>
   if (!data || data.issues.length === 0) return <Empty />
 
   if (data.issues.length === 1) {
+    const issue = data.issues[0]
     return (
-      <IssueDetail issue={data.issues[0]} baseUrl={data.baseUrl}>
+      <IssueDetail
+        issue={issue}
+        baseUrl={data.baseUrl}
+        app={app ?? undefined}
+        currentUser={data.currentUser}
+        onRefresh={() => refreshIssue(issue.key)}
+      >
         {app && (
-          <ActionBar
-            app={app}
-            issue={data.issues[0]}
-            currentUser={data.currentUser}
-            onRefresh={() => refreshIssue(data.issues[0].key)}
-          />
+          <CommentForm app={app} issue={issue} onCommented={() => refreshIssue(issue.key)} />
         )}
       </IssueDetail>
     )
@@ -83,13 +86,17 @@ export function App() {
       issues={data.issues}
       baseUrl={data.baseUrl}
       totalCount={data.totalCount}
+      app={app ?? undefined}
       renderActions={issue => app ? (
-        <ActionBar
-          app={app}
+        <IssueDetail
           issue={issue}
+          baseUrl={data.baseUrl}
+          app={app}
           currentUser={data.currentUser}
           onRefresh={() => refreshIssue(issue.key)}
-        />
+        >
+          <CommentForm app={app} issue={issue} onCommented={() => refreshIssue(issue.key)} />
+        </IssueDetail>
       ) : undefined}
     />
   )

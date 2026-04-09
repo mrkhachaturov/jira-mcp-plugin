@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
+import { StatusBadge } from './status-badge'
+import { t } from '../i18n'
 
 interface Transition {
   id: string
@@ -21,11 +23,8 @@ export function TransitionPicker({ app, issue, onTransitioned }: TransitionPicke
   const [applying, setApplying] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleOpen() {
-    if (open) {
-      setOpen(false)
-      return
-    }
+  async function handleToggle() {
+    if (open) { setOpen(false); return }
     setLoading(true)
     setError(null)
     try {
@@ -34,71 +33,108 @@ export function TransitionPicker({ app, issue, onTransitioned }: TransitionPicke
         arguments: { issue_key: issue.key },
       })
       const text = result?.content?.[0]?.text ?? '[]'
-      const parsed: Transition[] = JSON.parse(text)
-      setTransitions(parsed)
+      setTransitions(JSON.parse(text))
       setOpen(true)
-    } catch (e) {
-      setError('Failed to load transitions.')
+    } catch {
+      setError(t('transitionLoadFailed'))
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleTransition(transition: Transition) {
-    setApplying(transition.id)
+  async function handleTransition(tr: Transition) {
+    setApplying(tr.id)
     setError(null)
     try {
       await app.callServerTool({
         name: 'transition_issue',
-        arguments: { issue_key: issue.key, transition_id: transition.id },
+        arguments: { issue_key: issue.key, transition_id: tr.id },
       })
       setOpen(false)
       setTransitions([])
       onTransitioned()
-    } catch (e) {
-      setError('Transition failed.')
+    } catch {
+      setError(t('transitionFailed'))
     } finally {
       setApplying(null)
     }
   }
 
   return (
-    <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '6px' }}>
-      <button onClick={handleOpen} disabled={loading} style={{ minWidth: '90px' }}>
-        {loading ? 'Loading…' : 'Transition'}
-      </button>
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      {/* Status badge as clickable dropdown trigger (like Jira's "To Do ▾") */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleToggle}
+        onKeyDown={e => { if (e.key === 'Enter') handleToggle() }}
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+      >
+        <StatusBadge status={issue.status} />
+        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+          {loading ? '…' : '▾'}
+        </span>
+      </div>
 
       {error && (
-        <span style={{ fontSize: '11px', color: 'var(--error)' }}>{error}</span>
+        <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>{error}</div>
       )}
 
+      {/* Dropdown */}
       {open && transitions.length > 0 && (
         <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '4px',
-          padding: '6px',
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          marginTop: '4px',
           background: 'var(--bg)',
           border: '1px solid var(--border)',
           borderRadius: '6px',
-          maxWidth: '280px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          zIndex: 10,
+          minWidth: '160px',
+          overflow: 'hidden',
         }}>
-          {transitions.map(t => (
-            <button
-              key={t.id}
-              onClick={() => handleTransition(t)}
-              disabled={applying !== null}
-              style={{ fontSize: '12px', padding: '3px 10px' }}
-              title={`→ ${t.to_status}`}
+          {transitions.map(tr => (
+            <div
+              key={tr.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleTransition(tr)}
+              onKeyDown={e => { if (e.key === 'Enter') handleTransition(tr) }}
+              style={{
+                padding: '8px 12px',
+                fontSize: '13px',
+                cursor: applying ? 'wait' : 'pointer',
+                color: 'var(--text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: '1px solid var(--border)',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--border)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
-              {applying === t.id ? '…' : t.name}
-            </button>
+              <span>{applying === tr.id ? '…' : tr.name}</span>
+              {tr.to_status && (
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  → {tr.to_status}
+                </span>
+              )}
+            </div>
           ))}
         </div>
       )}
 
       {open && transitions.length === 0 && !loading && (
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>No transitions available.</span>
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: '4px',
+          fontSize: '11px', color: 'var(--text-secondary)',
+          background: 'var(--bg)', border: '1px solid var(--border)',
+          borderRadius: '6px', padding: '8px 12px',
+        }}>
+          {t('noTransitions')}
+        </div>
       )}
     </div>
   )

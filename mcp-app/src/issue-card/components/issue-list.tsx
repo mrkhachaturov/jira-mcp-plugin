@@ -1,17 +1,21 @@
 import { useState, type ReactNode } from 'react'
+import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
 import { StatusBadge } from './status-badge'
 import { PriorityIcon } from './priority-icon'
+import { IssueTypeIcon } from './issue-type-icon'
 import { IssueDetail } from './issue-detail'
+import { t } from '../i18n'
 
 interface IssueListProps {
   issues: Issue[]
   baseUrl: string
   totalCount: number
+  app?: McpApp
   renderActions?: (issue: Issue) => ReactNode | undefined
 }
 
-export function IssueList({ issues, baseUrl, totalCount, renderActions }: IssueListProps) {
+export function IssueList({ issues, baseUrl, totalCount, app, renderActions }: IssueListProps) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   return (
@@ -23,7 +27,7 @@ export function IssueList({ issues, baseUrl, totalCount, renderActions }: IssueL
           padding: '4px 0 8px 0',
           textAlign: 'right',
         }}>
-          Showing {issues.length} of {totalCount}
+          {t('showing')} {issues.length} {t('of')} {totalCount}
         </div>
       )}
 
@@ -47,7 +51,7 @@ export function IssueList({ issues, baseUrl, totalCount, renderActions }: IssueL
                 userSelect: 'none',
               }}
             >
-              <PriorityIcon priority={issue.priority} />
+              <IssueTypeIcon name={issue.issue_type.name} />
 
               <span style={{
                 fontWeight: 600,
@@ -92,7 +96,7 @@ export function IssueList({ issues, baseUrl, totalCount, renderActions }: IssueL
             {/* Expanded detail */}
             {isExpanded && (
               <div style={{ padding: '12px 4px 16px 4px' }}>
-                <IssueDetail issue={issue} baseUrl={baseUrl}>
+                <IssueDetail issue={issue} baseUrl={baseUrl} app={app}>
                   {renderActions?.(issue)}
                 </IssueDetail>
               </div>

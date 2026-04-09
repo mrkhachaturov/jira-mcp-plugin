@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
+import { t } from '../i18n'
 
 interface CommentFormProps {
   app: McpApp
@@ -27,7 +28,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
       setOpen(false)
       onCommented()
     } catch (e) {
-      setError('Failed to add comment.')
+      setError(t('commentFailed'))
     } finally {
       setSending(false)
     }
@@ -36,7 +37,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} style={{ minWidth: '90px' }}>
-        Comment
+        {t('comment')}
       </button>
     )
   }
@@ -46,7 +47,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
       <textarea
         value={body}
         onChange={e => setBody(e.target.value)}
-        placeholder="Add a comment…"
+        placeholder={t('commentPlaceholder')}
         rows={3}
         disabled={sending}
         style={{
@@ -70,10 +71,10 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
           onClick={handleSend}
           disabled={sending || !body.trim()}
         >
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? t('commentSending') : t('commentSend')}
         </button>
         <button onClick={() => { setOpen(false); setBody('') }} disabled={sending}>
-          Cancel
+          {t('commentCancel')}
         </button>
       </div>
     </div>

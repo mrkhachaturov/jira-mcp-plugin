@@ -3,6 +3,7 @@ import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
 import { TransitionPicker } from './transition-picker'
 import { CommentForm } from './comment-form'
+import { t } from '../i18n'
 
 interface ActionBarProps {
   app: McpApp
@@ -30,7 +31,7 @@ export function ActionBar({ app, issue, currentUser, onRefresh }: ActionBarProps
       })
       onRefresh()
     } catch (e) {
-      setAssignError('Failed to assign.')
+      setAssignError(t('assignFailed'))
     } finally {
       setAssigning(false)
     }
@@ -45,7 +46,7 @@ export function ActionBar({ app, issue, currentUser, onRefresh }: ActionBarProps
       {!isAssignedToMe && (
         <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px' }}>
           <button onClick={handleAssignToMe} disabled={assigning}>
-            {assigning ? 'Assigning…' : 'Assign to me'}
+            {assigning ? t('assigning') : t('assignToMe')}
           </button>
           {assignError && (
             <span style={{ fontSize: '11px', color: 'var(--error)' }}>{assignError}</span>
