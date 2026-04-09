@@ -1,9 +1,9 @@
 :root {
-  --bg: var(--host-bg, #ffffff);
-  --text: var(--host-text, #1a1a1a);
-  --text-secondary: var(--host-text-secondary, #6b7280);
-  --border: var(--host-border, #e5e5e5);
-  --accent: var(--host-accent, #0052cc);
+  --bg: #ffffff;
+  --text: #1a1a1a;
+  --text-secondary: #6b7280;
+  --border: #e5e5e5;
+  --accent: #0052cc;
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
