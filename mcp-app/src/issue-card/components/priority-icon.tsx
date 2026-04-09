@@ -1,37 +1,44 @@
+import { priorityIcons } from '../icons/priorities'
+
 interface PriorityIconProps {
   priority: { name: string }
+  size?: number
 }
 
-interface PriorityMeta {
-  color: string
-  symbol: string
-}
+export function PriorityIcon({ priority, size = 16 }: PriorityIconProps) {
+  const src = priorityIcons[priority.name]
 
-function priorityMeta(name: string): PriorityMeta {
-  switch (name) {
-    case 'Highest': return { color: '#ef4444', symbol: '⬆⬆' }
-    case 'High':    return { color: '#f97316', symbol: '⬆' }
-    case 'Medium':  return { color: '#eab308', symbol: '⬛' }
-    case 'Low':     return { color: '#22c55e', symbol: '⬇' }
-    case 'Lowest':  return { color: '#6b7280', symbol: '⬇⬇' }
-    default:        return { color: '#6b7280', symbol: '⬛' }
+  if (!src) {
+    return (
+      <span
+        title={priority.name}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: size,
+          height: size,
+          borderRadius: '2px',
+          background: 'var(--text-secondary)',
+          color: 'white',
+          fontSize: size * 0.6,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {priority.name.charAt(0)}
+      </span>
+    )
   }
-}
 
-export function PriorityIcon({ priority }: PriorityIconProps) {
-  const { color, symbol } = priorityMeta(priority.name)
   return (
-    <span
+    <img
+      src={src}
+      alt={priority.name}
       title={priority.name}
-      style={{
-        color,
-        fontSize: '12px',
-        lineHeight: 1,
-        userSelect: 'none',
-        flexShrink: 0,
-      }}
-    >
-      {symbol}
-    </span>
+      width={size}
+      height={size}
+      style={{ flexShrink: 0 }}
+    />
   )
 }

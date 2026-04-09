@@ -87,17 +87,8 @@ export function App() {
       baseUrl={data.baseUrl}
       totalCount={data.totalCount}
       app={app ?? undefined}
-      renderActions={issue => app ? (
-        <IssueDetail
-          issue={issue}
-          baseUrl={data.baseUrl}
-          app={app}
-          currentUser={data.currentUser}
-          onRefresh={() => refreshIssue(issue.key)}
-        >
-          <CommentForm app={app} issue={issue} onCommented={() => refreshIssue(issue.key)} />
-        </IssueDetail>
-      ) : undefined}
+      currentUser={data.currentUser}
+      onRefreshIssue={refreshIssue}
     />
   )
 }

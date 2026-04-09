@@ -1,7 +1,7 @@
 export interface Issue {
   key: string
   summary: string
-  status: { name: string; category?: string }
+  status: { name: string; category?: string; colorName?: string; categoryName?: string }
   priority: { name: string }
   issue_type: { name: string }
   assignee: { name: string; displayName: string } | null

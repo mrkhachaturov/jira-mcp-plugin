@@ -1,10 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
 import { StatusBadge } from './status-badge'
-import { PriorityIcon } from './priority-icon'
 import { IssueTypeIcon } from './issue-type-icon'
 import { IssueDetail } from './issue-detail'
+import { CommentForm } from './comment-form'
 import { t } from '../i18n'
 
 interface IssueListProps {
@@ -12,10 +12,11 @@ interface IssueListProps {
   baseUrl: string
   totalCount: number
   app?: McpApp
-  renderActions?: (issue: Issue) => ReactNode | undefined
+  currentUser?: { name: string; displayName?: string }
+  onRefreshIssue?: (issueKey: string) => void
 }
 
-export function IssueList({ issues, baseUrl, totalCount, app, renderActions }: IssueListProps) {
+export function IssueList({ issues, baseUrl, totalCount, app, currentUser, onRefreshIssue }: IssueListProps) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   return (
@@ -36,7 +37,7 @@ export function IssueList({ issues, baseUrl, totalCount, app, renderActions }: I
 
         return (
           <div key={issue.key} style={{ borderBottom: '1px solid var(--border)' }}>
-            {/* Row */}
+            {/* Compact row */}
             <div
               role="button"
               tabIndex={0}
@@ -76,11 +77,6 @@ export function IssueList({ issues, baseUrl, totalCount, app, renderActions }: I
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                 <StatusBadge status={issue.status} />
-                {issue.assignee && (
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                    {issue.assignee.displayName}
-                  </span>
-                )}
                 <span style={{
                   fontSize: '10px',
                   color: 'var(--text-secondary)',
@@ -96,8 +92,16 @@ export function IssueList({ issues, baseUrl, totalCount, app, renderActions }: I
             {/* Expanded detail */}
             {isExpanded && (
               <div style={{ padding: '12px 4px 16px 4px' }}>
-                <IssueDetail issue={issue} baseUrl={baseUrl} app={app}>
-                  {renderActions?.(issue)}
+                <IssueDetail
+                  issue={issue}
+                  baseUrl={baseUrl}
+                  app={app}
+                  currentUser={currentUser}
+                  onRefresh={onRefreshIssue ? () => onRefreshIssue(issue.key) : undefined}
+                >
+                  {app && onRefreshIssue && (
+                    <CommentForm app={app} issue={issue} onCommented={() => onRefreshIssue(issue.key)} />
+                  )}
                 </IssueDetail>
               </div>
             )}

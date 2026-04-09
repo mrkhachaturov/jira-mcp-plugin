@@ -339,12 +339,20 @@ public class JsonRpcHandler {
             if (statusCategory != null && statusCategory.isObject()) {
                 statusOut.put("category",
                         statusCategory.has("key") ? statusCategory.get("key").asText("") : "");
+                statusOut.put("colorName",
+                        statusCategory.has("colorName") ? statusCategory.get("colorName").asText("") : "");
+                statusOut.put("categoryName",
+                        statusCategory.has("name") ? statusCategory.get("name").asText("") : "");
             } else {
                 statusOut.put("category", "");
+                statusOut.put("colorName", "");
+                statusOut.put("categoryName", "");
             }
         } else {
             statusOut.put("name", "");
             statusOut.put("category", "");
+            statusOut.put("colorName", "");
+            statusOut.put("categoryName", "");
         }
         out.set("status", statusOut);
 
