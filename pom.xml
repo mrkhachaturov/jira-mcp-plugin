@@ -107,6 +107,15 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- slf4j-api: pin provided so Jira's slf4j is used at runtime (not the
+             transitive copy that mcp-core pulls in). Avoids OSGi split-package
+             and silent log loss. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- MCP Java SDK -->
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
@@ -160,7 +169,13 @@
                              Jira may not export com.networknt.schema. -->
                         <Private-Package>
                             io.modelcontextprotocol.*,
-                            com.networknt.schema.*
+                            com.networknt.schema.*,
+                            com.networknt.*,
+                            reactor.*,
+                            org.reactivestreams.*,
+                            com.ethlo.time.*,
+                            com.fasterxml.jackson.dataformat.yaml.*,
+                            org.yaml.snakeyaml.*
                         </Private-Package>
                         <Export-Package>
                             com.atlassian.mcp.plugin.api
