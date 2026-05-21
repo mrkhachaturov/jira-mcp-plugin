@@ -74,6 +74,12 @@ public class McpTransportFilter implements Filter {
         }
         HttpServletRequest httpReq = (HttpServletRequest) req;
         HttpServletResponse httpResp = (HttpServletResponse) resp;
+        if (log.isDebugEnabled()) {
+            log.debug("[MCP] doFilter uri={} dispatcher={} asyncSupported={}",
+                    httpReq.getRequestURI(),
+                    httpReq.getDispatcherType(),
+                    httpReq.isAsyncSupported());
+        }
         // Do NOT call chain.doFilter(). This filter is the endpoint — the SDK
         // transport's service() owns the response (including AsyncContext for
         // non-initialize requests).

@@ -72,6 +72,7 @@
                     location="before-dispatch" weight="600">
         <url-pattern>/plugins/servlet/mcp</url-pattern>
         <dispatcher>REQUEST</dispatcher>
+        <dispatcher>ASYNC</dispatcher>
     </servlet-filter>
 
     <!-- Admin REST endpoint -->
