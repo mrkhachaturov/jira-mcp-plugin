@@ -1,6 +1,6 @@
 package com.atlassian.mcp.plugin.config;
 
-import javax.inject.Named;
+import jakarta.inject.Named;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

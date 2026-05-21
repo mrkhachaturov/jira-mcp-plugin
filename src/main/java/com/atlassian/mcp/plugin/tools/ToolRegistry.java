@@ -17,8 +17,8 @@ import com.atlassian.mcp.plugin.tools.forms.*;
 import com.atlassian.mcp.plugin.tools.metrics.*;
 import com.atlassian.plugin.PluginAccessor;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -178,5 +178,26 @@ public class ToolRegistry {
 
     public int totalRegistered() {
         return allTools.size();
+    }
+
+    /**
+     * Build SDK {@code SyncToolSpecification}s for tools currently exposed by the server.
+     *
+     * <p><b>Task 2 — smoke wiring.</b> Only two read-only tools are returned so the
+     * transport spike exercises the full adapter path (authHeader extraction,
+     * JiraRestClient call, CallToolResult shape). Task 3 replaces this with the
+     * full visible-tool stream (capability/access/read-only filtering).
+     */
+    public List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification> toSpecifications() {
+        List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>(2);
+        McpTool userProfile = allTools.get("get_user_profile");
+        if (userProfile != null) {
+            specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(userProfile));
+        }
+        McpTool allProjects = allTools.get("get_all_projects");
+        if (allProjects != null) {
+            specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(allProjects));
+        }
+        return specs;
     }
 }

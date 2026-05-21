@@ -100,10 +100,24 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Jackson — provided by Jira, version managed by platform BOM -->
+        <!-- Jackson — provided by Jira, version managed by platform BOM.
+             Pin jackson-core and jackson-annotations to provided as well so they
+             aren't picked up as compile-scope transitives of the MCP SDK and tripped
+             by the platform BannedDependencies enforcer (which forbids bundling
+             host-provided Jackson into the plugin jar). -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
             <scope>provided</scope>
         </dependency>
 
@@ -126,6 +140,15 @@
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp-json-jackson2</artifactId>
             <version>${mcp.sdk.version}</version>
+            <exclusions>
+                <!-- We don't need YAML schemas — the SDK pulls jackson-dataformat-yaml
+                     transitively (2.18.3) which conflicts with host Jackson 2.19.x and
+                     trips the BannedDependencies enforcer. -->
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.dataformat</groupId>
+                    <artifactId>jackson-dataformat-yaml</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Test scope -->
@@ -157,8 +180,21 @@
                     <allowGoogleTracking>false</allowGoogleTracking>
                     <instructions>
                         <Atlassian-Plugin-Key>${atlassian.plugin.key}</Atlassian-Plugin-Key>
+                        <!-- SDK transitives reference these for optional integrations; Jira doesn't export them.
+                             Mark optional so the bundle resolves on Jira 11. -->
                         <Import-Package>
                             jakarta.inject*;resolution:="optional",
+                            com.fasterxml.jackson.dataformat.yaml;resolution:="optional",
+                            io.micrometer.*;resolution:="optional",
+                            reactor.blockhound.*;resolution:="optional",
+                            org.graalvm.polyglot;resolution:="optional",
+                            org.jcodings;resolution:="optional",
+                            org.jcodings.specific;resolution:="optional",
+                            org.jcodings.unicode;resolution:="optional",
+                            org.joni;resolution:="optional",
+                            org.joni.exception;resolution:="optional",
+                            javax.annotation;resolution:="optional",
+                            javax.annotation.meta;resolution:="optional",
                             *
                         </Import-Package>
                         <DynamicImport-Package>*</DynamicImport-Package>
@@ -173,9 +209,7 @@
                             com.networknt.*,
                             reactor.*,
                             org.reactivestreams.*,
-                            com.ethlo.time.*,
-                            com.fasterxml.jackson.dataformat.yaml.*,
-                            org.yaml.snakeyaml.*
+                            com.ethlo.time.*
                         </Private-Package>
                         <Export-Package>
                             com.atlassian.mcp.plugin.api

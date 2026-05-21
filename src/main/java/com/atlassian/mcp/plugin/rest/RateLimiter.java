@@ -1,6 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
-import javax.inject.Named;
+import jakarta.inject.Named;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;

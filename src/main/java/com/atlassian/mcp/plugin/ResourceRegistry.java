@@ -6,8 +6,8 @@ import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.InputStream;
@@ -181,6 +181,17 @@ public class ResourceRegistry {
             // fall through
         }
         return "";
+    }
+
+    /**
+     * Build SDK {@code SyncResourceSpecification}s for the resources exposed by the server.
+     *
+     * <p><b>Task 2 — empty.</b> Resources aren't on the smoke-test critical path; they
+     * only affect MCP Apps widget rendering. Task 4 populates this with the
+     * {@code ui://jira/issue-card@{hash}} resource and its read handler.
+     */
+    public java.util.List<io.modelcontextprotocol.server.McpServerFeatures.SyncResourceSpecification> toSpecifications() {
+        return java.util.List.of();
     }
 
     private static String sha256(String input) throws Exception {

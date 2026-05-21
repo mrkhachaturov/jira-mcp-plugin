@@ -4,9 +4,9 @@ import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.jira.component.ComponentAccessor;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.sal.api.ApplicationProperties;
-import javax.servlet.*;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 /**
