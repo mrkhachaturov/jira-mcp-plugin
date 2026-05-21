@@ -14,16 +14,32 @@
     <description>Connect AI agents to Jira Data Center</description>
 
     <properties>
-        <jira.version>10.7.4</jira.version>
-        <amps.version>9.9.1</amps.version>
-        <atlassian.spring.scanner.version>3.0.4</atlassian.spring.scanner.version>
+        <jira.version>11.3.6</jira.version>
+        <amps.version>9.1.9</amps.version>
+        <atlassian.spring.scanner.version>6.0.2</atlassian.spring.scanner.version>
+        <atlassian.platform.version>8.1.13</atlassian.platform.version>
+        <mcp.sdk.version>2.0.0-M2</mcp.sdk.version>
+
         <atlassian.plugin.key>${project.groupId}.${project.artifactId}</atlassian.plugin.key>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.atlassian.platform.dependencies</groupId>
+                <artifactId>platform-public-api</artifactId>
+                <version>${atlassian.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
+        <!-- Jira platform — versions managed by platform BOM -->
         <dependency>
             <groupId>com.atlassian.jira</groupId>
             <artifactId>jira-api</artifactId>
@@ -39,60 +55,71 @@
         <dependency>
             <groupId>com.atlassian.annotations</groupId>
             <artifactId>atlassian-annotations</artifactId>
-            <version>5.1.1</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
-            <version>4.0.1</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>javax.ws.rs</groupId>
-            <artifactId>jsr311-api</artifactId>
-            <version>1.1.1</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>javax.inject</groupId>
-            <artifactId>javax.inject</artifactId>
-            <version>1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.atlassian.sal</groupId>
             <artifactId>sal-api</artifactId>
-            <version>5.1.3</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.atlassian.templaterenderer</groupId>
             <artifactId>atlassian-template-renderer-api</artifactId>
-            <version>6.0.1</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.atlassian.plugins.rest</groupId>
-            <artifactId>atlassian-rest-common</artifactId>
-            <version>8.0.1</version>
+            <artifactId>atlassian-rest-v2-api</artifactId>
             <scope>provided</scope>
         </dependency>
-        <!-- Jackson provided by Jira -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.17.2</version>
-            <scope>provided</scope>
-        </dependency>
-        <!-- Plugin accessor for capability detection -->
         <dependency>
             <groupId>com.atlassian.plugins</groupId>
             <artifactId>atlassian-plugins-api</artifactId>
-            <version>8.0.0</version>
             <scope>provided</scope>
         </dependency>
-        <!-- Test dependencies -->
+
+        <!-- Jakarta EE 10 spec jars — versions managed by platform BOM -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Jackson — provided by Jira, version managed by platform BOM -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- MCP Java SDK -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+            <version>${mcp.sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>${mcp.sdk.version}</version>
+        </dependency>
+
+        <!-- Test scope -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -121,14 +148,23 @@
                     <allowGoogleTracking>false</allowGoogleTracking>
                     <instructions>
                         <Atlassian-Plugin-Key>${atlassian.plugin.key}</Atlassian-Plugin-Key>
-                        <Export-Package>
-                            com.atlassian.mcp.plugin.api,
-                        </Export-Package>
                         <Import-Package>
-                            javax.inject*;resolution:="optional",
+                            jakarta.inject*;resolution:="optional",
                             *
                         </Import-Package>
                         <DynamicImport-Package>*</DynamicImport-Package>
+
+                        <!-- Embed the MCP SDK + json-schema-validator inside the plugin jar so they
+                             don't need to resolve as separate OSGi bundles. The spec requires this
+                             because Atlassian plugin bundles embed third-party jars privately, and
+                             Jira may not export com.networknt.schema. -->
+                        <Private-Package>
+                            io.modelcontextprotocol.*,
+                            com.networknt.schema.*
+                        </Private-Package>
+                        <Export-Package>
+                            com.atlassian.mcp.plugin.api
+                        </Export-Package>
                         <Spring-Context>*</Spring-Context>
                     </instructions>
                 </configuration>
