@@ -10,7 +10,7 @@
 ![MCP Tools](https://img.shields.io/badge/MCP%20tools-49-10b981)
 ![Transport](https://img.shields.io/badge/transport-Streamable%20HTTP-6366f1)
 ![MCP Apps](https://img.shields.io/badge/MCP%20Apps-interactive%20UI-f59e0b)
-![E2E Tests](https://img.shields.io/badge/e2e%20tests-54-10b981)
+![E2E Tests](https://img.shields.io/badge/e2e%20tests-14-10b981)
 
 [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that runs inside your Jira Data Center JVM. Claude Desktop, ChatGPT, VS Code Copilot, and other MCP-compatible clients connect to it and work with issues, projects, boards, sprints, and more. Everything stays inside your infrastructure.
 
@@ -19,7 +19,7 @@
 | 🔌 | Plugin | Single JAR, installed via UPM, runs inside the Jira JVM |
 | 🔐 | Auth | OAuth 2.0 (browser consent) + Personal Access Tokens |
 | 🛠️ | Tools | 49 tools mirrored 1:1 from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) upstream |
-| 📡 | Transport | Streamable HTTP (MCP spec 2025-06-18) with SSE progress streaming |
+| 📡 | Transport | Streamable HTTP (MCP spec 2025-11-25) with SSE progress streaming |
 | 🎨 | MCP Apps | Interactive Issue Card widget with transitions, comments, and assign (Claude Desktop, ChatGPT, VS Code) |
 
 > [!IMPORTANT]
@@ -322,7 +322,7 @@ mise trust && mise install
 # 🏗️ Build
 just build
 
-# 🚀 Build + deploy + run 44 e2e tests
+# 🚀 Build + deploy + run 14 e2e tests
 just deploy-and-test
 
 # 📋 Or step by step
