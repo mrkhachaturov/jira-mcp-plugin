@@ -16,7 +16,14 @@ export function App() {
 
   const { app, isConnected } = useApp({
     appInfo: { name: 'jira-issue-card', version: '1.0.0' },
-    capabilities: {},
+    // F-20: declare widget capabilities per ext-apps McpUiAppCapabilities.
+    // Verified against node_modules/@modelcontextprotocol/ext-apps/dist/src/generated/schema.d.ts
+    // (McpUiAppCapabilitiesSchema). The widget renders inline only — no fullscreen / pip support —
+    // and does not emit tools/list_changed (the host serves a static tool list via resources/read).
+    capabilities: {
+      availableDisplayModes: ['inline'],
+      tools: { listChanged: false },
+    },
     onAppCreated: (app) => {
       app.ontoolinput = () => {
         setLoading(true)
