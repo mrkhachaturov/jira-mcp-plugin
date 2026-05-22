@@ -43,7 +43,7 @@ public class McpBootstrap {
     private static final Logger log = LoggerFactory.getLogger(McpBootstrap.class);
 
     private static final String SERVER_NAME = "jira-mcp-plugin";
-    private static final String SERVER_VERSION = "1.3.0";
+    private static final String SERVER_VERSION = "1.4.0";
     private static final String SERVER_TITLE = "Jira MCP Server";
     private static final String SERVER_DESCRIPTION =
             "Connect AI agents to Jira Data Center — 49 tools across issues, sprints, "
