@@ -77,11 +77,17 @@ public class AccessControlFilter implements Filter {
             log.warn("[MCP-SEC] unauthenticated request from {}", clientIp(httpReq));
             httpResp.setHeader("Content-Type", "application/json");
             httpResp.setStatus(401);
+            // F-06 / SEP-835: advertise the scopes a client could request. The plugin's access
+            // model is currently binary (allowlisted user = full access), so we cannot indicate
+            // which specific scope was insufficient mid-request — instead the header advertises
+            // the full set of scopes a client may request. Full per-tool scope enforcement is
+            // deferred to v1.5+.
+            String challenge = "Bearer realm=\"jira-mcp\", scope=\"read write\"";
             if (config.isOAuthEnabled()) {
                 String resourceMetadata = "/plugins/servlet/mcp-oauth/protected-resource";
-                httpResp.setHeader("WWW-Authenticate",
-                        "Bearer resource_metadata=\"" + resourceMetadata + "\"");
+                challenge = challenge + ", resource_metadata=\"" + resourceMetadata + "\"";
             }
+            httpResp.setHeader("WWW-Authenticate", challenge);
             httpResp.getWriter().write("{\"error\":\"Authentication required\"}");
             return;
         }
@@ -90,6 +96,10 @@ public class AccessControlFilter implements Filter {
         String username = user.getUsername();
         if (!isAccessAllowed(username, userKey == null ? null : userKey.getStringValue())) {
             log.warn("[MCP-SEC] user '{}' not allowed", username);
+            // F-06 / SEP-835: on 403 we don't know which scope was insufficient — emit a bare
+            // Bearer challenge per RFC 6750 §3. Per-tool insufficient_scope challenges deferred
+            // to v1.5+ once a real scope ↔ tool mapping is wired through tool dispatch.
+            httpResp.setHeader("WWW-Authenticate", "Bearer realm=\"jira-mcp\"");
             httpResp.sendError(HttpServletResponse.SC_FORBIDDEN, "User not allowed");
             return;
         }
