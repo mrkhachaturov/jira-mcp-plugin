@@ -470,6 +470,98 @@ public class McpEndpointE2ETest {
         }
     }
 
+    // ========================================================================
+    // 13 — resources/list advertises the issue-card widget with dual metadata
+    // ========================================================================
+
+    @Test
+    public void test13_resourcesListReturnsIssueCard() {
+        McpSchema.ListResourcesResult result = client.listResources();
+        assertNotNull("listResources returned null", result);
+
+        List<McpSchema.Resource> resources = result.resources();
+        assertNotNull("resources list is null", resources);
+        assertEquals("expected exactly one resource (the issue-card widget)",
+                1, resources.size());
+
+        McpSchema.Resource r = resources.get(0);
+        assertTrue("resource.uri '" + r.uri() + "' does not start with ui://jira/issue-card@",
+                r.uri().startsWith("ui://jira/issue-card@"));
+        assertNotNull("resource.mimeType is null", r.mimeType());
+        assertTrue("resource.mimeType '" + r.mimeType() + "' is not an HTML type",
+                r.mimeType().startsWith("text/html"));
+        assertNotNull("resource.name is null", r.name());
+        assertFalse("resource.name is empty", r.name().isEmpty());
+
+        Map<String, Object> meta = r.meta();
+        assertNotNull("resource._meta is null — MCP Apps metadata missing", meta);
+
+        // Claude / nested ui block
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ui = (Map<String, Object>) meta.get("ui");
+        assertNotNull("resource._meta.ui is missing — Claude widget metadata absent", ui);
+        assertTrue("resource._meta.ui has no entries", !ui.isEmpty());
+
+        // ChatGPT / flat openai widget keys
+        assertTrue("resource._meta missing 'openai/widgetDescription'",
+                meta.containsKey("openai/widgetDescription"));
+        assertTrue("resource._meta missing 'openai/widgetPrefersBorder'",
+                meta.containsKey("openai/widgetPrefersBorder"));
+        assertTrue("resource._meta missing 'openai/widgetCSP'",
+                meta.containsKey("openai/widgetCSP"));
+        assertTrue("resource._meta missing 'openai/widgetDomain'",
+                meta.containsKey("openai/widgetDomain"));
+    }
+
+    // ========================================================================
+    // 14 — resources/read returns the widget HTML wrapped in TextResourceContents
+    // ========================================================================
+
+    @Test
+    public void test14_resourcesReadReturnsWidgetHtml() {
+        // Discover the live URI via list first — hash changes per build.
+        McpSchema.ListResourcesResult list = client.listResources();
+        assertEquals("expected exactly one resource",
+                1, list.resources().size());
+        String uri = list.resources().get(0).uri();
+
+        McpSchema.ReadResourceResult result = client.readResource(
+                new McpSchema.ReadResourceRequest(uri));
+        assertNotNull("readResource returned null", result);
+
+        List<McpSchema.ResourceContents> contents = result.contents();
+        assertNotNull("readResource result has null contents", contents);
+        assertEquals("expected exactly one ResourceContents entry",
+                1, contents.size());
+
+        McpSchema.ResourceContents first = contents.get(0);
+        assertTrue("expected TextResourceContents, got " + first.getClass().getName(),
+                first instanceof McpSchema.TextResourceContents);
+
+        McpSchema.TextResourceContents text = (McpSchema.TextResourceContents) first;
+        assertEquals("contents[0].uri does not match request",
+                uri, text.uri());
+        assertTrue("contents[0].mimeType '" + text.mimeType() + "' not HTML",
+                text.mimeType().startsWith("text/html"));
+
+        String body = text.text();
+        assertNotNull("contents[0].text is null", body);
+        assertTrue("contents[0].text too short (" + body.length()
+                        + " bytes) — looks like a stub, not the real widget bundle",
+                body.length() > 1000);
+        String lower = body.trim().toLowerCase();
+        assertTrue("contents[0].text does not start with <!doctype html> / <html: "
+                        + body.substring(0, Math.min(80, body.length())),
+                lower.startsWith("<!doctype html") || lower.startsWith("<html"));
+
+        // Dual metadata also attached to the read result
+        Map<String, Object> meta = result.meta();
+        assertNotNull("readResource result._meta is null", meta);
+        assertNotNull("readResource result._meta.ui is null", meta.get("ui"));
+        assertTrue("readResource result._meta missing 'openai/widgetDescription'",
+                meta.containsKey("openai/widgetDescription"));
+    }
+
     // =======================================================================
     // helpers
     // =======================================================================

@@ -6,6 +6,9 @@ import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.modelcontextprotocol.server.McpServerFeatures.SyncResourceSpecification;
+import io.modelcontextprotocol.spec.McpError;
+import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import org.slf4j.Logger;
@@ -13,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -186,12 +191,60 @@ public class ResourceRegistry {
     /**
      * Build SDK {@code SyncResourceSpecification}s for the resources exposed by the server.
      *
-     * <p><b>Task 2 — empty.</b> Resources aren't on the smoke-test critical path; they
-     * only affect MCP Apps widget rendering. Task 4 populates this with the
-     * {@code ui://jira/issue-card@{hash}} resource and its read handler.
+     * <p>Currently emits a single spec for the {@code ui://jira/issue-card@{hash}} widget.
+     * The read handler matches the request URI against the registered widget and returns
+     * the cached HTML wrapped in a {@link McpSchema.TextResourceContents}, with the same
+     * dual metadata block ({@code _meta.ui.*} + {@code _meta.openai/widget*}) attached to
+     * both the {@code Resource} (for {@code resources/list}) and the read result (for
+     * {@code resources/read}). Returns an empty list when the widget HTML failed to load.
      */
-    public java.util.List<io.modelcontextprotocol.server.McpServerFeatures.SyncResourceSpecification> toSpecifications() {
-        return java.util.List.of();
+    public List<SyncResourceSpecification> toSpecifications() {
+        if (!isAvailable()) {
+            return List.of();
+        }
+
+        Map<String, Object> metaMap = jsonObjectToMap(buildResourceMeta());
+
+        McpSchema.Resource resource = McpSchema.Resource.builder()
+                .uri(resourceUri)
+                .name("Jira Issue Card")
+                .description("Interactive Jira issue viewer with status transitions and comments")
+                .mimeType(MIME_TYPE)
+                .meta(metaMap)
+                .build();
+
+        java.util.function.BiFunction<
+                io.modelcontextprotocol.server.McpSyncServerExchange,
+                McpSchema.ReadResourceRequest,
+                McpSchema.ReadResourceResult> readHandler =
+                (exchange, request) -> {
+                    if (request == null || !resourceUri.equals(request.uri())) {
+                        String requested = request == null ? "null" : request.uri();
+                        throw McpError.RESOURCE_NOT_FOUND.apply(requested);
+                    }
+                    McpSchema.TextResourceContents content = new McpSchema.TextResourceContents(
+                            resourceUri,
+                            MIME_TYPE,
+                            html,
+                            metaMap);
+                    return new McpSchema.ReadResourceResult(List.of(content), metaMap);
+                };
+
+        return List.of(new SyncResourceSpecification(resource, readHandler));
+    }
+
+    /**
+     * Convert a Jackson {@link ObjectNode} to a plain {@link Map} so it can be passed
+     * to SDK record constructors that expect {@code Map<String, Object>} (the SDK's
+     * Jackson serializer handles either shape, but Maps avoid an extra round-trip).
+     */
+    private Map<String, Object> jsonObjectToMap(ObjectNode node) {
+        try {
+            return mapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("[MCP-APPS] Failed to convert _meta to Map: {}", e.getMessage());
+            return new HashMap<>();
+        }
     }
 
     private static String sha256(String input) throws Exception {
