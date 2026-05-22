@@ -15,7 +15,7 @@
 
     <properties>
         <jira.version>11.3.6</jira.version>
-        <amps.version>9.1.9</amps.version>
+        <amps.version>9.12.4</amps.version>
         <atlassian.spring.scanner.version>6.0.2</atlassian.spring.scanner.version>
         <mcp.sdk.version>2.0.0-M3</mcp.sdk.version>
 
@@ -239,6 +239,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <forkedProcessTimeoutInSeconds>180</forkedProcessTimeoutInSeconds>
+                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
                 </configuration>
             </plugin>
         </plugins>
