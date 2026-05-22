@@ -4,6 +4,8 @@ import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.ResourceRegistry;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.tools.ToolRegistry;
+import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -11,11 +13,13 @@ import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServlet;
+import java.net.URI;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +73,7 @@ public class McpBootstrap {
     private final ResourceRegistry resourceRegistry;
     private final McpPluginConfig config;
     private final JiraAuthContextExtractor authExtractor;
+    private final ApplicationProperties applicationProperties;
 
     private volatile HttpServletStreamableServerTransportProvider transport;
     private volatile McpSyncServer server;
@@ -77,11 +82,13 @@ public class McpBootstrap {
     public McpBootstrap(ToolRegistry toolRegistry,
                         ResourceRegistry resourceRegistry,
                         McpPluginConfig config,
-                        JiraAuthContextExtractor authExtractor) {
+                        JiraAuthContextExtractor authExtractor,
+                        @ComponentImport ApplicationProperties applicationProperties) {
         this.toolRegistry = toolRegistry;
         this.resourceRegistry = resourceRegistry;
         this.config = config;
         this.authExtractor = authExtractor;
+        this.applicationProperties = applicationProperties;
     }
 
     /** Build (idempotent). Returns the configured servlet for the wrapper to delegate into. */
@@ -98,6 +105,7 @@ public class McpBootstrap {
                 .jsonMapper(jsonMapper)
                 .mcpEndpoint("/plugins/servlet/mcp")
                 .contextExtractor(authExtractor)
+                .securityValidator(buildSecurityValidator())
                 .build();
 
         var serverInfo = McpSchema.Implementation.builder(SERVER_NAME, SERVER_VERSION)
@@ -139,6 +147,88 @@ public class McpBootstrap {
                 resourceSpecs == null ? 0 : resourceSpecs.size());
 
         return transport;
+    }
+
+    /**
+     * Builds the SDK-side Origin allowlist that mirrors the (now-deleted)
+     * {@code OriginValidationFilter}: Jira's own base URL, known MCP client hosts,
+     * and loopback. The {@link DefaultServerTransportSecurityValidator} returns 403
+     * on rejection (matching the previous filter's behaviour) and treats a missing
+     * Origin header as allowed (non-browser clients like curl / MCP CLI tools).
+     *
+     * <p>Host validation is intentionally left off (empty {@code allowedHosts}) — the
+     * filter chain never inspected Host either, and Jira sits behind a reverse proxy
+     * where the Host header is whatever the deployer configured.
+     */
+    private DefaultServerTransportSecurityValidator buildSecurityValidator() {
+        var builder = DefaultServerTransportSecurityValidator.builder()
+                .allowedOrigin("https://claude.ai")
+                .allowedOrigin("https://claude.com")
+                .allowedOrigin("https://chatgpt.com")
+                .allowedOrigin("https://chat.openai.com")
+                .allowedOrigin("http://localhost")
+                .allowedOrigin("http://localhost:*")
+                .allowedOrigin("https://localhost")
+                .allowedOrigin("https://localhost:*")
+                .allowedOrigin("http://127.0.0.1")
+                .allowedOrigin("http://127.0.0.1:*")
+                .allowedOrigin("https://127.0.0.1")
+                .allowedOrigin("https://127.0.0.1:*")
+                .allowedOrigin("http://[::1]")
+                .allowedOrigin("http://[::1]:*")
+                .allowedOrigin("https://[::1]")
+                .allowedOrigin("https://[::1]:*");
+
+        String jiraBaseUrl = resolveJiraBaseUrl();
+        if (jiraBaseUrl != null && !jiraBaseUrl.isEmpty()) {
+            String normalized = normalizeOrigin(jiraBaseUrl);
+            if (normalized != null) {
+                builder.allowedOrigin(normalized);
+                // Reverse proxies sometimes expose Jira on an explicit port that's
+                // stripped from the configured base URL — accept any port variant.
+                builder.allowedOrigin(normalized + ":*");
+            }
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Reads the Jira base URL the same way {@code OriginValidationFilter} did:
+     * admin override wins, falling back to SAL's
+     * {@link ApplicationProperties#getBaseUrl()}.
+     */
+    private String resolveJiraBaseUrl() {
+        try {
+            String override = config.getJiraBaseUrlOverride();
+            if (override != null && !override.isEmpty()) {
+                return override;
+            }
+            return applicationProperties.getBaseUrl();
+        } catch (Exception e) {
+            log.warn("[MCP] could not resolve Jira base URL for Origin allowlist", e);
+            return null;
+        }
+    }
+
+    /**
+     * Reduces a full URL to its origin form ({@code scheme://host[:port]}) for use
+     * with {@link DefaultServerTransportSecurityValidator}, which compares the entire
+     * Origin header verbatim.
+     */
+    private static String normalizeOrigin(String url) {
+        try {
+            URI u = URI.create(url);
+            String scheme = u.getScheme();
+            String host = u.getHost();
+            int port = u.getPort();
+            if (scheme == null || host == null) {
+                return null;
+            }
+            return port == -1 ? scheme + "://" + host : scheme + "://" + host + ":" + port;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public synchronized void close() {
