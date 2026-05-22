@@ -23,28 +23,27 @@ import org.slf4j.LoggerFactory;
 
 /**
  * F-07: implements MCP {@code completion/complete} for server-side argument
- * autocompletion. Scope for v1.4.0 is intentionally tight — only
- * {@code project_key} is completed, because it's a single global list that
- * cheaply caches and benefits virtually every write tool (create issue, create
- * version, search, etc.).
+ * autocompletion.
  *
- * <p>Per-project status / issue_type / assignee completions are deliberately
- * deferred: they require knowing the user's project context (the argument
- * autocompletion request only carries the current arg name + a prefix string),
- * are stateful per project, and would need either a real per-project cache or
- * a request-time JQL roundtrip on every keystroke — out of scope for the
- * "completion as a quality-of-life polish" pass.
+ * <p>Per the MCP 2025-11-25 spec (server/utilities/completion.mdx) and the
+ * SDK's dispatcher (McpAsyncServer line 1003-1067), completion targets MUST
+ * be one of:
+ * <ul>
+ *   <li>{@code ref/prompt}: a registered prompt's argument, OR
+ *   <li>{@code ref/resource}: a registered resource template's URI variable.
+ * </ul>
+ * We have no prompts, so we wire completion against the
+ * {@code jira://issue/{issueKey}} resource template (registered by
+ * {@link ResourceRegistry#toResourceTemplateSpecifications()} for F-10).
+ * The {@code issueKey} URI variable accepts prefix-completion to a Jira
+ * project key — typing "PR" yields {@code PROJ-}, {@code PROD-}, etc.,
+ * which is the high-LLM-accuracy win the audit's F-07 was after (every
+ * Jira issue key starts with a project key).
  *
- * <p>The completion handler is wired against a {@code ref/prompt} reference
- * named {@code project_key}. The SDK's reference key is what the client
- * targets — for tool argument autocompletion the convention is to register
- * one completion per logical argument name and let any tool referencing
- * that argument benefit from the same suggestion list. Clients today (Claude
- * Desktop, ChatGPT, the official MCP CLI) send {@code ref/prompt} for tool
- * arguments; if a host sends {@code ref/resource} pointed at the
- * {@code jira://issue/{issueKey}} template, we also recognise an
- * {@code issueKey} argument name and reuse the same project-key list as a
- * sensible starting point (issue keys begin with a project key).
+ * <p>Per-project status / issue_type / assignee completions remain deferred:
+ * they require per-project context that the spec's completion request shape
+ * doesn't carry, and would need stateful per-project caches or per-keystroke
+ * JQL roundtrips.
  *
  * <p>The Jira project list is cached for 60 seconds keyed on the auth header
  * (per-user view) to avoid hammering Jira's API on every keystroke.
@@ -54,8 +53,9 @@ public class CompletionRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(CompletionRegistry.class);
 
-    /** Reference key advertised for tool/prompt argument completion. */
-    static final String PROJECT_KEY_REF = "project_key";
+    /** URI of the resource template that completion is wired to (must match
+     *  {@link ResourceRegistry#toResourceTemplateSpecifications()}). */
+    static final String ISSUE_TEMPLATE_URI = "jira://issue/{issueKey}";
 
     /** Maximum number of completion suggestions returned (per MCP spec, hard cap 100). */
     private static final int MAX_RESULTS = 20;
@@ -81,28 +81,39 @@ public class CompletionRegistry {
     /**
      * Build the SDK {@link SyncCompletionSpecification}s to register on the server.
      *
-     * <p>One spec per supported argument. Currently:
-     * <ul>
-     *   <li>{@code ref/prompt:project_key} — returns up to 20 Jira project keys
-     *       prefix-matching the typed value.</li>
-     * </ul>
+     * <p>One spec, targeting the {@code issueKey} URI variable of the
+     * {@code jira://issue/{issueKey}} resource template. Returns up to 20
+     * project-key prefixes that match the typed value — issue keys always
+     * begin with a project key, so suggesting {@code PROJ-} for prefix
+     * {@code PR} is the right completion.
      */
     public List<SyncCompletionSpecification> toSpecifications() {
         BiFunction<McpSyncServerExchange, CompleteRequest, CompleteResult> handler =
-                (exchange, request) -> handleProjectKey(exchange, request);
+                (exchange, request) -> handleIssueKey(exchange, request);
 
         return List.of(
                 new SyncCompletionSpecification(
-                        new McpSchema.PromptReference(PROJECT_KEY_REF),
+                        new McpSchema.ResourceReference(ISSUE_TEMPLATE_URI),
                         handler)
         );
     }
 
-    /** Completion handler for the {@code project_key} argument. */
-    private CompleteResult handleProjectKey(McpSyncServerExchange exchange, CompleteRequest request) {
+    /**
+     * Completion handler for the {@code issueKey} URI variable of
+     * {@code jira://issue/{issueKey}}. Returns up to {@value #MAX_RESULTS}
+     * project-key prefixes (e.g. {@code PROJ-}) that match the typed value.
+     */
+    private CompleteResult handleIssueKey(McpSyncServerExchange exchange, CompleteRequest request) {
         String prefix = request.argument() != null && request.argument().value() != null
                 ? request.argument().value().trim().toUpperCase(Locale.ROOT)
                 : "";
+
+        // Strip everything from the first '-' onward — completion targets the
+        // project-key prefix of an issue key, not the numeric tail.
+        int dash = prefix.indexOf('-');
+        if (dash >= 0) {
+            prefix = prefix.substring(0, dash);
+        }
 
         String authHeader = readAuthHeader(exchange);
         List<String> keys = projectKeys(authHeader);
@@ -110,7 +121,7 @@ public class CompletionRegistry {
         List<String> matches = new ArrayList<>(MAX_RESULTS);
         for (String key : keys) {
             if (prefix.isEmpty() || key.startsWith(prefix)) {
-                matches.add(key);
+                matches.add(key + "-");
                 if (matches.size() >= MAX_RESULTS) {
                     break;
                 }

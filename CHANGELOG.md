@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1] - 2026-05-22
+
+### Fixed
+
+- **`protected-resource` advertised the wrong URL.** Both the OAuth proxy servlet and the anonymous-filter fast path returned `resource: "<base>/rest/mcp/1.0/"` — the pre-jakarta REST endpoint that no longer exists. The MCP transport has lived at `<base>/plugins/servlet/mcp` since 1.3.0, so strict clients (Claude Code's SDK validator) refused to connect with: *"Protected resource does not match expected"*. Both files now return the correct `/plugins/servlet/mcp` URL. Claude Desktop was unaffected because it discovered the endpoint by another path.
+- **`completion/complete` returned `Prompt not found: project_key`.** The handler was registered as a `PromptReference("project_key")`, but the SDK's dispatcher requires the prompt to actually exist in the server's registered prompts (we have none). Re-wired to `ResourceReference("jira://issue/{issueKey}")` — the existing F-10 resource template — so completion is now spec-correct: clients ask for completion of the `issueKey` URI variable and receive up to 20 project-key prefixes (`PROJ-`, `TEMP-`, …) matching the typed prefix.
+
 ## [1.4.0] - 2026-05-22
 
 ### MCP spec 2025-11-25 compliance sprint

@@ -59,7 +59,7 @@ public class OAuthAnonymousFilter implements Filter {
         String oauthBase = baseUrl + "/plugins/servlet/mcp-oauth";
 
         if (uri.contains("oauth-protected-resource")) {
-            resp.getWriter().write("{\"resource\":\"" + baseUrl + "/rest/mcp/1.0/\","
+            resp.getWriter().write("{\"resource\":\"" + baseUrl + "/plugins/servlet/mcp\","
                     + "\"authorization_servers\":[\"" + oauthBase + "\"]}");
 
         } else if (uri.contains("oauth-authorization-server")) {

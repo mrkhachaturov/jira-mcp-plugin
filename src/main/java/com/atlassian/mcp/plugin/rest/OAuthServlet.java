@@ -99,7 +99,7 @@ public class OAuthServlet extends HttpServlet {
             addSecurityHeaders(resp);
             resp.setContentType("application/json");
             Map<String, Object> meta = new LinkedHashMap<>();
-            meta.put("resource", getBaseUrl() + "/rest/mcp/1.0/");
+            meta.put("resource", getBaseUrl() + "/plugins/servlet/mcp");
             meta.put("authorization_servers", List.of(getOAuthBase()));
             mapper.writeValue(resp.getWriter(), meta);
 
