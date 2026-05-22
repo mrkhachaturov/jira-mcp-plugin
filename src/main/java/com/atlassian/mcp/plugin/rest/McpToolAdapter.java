@@ -116,6 +116,17 @@ public final class McpToolAdapter {
                 .build();
     }
 
+    // TODO(F-08): in-flight cancellation via notifications/cancelled is not surfaced
+    // to tool handlers by the MCP Java SDK 2.0.0-M3 — the SDK has no cancellation
+    // listener API on McpSyncServerExchange (verified by `grep -rn "cancel"
+    // .upstream/java-sdk/mcp-core/src/main/java/io/modelcontextprotocol/` returning
+    // only ElicitResult.Action.CANCEL and unrelated subscriber-cancellation paths).
+    // The MCP spec defines cancellation as "servers SHOULD process / MAY ignore",
+    // so the four batch tools (BatchCreateIssuesTool, BatchCreateVersionsTool,
+    // BatchGetChangelogsTool, GetIssuesDevelopmentInfoTool) currently run to
+    // completion regardless of any inbound notifications/cancelled. Plumb cooperative
+    // cancellation through executeWithSdkProgress once the SDK exposes a hook (e.g.
+    // exchange.isCancelled() or a CancellationToken on the call request).
     private static McpSchema.CallToolResult dispatch(McpTool tool,
                                                      McpSyncServerExchange exchange,
                                                      McpSchema.CallToolRequest request) {
