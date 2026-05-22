@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.3.0] - 2026-05-22
+
+### Changed — breaking
+
+- **MCP endpoint URL moved** from `POST /rest/mcp/1.0/` to `POST /plugins/servlet/mcp`. Existing MCP clients must update their configuration. (The new URL is necessary because the MCP transport now runs as an async-supported `servlet-filter`, and Atlassian's REST module framework on Jira 11 cannot host an async-supported servlet — `ServletModuleDescriptor` hardcodes `isAsyncSupported=false`.)
+- **Requires Jira Data Center 11.x.** Earlier Jira versions are no longer supported (the `javax.servlet` API namespace was dropped on Jira 11).
+- **Requires JVM flag on the Jira instance:** `-Datlassian.plugins.filter.async.default=true`. The official MCP Java SDK's transport uses `request.startAsync()`; without this flag the Atlassian plugin filter chain reports `isAsyncSupported=false` and rejects the call. See the README for `setenv.sh` / docker-compose examples.
+
+### Added
+
+- Adopted the official **MCP Java SDK 2.0.0-M2** (`io.modelcontextprotocol.sdk:mcp-core` + `mcp-json-jackson2`) as the transport foundation. Replaces the hand-rolled JSON-RPC dispatcher (`JsonRpcHandler`) and Streamable HTTP endpoint (`McpResource`) — ~1,200 lines deleted. SDK-provided features now in use:
+  - Streamable HTTP transport with single-event SSE envelope for non-`initialize` responses
+  - Built-in JSON Schema validation of tool inputs
+  - Session management (`MCP-Session-Id`) and protocol-version negotiation
+  - Native async / SSE handling (no manual `startAsync()` plumbing)
+  - Standards-compliant `Accept`-header negotiation
+- 14-test e2e suite redesigned around the SDK's Java client (`HttpClientStreamableHttpTransport` + `McpSyncClient`). Asserts on real Jira values (`Ruben Khachaturov`, `JIRAUSER10000`, `Europe/Moscow`, real issue keys with `structuredContent` for the widget). The previous 1,216-line hand-rolled HTTP suite has been removed.
+
+### Changed
+
+- Migrated from **Java 17 → Java 21** (Jira 11 platform requirement).
+- Migrated from **Spring 5 → Spring 6.2.15**, **Tomcat 9 → Tomcat 10.1**, **Jakarta EE 9 → Jakarta EE 10**.
+- AMPS **9.9.1 → 9.1.9** (the post-jakarta line).
+- Atlassian Spring Scanner **3.0.4 → 6.0.2**.
+- Imports flipped from `javax.servlet`, `javax.ws.rs`, `javax.inject`, `javax.annotation` to their `jakarta.*` equivalents across all Java sources.
+- Atlassian Platform BOM **8.1.13** imported in `pom.xml`; manages versions of jakarta + Spring + Jackson + `atlassian-rest-v2-api` + `sal-api` transitively (instead of pinning each manually).
+- MCP transport registered as a `<servlet-filter>` on `/plugins/servlet/mcp` (weight 600, after the security filters); calls the SDK servlet's `service()` directly and never invokes `chain.doFilter()`.
+- `ResourceRegistry.toSpecifications()` now emits the real `ui://jira/issue-card@{hash}` resource via `SyncResourceSpecification` with dual metadata: Claude (`_meta.ui` nested) + ChatGPT (`openai/widgetDescription`, `openai/widgetPrefersBorder`, `openai/widgetCSP`, `openai/widgetDomain` flat keys). `resources/read` returns the bundled widget HTML straight from the plugin jar.
+- OSGi `Private-Package` widened to embed all `compile`-scope SDK transitives (`reactor.*`, `org.reactivestreams.*`, `com.networknt.*`, `com.ethlo.time.*`, `com.fasterxml.jackson.dataformat.yaml.*`, `org.yaml.snakeyaml.*`) so Jira's OSGi container does not need to export them. `slf4j-api` pinned `provided` to avoid split-package logging.
+
+### Removed
+
+- Hand-rolled `JsonRpcHandler` + `McpResource` (~600 lines): SDK transport replaces them.
+- `<rest key="mcp-rest">` JAX-RS module from `atlassian-plugin.xml`.
+- Old e2e suite (1,216 lines of hand-rolled HTTP) replaced by 591 lines of SDK-client-driven tests.
+- `<async-supported>` XML elements from `<servlet-filter>` declarations — the Atlassian plugin XML parser silently ignores them (verified via `javap` on `BaseServletModuleDescriptor.init()`); they were dead config.
+
+### Security (preserved)
+
+All security controls from 1.2.x carried over to the new transport:
+
+- Origin validation, body size limits, IP / user rate limiting, session-user binding, security headers (`X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Frame-Options: DENY`), access control (allowed users / groups, plugin-enabled gate).
+- OAuth proxy (`OAuthServlet`, PKCE S256, DCR, `refresh_token` grant) untouched.
+- Anonymous-access filter (`OAuthAnonymousFilter` + `@UnrestrictedAccess`) for OAuth discovery endpoints preserved.
+
 ## [1.2.0] - 2026-04-09
 
 ### Added
