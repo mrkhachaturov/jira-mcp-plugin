@@ -17,7 +17,6 @@
         <jira.version>11.3.6</jira.version>
         <amps.version>9.1.9</amps.version>
         <atlassian.spring.scanner.version>6.0.2</atlassian.spring.scanner.version>
-        <atlassian.platform.version>8.1.13</atlassian.platform.version>
         <mcp.sdk.version>2.0.0-M3</mcp.sdk.version>
 
         <atlassian.plugin.key>${project.groupId}.${project.artifactId}</atlassian.plugin.key>
@@ -29,9 +28,9 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>com.atlassian.platform.dependencies</groupId>
-                <artifactId>platform-public-api</artifactId>
-                <version>${atlassian.platform.version}</version>
+                <groupId>com.atlassian.jira</groupId>
+                <artifactId>jira-api-bom</artifactId>
+                <version>${jira.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -43,7 +42,6 @@
         <dependency>
             <groupId>com.atlassian.jira</groupId>
             <artifactId>jira-api</artifactId>
-            <version>${jira.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
