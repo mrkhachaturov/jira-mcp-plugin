@@ -99,18 +99,28 @@ public class OAuthServlet extends HttpServlet {
                 resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
                 return;
             }
-            String base = getOAuthBase();
-            Map<String, Object> meta = new LinkedHashMap<>();
-            meta.put("issuer", base);
-            meta.put("authorization_endpoint", base + "/authorize");
-            meta.put("token_endpoint", base + "/token");
-            meta.put("registration_endpoint", base + "/register");
-            meta.put("response_types_supported", List.of("code"));
-            meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
-            meta.put("token_endpoint_auth_methods_supported", List.of("none"));
-            meta.put("code_challenge_methods_supported", List.of("S256"));
-            meta.put("scopes_supported", List.of("WRITE", "READ"));
-            mapper.writeValue(resp.getWriter(), meta);
+            mapper.writeValue(resp.getWriter(), buildAuthServerMetadata());
+
+        } else if (path.equals("/openid-configuration") || path.equals("/openid-configuration/")) {
+            // F-13: OpenID Connect Discovery 1.0. Alias of /metadata with the OIDC-required
+            // fields layered on top so MCP clients that look for /.well-known/openid-configuration
+            // (new in MCP 2025-11-25 per PR #797) can discover the same authorisation server.
+            //
+            // Note: this plugin does NOT issue ID tokens — it proxies Jira's OAuth 2.0 only.
+            // jwks_uri is intentionally omitted because Jira's AS does not currently expose a
+            // JWKS endpoint we can mirror; id_token_signing_alg_values_supported lists RS256 as
+            // a placeholder for spec-compliance. Real OIDC ID-token issuance is out of scope
+            // for this plugin — clients that need ID tokens should use Jira's native OIDC if
+            // available, not the MCP plugin's OAuth proxy.
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
+            addSecurityHeaders(resp);
+            resp.setContentType("application/json");
+            if (!config.isOAuthEnabled()) {
+                resp.setStatus(404);
+                resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
+                return;
+            }
+            mapper.writeValue(resp.getWriter(), buildOpenIdConfiguration());
 
         } else if (path.startsWith("/authorize")) {
             if (!enforceRate(resp, ip, "oauth-authorize", RATE_AUTHORIZE)) return;
@@ -124,6 +134,45 @@ public class OAuthServlet extends HttpServlet {
             resp.setContentType("application/json");
             resp.getWriter().write("{\"error\":\"Not found\"}");
         }
+    }
+
+    /** Builds the RFC 8414 OAuth 2.0 Authorization Server Metadata document. */
+    private Map<String, Object> buildAuthServerMetadata() {
+        String base = getOAuthBase();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("issuer", base);
+        meta.put("authorization_endpoint", base + "/authorize");
+        meta.put("token_endpoint", base + "/token");
+        meta.put("registration_endpoint", base + "/register");
+        meta.put("response_types_supported", List.of("code"));
+        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+        meta.put("code_challenge_methods_supported", List.of("S256"));
+        meta.put("scopes_supported", List.of("WRITE", "READ"));
+        return meta;
+    }
+
+    /**
+     * Builds the OpenID Connect Discovery 1.0 document. Per the OIDC spec the issuer MUST be
+     * the Jira base URL (the canonical authority for the user), and the endpoints point at
+     * this plugin's OAuth proxy. {@code jwks_uri} is omitted — Jira's authorisation server
+     * does not expose one we can proxy.
+     */
+    private Map<String, Object> buildOpenIdConfiguration() {
+        String base = getOAuthBase();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("issuer", getBaseUrl());
+        meta.put("authorization_endpoint", base + "/authorize");
+        meta.put("token_endpoint", base + "/token");
+        meta.put("registration_endpoint", base + "/register");
+        meta.put("response_types_supported", List.of("code"));
+        meta.put("subject_types_supported", List.of("public"));
+        meta.put("id_token_signing_alg_values_supported", List.of("RS256"));
+        meta.put("code_challenge_methods_supported", List.of("S256"));
+        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+        meta.put("scopes_supported", List.of("read", "write"));
+        return meta;
     }
 
     @Override
