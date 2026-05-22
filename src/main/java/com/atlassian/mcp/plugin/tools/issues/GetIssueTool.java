@@ -1,9 +1,11 @@
 package com.atlassian.mcp.plugin.tools.issues;
 
+import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
 import com.atlassian.mcp.plugin.tools.UiBinding;
+import com.atlassian.mcp.plugin.tools.UiToolDefaults;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.net.URLEncoder;
@@ -27,6 +29,16 @@ public class GetIssueTool implements McpTool {
     @Override
     public String uiResourceUri() {
         return ui == null ? null : ui.resourceUri();
+    }
+
+    @Override
+    public String iconUri() {
+        return ui == null ? null : IconConstants.JIRA_LOGO_DATA_URI;
+    }
+
+    @Override
+    public Map<String, Object> outputSchema() {
+        return ui == null ? null : UiToolDefaults.ISSUE_LIST_OUTPUT_SCHEMA;
     }
 
     @Override
