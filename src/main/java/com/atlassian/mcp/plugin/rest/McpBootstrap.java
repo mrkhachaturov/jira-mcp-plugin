@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.mcp.plugin.CompletionRegistry;
 import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.ResourceRegistry;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
@@ -71,6 +72,7 @@ public class McpBootstrap {
 
     private final ToolRegistry toolRegistry;
     private final ResourceRegistry resourceRegistry;
+    private final CompletionRegistry completionRegistry;
     private final McpPluginConfig config;
     private final JiraAuthContextExtractor authExtractor;
     private final ApplicationProperties applicationProperties;
@@ -81,11 +83,13 @@ public class McpBootstrap {
     @Inject
     public McpBootstrap(ToolRegistry toolRegistry,
                         ResourceRegistry resourceRegistry,
+                        CompletionRegistry completionRegistry,
                         McpPluginConfig config,
                         JiraAuthContextExtractor authExtractor,
                         @ComponentImport ApplicationProperties applicationProperties) {
         this.toolRegistry = toolRegistry;
         this.resourceRegistry = resourceRegistry;
+        this.completionRegistry = completionRegistry;
         this.config = config;
         this.authExtractor = authExtractor;
         this.applicationProperties = applicationProperties;
@@ -128,10 +132,13 @@ public class McpBootstrap {
                 // SDK auto-wires the `logging/setLevel` handler (McpAsyncServer registers it
                 // when serverCapabilities.logging() != null) — clients can set min level,
                 // and tool bodies can emit logging notifications via the SyncServerExchange.
+                // F-07: declare `completions` capability so clients send completion/complete
+                // requests (the SDK only registers the handler when this is non-null).
                 .capabilities(McpSchema.ServerCapabilities.builder()
                         .tools(false)
                         .resources(false, false)
                         .logging()
+                        .completions()
                         .build())
                 .tools(toolRegistry.toSpecifications());
 
@@ -140,11 +147,19 @@ public class McpBootstrap {
             spec = spec.resources(resourceSpecs);
         }
 
+        // F-07: register completion handlers (project_key today; status / issue_type /
+        // assignee deferred — see CompletionRegistry javadoc).
+        var completionSpecs = completionRegistry.toSpecifications();
+        if (completionSpecs != null && !completionSpecs.isEmpty()) {
+            spec = spec.completions(completionSpecs);
+        }
+
         this.server = spec.build();
 
-        log.info("[MCP] SDK transport built ({} tools, {} resources)",
+        log.info("[MCP] SDK transport built ({} tools, {} resources, {} completions)",
                 toolRegistry.toSpecifications().size(),
-                resourceSpecs == null ? 0 : resourceSpecs.size());
+                resourceSpecs == null ? 0 : resourceSpecs.size(),
+                completionSpecs == null ? 0 : completionSpecs.size());
 
         return transport;
     }
