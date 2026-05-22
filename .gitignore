@@ -30,3 +30,5 @@ jira_software_dc_*_swagger*.json
 mcp-app/dist/
 mcp-app/node_modules/
 src/main/resources/mcp-app/
+
+/docs/
