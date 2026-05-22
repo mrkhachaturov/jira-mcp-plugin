@@ -25,12 +25,9 @@
          element on plugin filters is silently ignored — verified via javap on
          ServletFilterModuleDescriptor.init()). OAuthAnonymousFilter (weight=1)
          stays at the very front. -->
-    <servlet-filter key="mcp-origin-filter" name="MCP Origin Validation Filter"
-                    class="com.atlassian.mcp.plugin.rest.OriginValidationFilter"
-                    location="before-dispatch" weight="100">
-        <url-pattern>/plugins/servlet/mcp</url-pattern>
-        <dispatcher>REQUEST</dispatcher>
-    </servlet-filter>
+    <!-- Origin validation is now handled by the SDK's DefaultServerTransportSecurityValidator
+         wired in McpBootstrap (see buildSecurityValidator()). The previous mcp-origin-filter
+         (OriginValidationFilter) was removed as part of F-02. -->
 
     <servlet-filter key="mcp-body-size-filter" name="MCP Body Size Limit Filter"
                     class="com.atlassian.mcp.plugin.rest.BodySizeLimitFilter"

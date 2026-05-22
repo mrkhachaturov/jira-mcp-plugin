@@ -1,12 +1,14 @@
 package com.atlassian.mcp.plugin;
 
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
+import com.atlassian.mcp.plugin.rest.JiraAuthContextExtractor;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncResourceSpecification;
+import io.modelcontextprotocol.server.McpServerFeatures.SyncResourceTemplateSpecification;
 import io.modelcontextprotocol.spec.McpError;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.inject.Inject;
@@ -39,6 +41,7 @@ public class ResourceRegistry {
 
     private final McpPluginConfig config;
     private final ApplicationProperties applicationProperties;
+    private final JiraRestClient jiraClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private String html;
@@ -48,9 +51,11 @@ public class ResourceRegistry {
 
     @Inject
     public ResourceRegistry(McpPluginConfig config,
-                            @ComponentImport ApplicationProperties applicationProperties) {
+                            @ComponentImport ApplicationProperties applicationProperties,
+                            JiraRestClient jiraClient) {
         this.config = config;
         this.applicationProperties = applicationProperties;
+        this.jiraClient = jiraClient;
         loadWidget();
     }
 
@@ -222,12 +227,14 @@ public class ResourceRegistry {
                         String requested = request == null ? "null" : request.uri();
                         throw McpError.RESOURCE_NOT_FOUND.apply(requested);
                     }
-                    McpSchema.TextResourceContents content = new McpSchema.TextResourceContents(
-                            resourceUri,
-                            MIME_TYPE,
-                            html,
-                            metaMap);
-                    return new McpSchema.ReadResourceResult(List.of(content), metaMap);
+                    McpSchema.TextResourceContents content = McpSchema.TextResourceContents
+                            .builder(resourceUri, html)
+                            .mimeType(MIME_TYPE)
+                            .meta(metaMap)
+                            .build();
+                    return McpSchema.ReadResourceResult.builder(List.of(content))
+                            .meta(metaMap)
+                            .build();
                 };
 
         return List.of(new SyncResourceSpecification(resource, readHandler));
@@ -245,6 +252,67 @@ public class ResourceRegistry {
             log.warn("[MCP-APPS] Failed to convert _meta to Map: {}", e.getMessage());
             return new HashMap<>();
         }
+    }
+
+    /**
+     * F-10: Resource templates exposed by the server.
+     *
+     * <p>Currently a single template, {@code jira://issue/{issueKey}}, which
+     * fetches an issue by key from Jira's REST API on read and returns the
+     * trimmed JSON (response trimming is applied automatically inside
+     * {@link JiraRestClient}). The read handler resolves the user via the
+     * {@link McpSchema.ReadResourceRequest} URI rather than via the request's
+     * arguments — clients fill the {@code {issueKey}} placeholder client-side
+     * and send a concrete URI like {@code jira://issue/PROJ-123} on
+     * {@code resources/read}. The auth header is pulled from the per-request
+     * transport context populated by {@link JiraAuthContextExtractor}.
+     */
+    public List<SyncResourceTemplateSpecification> toResourceTemplateSpecifications() {
+        McpSchema.ResourceTemplate template = McpSchema.ResourceTemplate
+                .builder("jira://issue/{issueKey}", "Jira Issue")
+                .description("Fetch a Jira issue by key (e.g. jira://issue/PROJ-123). "
+                        + "Returns the trimmed Jira REST v2 issue JSON.")
+                .mimeType("application/json")
+                .build();
+
+        java.util.function.BiFunction<
+                io.modelcontextprotocol.server.McpSyncServerExchange,
+                McpSchema.ReadResourceRequest,
+                McpSchema.ReadResourceResult> readHandler =
+                (exchange, request) -> {
+                    String uri = request == null ? null : request.uri();
+                    if (uri == null || !uri.startsWith("jira://issue/")) {
+                        throw McpError.RESOURCE_NOT_FOUND.apply(String.valueOf(uri));
+                    }
+                    String key = uri.substring("jira://issue/".length()).trim();
+                    if (key.isEmpty()) {
+                        throw McpError.RESOURCE_NOT_FOUND.apply(uri);
+                    }
+
+                    String authHeader = null;
+                    try {
+                        Object v = exchange.transportContext()
+                                .get(JiraAuthContextExtractor.CTX_AUTH_HEADER);
+                        authHeader = v instanceof String s ? s : null;
+                    } catch (Exception ignored) {
+                        // best-effort
+                    }
+
+                    try {
+                        String json = jiraClient.get("/rest/api/2/issue/" + key, authHeader);
+                        McpSchema.TextResourceContents content = McpSchema.TextResourceContents
+                                .builder(uri, json)
+                                .mimeType("application/json")
+                                .build();
+                        return McpSchema.ReadResourceResult.builder(List.of(content)).build();
+                    } catch (McpToolException ex) {
+                        log.debug("[MCP] resource template read failed for {}: {}",
+                                uri, ex.getMessage());
+                        throw McpError.RESOURCE_NOT_FOUND.apply(uri);
+                    }
+                };
+
+        return List.of(new SyncResourceTemplateSpecification(template, readHandler));
     }
 
     private static String sha256(String input) throws Exception {

@@ -65,6 +65,40 @@ public interface McpTool {
         return false;
     }
 
+    /**
+     * Tool annotation: human-readable display name (null = no override).
+     *
+     * <p>Per MCP spec {@code 2025-11-25/server/tools.mdx} (SEP-973), the optional
+     * {@code title} is surfaced to users when clients render tool lists. Tools
+     * may override to expose a friendly label distinct from the snake_case
+     * {@link #name()}.
+     */
+    default String title() {
+        return null;
+    }
+
+    /**
+     * Tool annotation: idempotent &rArr; calling repeatedly with the same args
+     * has no additional effect beyond the first call.
+     *
+     * <p>Default: read-only tools are idempotent. Write tools may override and
+     * return {@code true} if their effect is keyed by resource identity (e.g.
+     * {@code update_issue} on a stable issue key reaches the same end state
+     * regardless of how many times it runs).
+     */
+    default Boolean idempotentHint() {
+        return !isWriteTool();
+    }
+
+    /**
+     * Tool annotation: open-world &rArr; the tool interacts with external
+     * systems (vs a closed sandbox). All tools in this plugin call the Jira
+     * REST API, so the default is {@code true}.
+     */
+    default Boolean openWorldHint() {
+        return Boolean.TRUE;
+    }
+
     /** Callback for reporting progress during streaming execution. */
     @FunctionalInterface
     interface ProgressCallback {
@@ -83,6 +117,26 @@ public interface McpTool {
      * the tool has no UI binding.
      */
     default String uiResourceUri() {
+        return null;
+    }
+
+    /**
+     * Optional per-tool icon (data URI or http URL). Null = client falls back
+     * to the server-level icon advertised in {@code Implementation.icons}.
+     * Per MCP spec {@code 2025-11-25} (SEP-973), the wire shape is
+     * {@code icons: [{ src, mimeType, sizes }]}; this method returns just the
+     * {@code src} string and the adapter infers the rest.
+     */
+    default String iconUri() {
+        return null;
+    }
+
+    /**
+     * Optional outputSchema describing the {@code structuredContent} payload
+     * the tool emits. Null = no schema advertised (clients can't validate
+     * structuredContent shape). Per MCP spec {@code 2025-11-25} (SEP-1330).
+     */
+    default Map<String, Object> outputSchema() {
         return null;
     }
 

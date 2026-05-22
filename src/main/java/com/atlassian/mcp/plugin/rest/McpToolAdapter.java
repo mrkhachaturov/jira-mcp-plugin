@@ -7,6 +7,7 @@ import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -19,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * <p>Responsibilities:
  * <ul>
  *   <li>Wrap each tool with a {@link McpSchema.ToolAnnotations} record built via
- *       its canonical constructor (no Builder exists in M2).</li>
+ *       the SDK's builder API.</li>
  *   <li>Attach the tool's {@code uiResourceUri()} (if any) as both Claude-style
  *       {@code _meta.ui.resourceUri} and ChatGPT-style {@code openai/widgetResource}
  *       hints on the {@link McpSchema.Tool#meta()} map.</li>
@@ -28,35 +29,72 @@ import org.slf4j.LoggerFactory;
  *   <li>Optionally attach a {@code structuredContent} payload from
  *       {@link McpTool#structuredContent(Map, String, String, String)} on success.</li>
  * </ul>
- *
- * <p>Plan divergences vs the Task 3 spec samples in the plan doc:
- * <ul>
- *   <li>{@code ToolAnnotations} uses the canonical 6-arg record constructor
- *       (no {@code .builder()} — does not exist in M2).</li>
- *   <li>{@code CallToolResult} uses its canonical 4-arg constructor.</li>
- * </ul>
  */
 public final class McpToolAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(McpToolAdapter.class);
 
+    /** Per MCP 2025-11-25 (SEP-1613), the spec defaults to JSON Schema 2020-12. */
+    private static final String JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
+
     private McpToolAdapter() {}
+
+    /**
+     * Inject {@code "$schema": "<2020-12 URI>"} at the front of a tool's
+     * input/output schema map if not already declared. Returns {@code null}
+     * passthrough so callers can use it on optional values.
+     */
+    private static Map<String, Object> withSchemaDialect(Map<String, Object> raw) {
+        if (raw == null || raw.containsKey("$schema")) return raw;
+        Map<String, Object> copy = new LinkedHashMap<>(raw.size() + 1);
+        copy.put("$schema", JSON_SCHEMA_2020_12);
+        copy.putAll(raw);
+        return copy;
+    }
+
+    /** Infer {@code mimeType} for an icon data URI. Falls back to {@code image/svg+xml}. */
+    private static String inferIconMimeType(String uri) {
+        if (uri == null) return "image/svg+xml";
+        int comma = uri.indexOf(',');
+        if (uri.startsWith("data:") && comma > 5) {
+            String head = uri.substring(5, comma);
+            int semi = head.indexOf(';');
+            return semi > 0 ? head.substring(0, semi) : head;
+        }
+        if (uri.endsWith(".png")) return "image/png";
+        if (uri.endsWith(".jpg") || uri.endsWith(".jpeg")) return "image/jpeg";
+        return "image/svg+xml";
+    }
 
     /** Build a {@link McpServerFeatures.SyncToolSpecification} from an internal {@link McpTool}. */
     public static McpServerFeatures.SyncToolSpecification adapt(McpTool tool) {
-        McpSchema.ToolAnnotations annotations = new McpSchema.ToolAnnotations(
-                /* title */         null,
-                /* readOnlyHint */  !tool.isWriteTool(),
-                /* destructiveHint */ tool.isDestructiveTool(),
-                /* idempotentHint */ null,
-                /* openWorldHint */  null,
-                /* returnDirect */   null);
+        McpSchema.ToolAnnotations annotations = McpSchema.ToolAnnotations.builder()
+                .title(tool.title())
+                .readOnlyHint(!tool.isWriteTool())
+                .destructiveHint(tool.isDestructiveTool())
+                .idempotentHint(tool.idempotentHint())
+                .openWorldHint(tool.openWorldHint())
+                .build();
 
         McpSchema.Tool.Builder builder = McpSchema.Tool.builder()
                 .name(tool.name())
+                .title(tool.title())
                 .description(tool.description())
-                .inputSchema(tool.inputSchema())
+                .inputSchema(withSchemaDialect(tool.inputSchema()))
                 .annotations(annotations);
+
+        Map<String, Object> outputSchema = tool.outputSchema();
+        if (outputSchema != null) {
+            builder.outputSchema(withSchemaDialect(outputSchema));
+        }
+
+        String iconUri = tool.iconUri();
+        if (iconUri != null && !iconUri.isEmpty()) {
+            builder.icons(List.of(McpSchema.Icon.builder(iconUri)
+                    .mimeType(inferIconMimeType(iconUri))
+                    .sizes(List.of("any"))
+                    .build()));
+        }
 
         // MCP Apps UI binding (Claude + ChatGPT shapes)
         String uiUri = tool.uiResourceUri();
@@ -72,10 +110,23 @@ public final class McpToolAdapter {
 
         McpSchema.Tool schemaTool = builder.build();
 
-        return new McpServerFeatures.SyncToolSpecification(
-                schemaTool, (exchange, request) -> dispatch(tool, exchange, request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(schemaTool)
+                .callHandler((exchange, request) -> dispatch(tool, exchange, request))
+                .build();
     }
 
+    // TODO(F-08): in-flight cancellation via notifications/cancelled is not surfaced
+    // to tool handlers by the MCP Java SDK 2.0.0-M3 — the SDK has no cancellation
+    // listener API on McpSyncServerExchange (verified by `grep -rn "cancel"
+    // .upstream/java-sdk/mcp-core/src/main/java/io/modelcontextprotocol/` returning
+    // only ElicitResult.Action.CANCEL and unrelated subscriber-cancellation paths).
+    // The MCP spec defines cancellation as "servers SHOULD process / MAY ignore",
+    // so the four batch tools (BatchCreateIssuesTool, BatchCreateVersionsTool,
+    // BatchGetChangelogsTool, GetIssuesDevelopmentInfoTool) currently run to
+    // completion regardless of any inbound notifications/cancelled. Plumb cooperative
+    // cancellation through executeWithSdkProgress once the SDK exposes a hook (e.g.
+    // exchange.isCancelled() or a CancellationToken on the call request).
     private static McpSchema.CallToolResult dispatch(McpTool tool,
                                                      McpSyncServerExchange exchange,
                                                      McpSchema.CallToolRequest request) {
@@ -98,21 +149,25 @@ public final class McpToolAdapter {
                 log.debug("[MCP] structuredContent for '{}' failed: {}", tool.name(), e.getMessage());
             }
 
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent(resultText)),
-                    /* isError */ Boolean.FALSE,
-                    /* structuredContent */ structured,
-                    /* meta */ null);
+            McpSchema.CallToolResult.Builder okBuilder = McpSchema.CallToolResult.builder()
+                    .addTextContent(resultText)
+                    .isError(Boolean.FALSE);
+            if (structured != null) {
+                okBuilder.structuredContent(structured);
+            }
+            return okBuilder.build();
         } catch (McpToolException e) {
             log.debug("[MCP] tool '{}' failed: {}", tool.name(), e.getMessage());
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("Error: " + e.getMessage())),
-                    Boolean.TRUE, null, null);
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Error: " + e.getMessage())
+                    .isError(Boolean.TRUE)
+                    .build();
         } catch (RuntimeException e) {
             log.warn("[MCP] tool '{}' threw unexpectedly", tool.name(), e);
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("Internal error: " + e.getMessage())),
-                    Boolean.TRUE, null, null);
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Internal error: " + e.getMessage())
+                    .isError(Boolean.TRUE)
+                    .build();
         }
     }
 

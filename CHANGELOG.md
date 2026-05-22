@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.4.0] - 2026-05-22
+
+### MCP spec 2025-11-25 compliance sprint
+
+22 audit findings (F-01 … F-24, with F-11 withdrawn and F-22 superseded by F-24) plus two deferred SDK-adoption tasks landed in one branch. The MCP-Protocol-Version negotiated at `initialize` is now `2025-11-25` — courtesy of the M3 SDK transport's `protocolVersions()` list.
+
+### Added — new protocol surface
+
+- **Per-tool `iconUri` + `outputSchema` advertised** on the five UI-linked tools (`get_issue`, `search`, `get_project_issues`, `get_board_issues`, `get_sprint_issues`) per SEP-973 (icons) and SEP-1330 (outputSchema). Schemas describe the issue-card structuredContent payload shape. (F-12, outputSchema)
+- **Tool annotation hints populated**: `title`, `idempotentHint` (`!isWriteTool()` by default), `openWorldHint` (`true` for all tools — every tool talks to Jira REST). (F-04, F-05, F-17)
+- **JSON Schema 2020-12 dialect declared** on every tool's input/output schema via `$schema` (auto-injected by `McpToolAdapter`). (F-18, SEP-1613)
+- **`RateLimit-*` response headers** (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`) emitted on every authenticated MCP and OAuth response per draft-ietf-httpapi-ratelimit-headers-09. 429 responses additionally set `Retry-After`. (F-09)
+- **`completion/complete` handler for `project_key`** argument. Caches the project list per Authorization header for 60 seconds, prefix-matches case-insensitively, returns top 20. Status / issue_type / assignee completions deferred (need per-project context not in the request shape). (F-07)
+- **`jira://issue/{issueKey}` resource template** — clients can fetch any Jira issue by key via `resources/read` without burning a tool call. (F-10)
+- **`logging/setLevel` handler** auto-wired by declaring `.logging()` on `ServerCapabilities`. Tool bodies can emit `notifications/message` via `McpSyncServerExchange.loggingNotification(...)`. (F-16)
+- **OpenID Connect Discovery 1.0 endpoint** at `/plugins/servlet/mcp-oauth/openid-configuration`, alongside the existing RFC 8414 metadata endpoint. (F-13)
+- **OAuth Client ID Metadata Documents (CIMD)** support per SEP-991 — clients may use an HTTPS URL as `client_id`; the server fetches the metadata document (8 KB cap, 5s/10s timeouts, 1-hour cache, 1000-entry LRU) and uses its `redirect_uris` for the allowlist check. Advertised via `client_id_metadata_document_supported: true` in both metadata endpoints. (F-14)
+- **`WWW-Authenticate` scope challenges** on 401/403 per SEP-835: 401 advertises `scope="read write"`; 403 emits a bare Bearer challenge. Per-tool insufficient_scope deferred to v1.5+ once a real scope ↔ tool mapping is wired. (F-06)
+- **MCP Apps widget capabilities declared** via `useApp(...)` — `availableDisplayModes: ['inline']` + `tools: { listChanged: false }` per ext-apps `McpUiAppCapabilitiesSchema`. (F-20)
+
+### Changed
+
+- **Switched build BOM** from `com.atlassian.platform.dependencies:platform-public-api:8.1.13` → `com.atlassian.jira:jira-api-bom:11.3.6` (which transitively imports `platform-deps:8.3.16`). Aligns the plugin's compile classpath with what Jira 11.3.6 actually ships. Resolves: Jackson 2.19.4→2.21.2, Spring 6.2.15→6.2.17, atlassian-plugins 9.0.2→9.1.4, atlassian-rest-v2-api 9.0.5→9.1.4, sal-api 7.0.1→7.0.4. (F-24, supersedes F-22)
+- **Bumped AMPS** 9.1.9 → 9.12.4 (latest jakarta-line). Tomcat 11 / Jira 11 launcher mappings, JDK 25-ready ASM, and `rerunFailingTestsCount=2` for the flaky live-Jira e2e suite. (F-23)
+- **Adopted MCP Java SDK 2.0.0-M3** (from M2). Builder APIs for `Tool`, `ToolAnnotations`, `CallToolResult`, `SyncToolSpecification`, `TextResourceContents`, `ReadResourceResult` replace canonical-constructor calls.
+- **Server capabilities accuracy**: `tools.listChanged=false` and `resources.listChanged=false` — the plugin never emits the corresponding notifications. Removes a silent spec violation. (F-01, F-02)
+- **Origin validation delegated to SDK** `DefaultServerTransportSecurityValidator`. `OriginValidationFilter.java` deleted (~96 LOC). Allowlist preserved verbatim.
+- **MCP Apps SDK** `@modelcontextprotocol/ext-apps` 1.2.2 → 1.7.2 in `mcp-app/`. Widget bundle measured at ~571 KB (gzip 159 KB) — acceptable because the resource is content-hashed via `ui://jira/issue-card@{hash}`. (F-19, F-21)
+
+### Documented gaps
+
+- **F-08 (`notifications/cancelled`)**: MCP Java SDK 2.0.0-M3 does NOT surface cancellation to call handlers (no `exchange.isCancelled()`). The four batch tools therefore run to completion. Spec allows this (`SHOULD process / MAY ignore`). TODO documented in `McpToolAdapter`.
+- **F-15 (Tasks extension)**: experimental in 2025-11-25. Deferred per audit recommendation.
+
 ## [1.3.0] - 2026-05-22
 
 ### Changed — breaking

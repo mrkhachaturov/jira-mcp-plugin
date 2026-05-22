@@ -3,6 +3,7 @@ package com.atlassian.mcp.plugin.rest;
 import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.config.OAuthStateStore;
+import com.atlassian.mcp.plugin.rest.oauth.CimdValidator;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -47,6 +48,7 @@ public class OAuthServlet extends HttpServlet {
     private final OAuthStateStore stateStore;
     private final RateLimiter rateLimiter;
     private final ApplicationProperties applicationProperties;
+    private final CimdValidator cimdValidator;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -59,10 +61,21 @@ public class OAuthServlet extends HttpServlet {
             OAuthStateStore stateStore,
             RateLimiter rateLimiter,
             @ComponentImport ApplicationProperties applicationProperties) {
+        this(config, stateStore, rateLimiter, applicationProperties, new CimdValidator());
+    }
+
+    /** Constructor used by tests to inject a stub {@link CimdValidator}. */
+    public OAuthServlet(
+            McpPluginConfig config,
+            OAuthStateStore stateStore,
+            RateLimiter rateLimiter,
+            ApplicationProperties applicationProperties,
+            CimdValidator cimdValidator) {
         this.config = config;
         this.stateStore = stateStore;
         this.rateLimiter = rateLimiter;
         this.applicationProperties = applicationProperties;
+        this.cimdValidator = cimdValidator;
     }
 
     private String getBaseUrl() {
@@ -82,10 +95,7 @@ public class OAuthServlet extends HttpServlet {
         String ip = getClientIp(req);
 
         if (path.equals("/protected-resource") || path.equals("/protected-resource/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
-                sendRateLimited(resp);
-                return;
-            }
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
             addSecurityHeaders(resp);
             resp.setContentType("application/json");
             Map<String, Object> meta = new LinkedHashMap<>();
@@ -94,10 +104,7 @@ public class OAuthServlet extends HttpServlet {
             mapper.writeValue(resp.getWriter(), meta);
 
         } else if (path.equals("/metadata") || path.equals("/metadata/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
-                sendRateLimited(resp);
-                return;
-            }
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
             addSecurityHeaders(resp);
             resp.setContentType("application/json");
             if (!config.isOAuthEnabled()) {
@@ -105,24 +112,31 @@ public class OAuthServlet extends HttpServlet {
                 resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
                 return;
             }
-            String base = getOAuthBase();
-            Map<String, Object> meta = new LinkedHashMap<>();
-            meta.put("issuer", base);
-            meta.put("authorization_endpoint", base + "/authorize");
-            meta.put("token_endpoint", base + "/token");
-            meta.put("registration_endpoint", base + "/register");
-            meta.put("response_types_supported", List.of("code"));
-            meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
-            meta.put("token_endpoint_auth_methods_supported", List.of("none"));
-            meta.put("code_challenge_methods_supported", List.of("S256"));
-            meta.put("scopes_supported", List.of("WRITE", "READ"));
-            mapper.writeValue(resp.getWriter(), meta);
+            mapper.writeValue(resp.getWriter(), buildAuthServerMetadata());
 
-        } else if (path.startsWith("/authorize")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-authorize", RATE_AUTHORIZE)) {
-                sendRateLimited(resp);
+        } else if (path.equals("/openid-configuration") || path.equals("/openid-configuration/")) {
+            // F-13: OpenID Connect Discovery 1.0. Alias of /metadata with the OIDC-required
+            // fields layered on top so MCP clients that look for /.well-known/openid-configuration
+            // (new in MCP 2025-11-25 per PR #797) can discover the same authorisation server.
+            //
+            // Note: this plugin does NOT issue ID tokens — it proxies Jira's OAuth 2.0 only.
+            // jwks_uri is intentionally omitted because Jira's AS does not currently expose a
+            // JWKS endpoint we can mirror; id_token_signing_alg_values_supported lists RS256 as
+            // a placeholder for spec-compliance. Real OIDC ID-token issuance is out of scope
+            // for this plugin — clients that need ID tokens should use Jira's native OIDC if
+            // available, not the MCP plugin's OAuth proxy.
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
+            addSecurityHeaders(resp);
+            resp.setContentType("application/json");
+            if (!config.isOAuthEnabled()) {
+                resp.setStatus(404);
+                resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
                 return;
             }
+            mapper.writeValue(resp.getWriter(), buildOpenIdConfiguration());
+
+        } else if (path.startsWith("/authorize")) {
+            if (!enforceRate(resp, ip, "oauth-authorize", RATE_AUTHORIZE)) return;
             handleAuthorize(req, resp);
 
         } else if (path.startsWith("/callback")) {
@@ -135,6 +149,50 @@ public class OAuthServlet extends HttpServlet {
         }
     }
 
+    /** Builds the RFC 8414 OAuth 2.0 Authorization Server Metadata document. */
+    private Map<String, Object> buildAuthServerMetadata() {
+        String base = getOAuthBase();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("issuer", base);
+        meta.put("authorization_endpoint", base + "/authorize");
+        meta.put("token_endpoint", base + "/token");
+        meta.put("registration_endpoint", base + "/register");
+        meta.put("response_types_supported", List.of("code"));
+        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+        meta.put("code_challenge_methods_supported", List.of("S256"));
+        meta.put("scopes_supported", List.of("WRITE", "READ"));
+        // SEP-991: advertise CIMD support so clients prefer it over DCR.
+        meta.put("client_id_metadata_document_supported", true);
+        return meta;
+    }
+
+    /**
+     * Builds the OpenID Connect Discovery 1.0 document. Per the OIDC spec the issuer MUST be
+     * the Jira base URL (the canonical authority for the user), and the endpoints point at
+     * this plugin's OAuth proxy. {@code jwks_uri} is omitted — Jira's authorisation server
+     * does not expose one we can proxy.
+     */
+    private Map<String, Object> buildOpenIdConfiguration() {
+        String base = getOAuthBase();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("issuer", getBaseUrl());
+        meta.put("authorization_endpoint", base + "/authorize");
+        meta.put("token_endpoint", base + "/token");
+        meta.put("registration_endpoint", base + "/register");
+        meta.put("response_types_supported", List.of("code"));
+        meta.put("subject_types_supported", List.of("public"));
+        meta.put("id_token_signing_alg_values_supported", List.of("RS256"));
+        meta.put("code_challenge_methods_supported", List.of("S256"));
+        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+        meta.put("scopes_supported", List.of("read", "write"));
+        // SEP-991: advertise CIMD support (forward-compat hint — OIDC has no standard key yet,
+        // we mirror the OAuth Authorization Server Metadata field).
+        meta.put("client_id_metadata_document_supported", true);
+        return meta;
+    }
+
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
@@ -143,16 +201,14 @@ public class OAuthServlet extends HttpServlet {
         resp.setContentType("application/json");
 
         if (path.equals("/register") || path.equals("/register/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-register", RATE_REGISTER)) {
+            if (!enforceRate(resp, ip, "oauth-register", RATE_REGISTER)) {
                 log.warn("[MCP-SEC] Rate limit on /register from {}", ip);
-                sendRateLimited(resp);
                 return;
             }
             handleRegister(req, resp);
         } else if (path.equals("/token") || path.equals("/token/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-token", RATE_TOKEN)) {
+            if (!enforceRate(resp, ip, "oauth-token", RATE_TOKEN)) {
                 log.warn("[MCP-SEC] Rate limit on /token from {}", ip);
-                sendRateLimited(resp);
                 return;
             }
             handleToken(req, resp);
@@ -232,18 +288,38 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
-        OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
-        if (client == null) {
-            resp.setStatus(400);
-            resp.getWriter().write("Unknown client_id");
-            return;
+        // Resolve the client either via CIMD (SEP-991) or DCR fallback. CIMD is preferred per
+        // the 2025-11-25 spec; DCR remains for backwards compatibility with older clients.
+        List<String> allowedRedirectUris;
+        if (CimdValidator.isCimdClientId(clientId)) {
+            try {
+                CimdValidator.CimdMetadata metadata = cimdValidator.resolve(clientId);
+                allowedRedirectUris = metadata.redirectUris;
+            } catch (CimdValidator.CimdException e) {
+                log.warn("[MCP-SEC] CIMD resolve failed for client {} from {}: {}",
+                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
+                resp.setStatus(400);
+                resp.setContentType("application/json");
+                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+                return;
+            }
+        } else {
+            OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
+            if (client == null) {
+                resp.setStatus(400);
+                resp.getWriter().write("Unknown client_id");
+                return;
+            }
+            allowedRedirectUris = client.redirectUris;
         }
 
-        // Validate redirect_uri against registered URIs (prevents open redirect / token theft)
+        // Validate redirect_uri against allowed URIs (prevents open redirect / token theft).
+        // For CIMD this is the metadata document's redirect_uris; for DCR it's the registered set.
         if (redirectUri == null || redirectUri.isEmpty()
-                || client.redirectUris.isEmpty()
-                || !client.redirectUris.contains(redirectUri)) {
-            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}", clientId, getClientIp(req));
+                || allowedRedirectUris == null || allowedRedirectUris.isEmpty()
+                || !allowedRedirectUris.contains(redirectUri)) {
+            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}",
+                    sanitizeLog(clientId), getClientIp(req));
             resp.setStatus(400);
             resp.setContentType("application/json");
             resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri does not match registered URIs\"}");
@@ -337,6 +413,21 @@ public class OAuthServlet extends HttpServlet {
 
         String grantType = req.getParameter("grant_type");
         String clientId = req.getParameter("client_id");
+
+        // If the caller asserts a CIMD-style client_id, re-validate the metadata document.
+        // This catches revoked / mutated CIMDs between /authorize and /token. For DCR clients
+        // and unidentified callers this is a no-op (CIMD discriminator is `https://` prefix).
+        if (CimdValidator.isCimdClientId(clientId)) {
+            try {
+                cimdValidator.resolve(clientId);
+            } catch (CimdValidator.CimdException e) {
+                log.warn("[MCP-SEC] CIMD resolve failed on /token for client {} from {}: {}",
+                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
+                resp.setStatus(400);
+                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+                return;
+            }
+        }
 
         if ("authorization_code".equals(grantType)) {
             handleAuthorizationCodeGrant(req, resp, clientId);
@@ -528,11 +619,26 @@ public class OAuthServlet extends HttpServlet {
         resp.setHeader("Cache-Control", "no-store");
     }
 
-    private static void sendRateLimited(HttpServletResponse resp) throws IOException {
-        resp.setStatus(429);
-        resp.setContentType("application/json");
-        resp.setHeader("Retry-After", "60");
-        resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+    /**
+     * Per-IP rate-limit gate that also emits the F-09 RateLimit-* response headers per
+     * draft-ietf-httpapi-ratelimit-headers-09. Sets {@code Retry-After} on 429 per RFC 9110.
+     * Returns {@code true} if the request may proceed.
+     */
+    private boolean enforceRate(HttpServletResponse resp, String ip, String endpoint, int maxPerMin)
+            throws IOException {
+        boolean allowed = rateLimiter.isAllowed(ip, endpoint, maxPerMin);
+        RateLimiter.Snapshot snap = rateLimiter.snapshot(ip, endpoint, maxPerMin);
+        resp.setHeader("RateLimit-Limit", Integer.toString(snap.limit));
+        resp.setHeader("RateLimit-Remaining", Integer.toString(snap.remaining));
+        resp.setHeader("RateLimit-Reset", Long.toString(snap.resetSeconds));
+        if (!allowed) {
+            resp.setStatus(429);
+            resp.setContentType("application/json");
+            resp.setHeader("Retry-After", Long.toString(Math.max(1L, snap.resetSeconds)));
+            resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+            return false;
+        }
+        return true;
     }
 
     /** Read up to maxBytes from stream. Returns null if exceeded. */

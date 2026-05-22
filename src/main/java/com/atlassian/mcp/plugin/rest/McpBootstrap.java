@@ -1,8 +1,12 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.mcp.plugin.CompletionRegistry;
+import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.ResourceRegistry;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.tools.ToolRegistry;
+import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -10,13 +14,13 @@ import io.modelcontextprotocol.json.schema.JsonSchemaValidator;
 import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServlet;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.net.URI;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,16 +36,6 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Smoke-test wiring registers two read-only tools (Task 2). Task 3 expands the
  * registration to the full 49-tool list and adds resource specifications.
- *
- * <p>Plan divergences (vs docs/rkstack/plans/2026-05-21-jakarta-sdk-rebuild.md):
- * <ul>
- *   <li>Json mapper construction uses {@code new JacksonMcpJsonMapper(mapper)} (direct
- *       constructor verified via javap) instead of {@code new JacksonMcpJsonMapperSupplier(mapper).get()}
- *       — {@code JacksonMcpJsonMapperSupplier} only has a no-arg constructor.</li>
- *   <li>Schema validator uses {@code new DefaultJsonSchemaValidator(mapper)} directly.</li>
- *   <li>{@code .resources(List)} is omitted when empty — the SDK builder rejects a
- *       null/empty Map argument; we pass the list only when non-empty.</li>
- * </ul>
  */
 @Named("mcpBootstrap")
 public class McpBootstrap {
@@ -49,7 +43,7 @@ public class McpBootstrap {
     private static final Logger log = LoggerFactory.getLogger(McpBootstrap.class);
 
     private static final String SERVER_NAME = "jira-mcp-plugin";
-    private static final String SERVER_VERSION = "1.3.0";
+    private static final String SERVER_VERSION = "1.4.0";
     private static final String SERVER_TITLE = "Jira MCP Server";
     private static final String SERVER_DESCRIPTION =
             "Connect AI agents to Jira Data Center — 49 tools across issues, sprints, "
@@ -69,24 +63,19 @@ public class McpBootstrap {
             + "- Write tools (create/update/delete issue, transition, comment, worklog, "
             + "batch operations) are hidden when the admin enables read-only mode.";
 
-    /** Official Jira Software wordmark (Atlassian blue #0052CC), embedded as data URI. */
-    private static final String LOGO_SVG =
-            "<svg fill=\"#0052CC\" role=\"img\" viewBox=\"0 0 24 24\" "
-            + "xmlns=\"http://www.w3.org/2000/svg\">"
-            + "<title>Jira MCP</title>"
-            + "<path d=\"M12.004 0c-2.35 2.395-2.365 6.185.133 8.585l3.412 3.413-3.197 "
-            + "3.198a6.501 6.501 0 0 1 1.412 7.04l9.566-9.566a.95.95 0 0 0 0-1.344L12.004 0zm"
-            + "-1.748 1.74L.67 11.327a.95.95 0 0 0 0 1.344C4.45 16.44 8.22 20.244 12 24c2.295"
-            + "-2.298 2.395-6.096-.08-8.533l-3.47-3.469 3.2-3.2c-1.918-1.955-2.363-4.725-1.394"
-            + "-7.057z\"/></svg>";
-    private static final String LOGO_DATA_URI =
-            "data:image/svg+xml;base64,"
-            + Base64.getEncoder().encodeToString(LOGO_SVG.getBytes(StandardCharsets.UTF_8));
+    /**
+     * Official Jira Software wordmark, used as the server-level icon. The SVG
+     * and base64 data-URI live in {@link IconConstants} so they can be reused
+     * as per-tool icons on UI-linked tools (F-12 / SEP-973).
+     */
+    private static final String LOGO_DATA_URI = IconConstants.JIRA_LOGO_DATA_URI;
 
     private final ToolRegistry toolRegistry;
     private final ResourceRegistry resourceRegistry;
+    private final CompletionRegistry completionRegistry;
     private final McpPluginConfig config;
     private final JiraAuthContextExtractor authExtractor;
+    private final ApplicationProperties applicationProperties;
 
     private volatile HttpServletStreamableServerTransportProvider transport;
     private volatile McpSyncServer server;
@@ -94,12 +83,16 @@ public class McpBootstrap {
     @Inject
     public McpBootstrap(ToolRegistry toolRegistry,
                         ResourceRegistry resourceRegistry,
+                        CompletionRegistry completionRegistry,
                         McpPluginConfig config,
-                        JiraAuthContextExtractor authExtractor) {
+                        JiraAuthContextExtractor authExtractor,
+                        @ComponentImport ApplicationProperties applicationProperties) {
         this.toolRegistry = toolRegistry;
         this.resourceRegistry = resourceRegistry;
+        this.completionRegistry = completionRegistry;
         this.config = config;
         this.authExtractor = authExtractor;
+        this.applicationProperties = applicationProperties;
     }
 
     /** Build (idempotent). Returns the configured servlet for the wrapper to delegate into. */
@@ -116,6 +109,7 @@ public class McpBootstrap {
                 .jsonMapper(jsonMapper)
                 .mcpEndpoint("/plugins/servlet/mcp")
                 .contextExtractor(authExtractor)
+                .securityValidator(buildSecurityValidator())
                 .build();
 
         var serverInfo = McpSchema.Implementation.builder(SERVER_NAME, SERVER_VERSION)
@@ -133,9 +127,18 @@ public class McpBootstrap {
                 .jsonSchemaValidator(schemaValidator)
                 .serverInfo(serverInfo)
                 .instructions(SERVER_INSTRUCTIONS)
+                // F-01 / F-02: we never emit notifications/{tools,resources}/list_changed,
+                // so listChanged=false on both. F-16: declare `logging` capability so the
+                // SDK auto-wires the `logging/setLevel` handler (McpAsyncServer registers it
+                // when serverCapabilities.logging() != null) — clients can set min level,
+                // and tool bodies can emit logging notifications via the SyncServerExchange.
+                // F-07: declare `completions` capability so clients send completion/complete
+                // requests (the SDK only registers the handler when this is non-null).
                 .capabilities(McpSchema.ServerCapabilities.builder()
-                        .tools(true)
-                        .resources(false, true)
+                        .tools(false)
+                        .resources(false, false)
+                        .logging()
+                        .completions()
                         .build())
                 .tools(toolRegistry.toSpecifications());
 
@@ -144,13 +147,110 @@ public class McpBootstrap {
             spec = spec.resources(resourceSpecs);
         }
 
+        // F-10: register parameterised resource templates (jira://issue/{issueKey}, ...).
+        var templateSpecs = resourceRegistry.toResourceTemplateSpecifications();
+        if (templateSpecs != null && !templateSpecs.isEmpty()) {
+            spec = spec.resourceTemplates(templateSpecs);
+        }
+
+        // F-07: register completion handlers (project_key today; status / issue_type /
+        // assignee deferred — see CompletionRegistry javadoc).
+        var completionSpecs = completionRegistry.toSpecifications();
+        if (completionSpecs != null && !completionSpecs.isEmpty()) {
+            spec = spec.completions(completionSpecs);
+        }
+
         this.server = spec.build();
 
-        log.info("[MCP] SDK transport built ({} tools, {} resources)",
+        log.info("[MCP] SDK transport built ({} tools, {} resources, {} resource templates, {} completions)",
                 toolRegistry.toSpecifications().size(),
-                resourceSpecs == null ? 0 : resourceSpecs.size());
+                resourceSpecs == null ? 0 : resourceSpecs.size(),
+                templateSpecs == null ? 0 : templateSpecs.size(),
+                completionSpecs == null ? 0 : completionSpecs.size());
 
         return transport;
+    }
+
+    /**
+     * Builds the SDK-side Origin allowlist that mirrors the (now-deleted)
+     * {@code OriginValidationFilter}: Jira's own base URL, known MCP client hosts,
+     * and loopback. The {@link DefaultServerTransportSecurityValidator} returns 403
+     * on rejection (matching the previous filter's behaviour) and treats a missing
+     * Origin header as allowed (non-browser clients like curl / MCP CLI tools).
+     *
+     * <p>Host validation is intentionally left off (empty {@code allowedHosts}) — the
+     * filter chain never inspected Host either, and Jira sits behind a reverse proxy
+     * where the Host header is whatever the deployer configured.
+     */
+    private DefaultServerTransportSecurityValidator buildSecurityValidator() {
+        var builder = DefaultServerTransportSecurityValidator.builder()
+                .allowedOrigin("https://claude.ai")
+                .allowedOrigin("https://claude.com")
+                .allowedOrigin("https://chatgpt.com")
+                .allowedOrigin("https://chat.openai.com")
+                .allowedOrigin("http://localhost")
+                .allowedOrigin("http://localhost:*")
+                .allowedOrigin("https://localhost")
+                .allowedOrigin("https://localhost:*")
+                .allowedOrigin("http://127.0.0.1")
+                .allowedOrigin("http://127.0.0.1:*")
+                .allowedOrigin("https://127.0.0.1")
+                .allowedOrigin("https://127.0.0.1:*")
+                .allowedOrigin("http://[::1]")
+                .allowedOrigin("http://[::1]:*")
+                .allowedOrigin("https://[::1]")
+                .allowedOrigin("https://[::1]:*");
+
+        String jiraBaseUrl = resolveJiraBaseUrl();
+        if (jiraBaseUrl != null && !jiraBaseUrl.isEmpty()) {
+            String normalized = normalizeOrigin(jiraBaseUrl);
+            if (normalized != null) {
+                builder.allowedOrigin(normalized);
+                // Reverse proxies sometimes expose Jira on an explicit port that's
+                // stripped from the configured base URL — accept any port variant.
+                builder.allowedOrigin(normalized + ":*");
+            }
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Reads the Jira base URL the same way {@code OriginValidationFilter} did:
+     * admin override wins, falling back to SAL's
+     * {@link ApplicationProperties#getBaseUrl()}.
+     */
+    private String resolveJiraBaseUrl() {
+        try {
+            String override = config.getJiraBaseUrlOverride();
+            if (override != null && !override.isEmpty()) {
+                return override;
+            }
+            return applicationProperties.getBaseUrl();
+        } catch (Exception e) {
+            log.warn("[MCP] could not resolve Jira base URL for Origin allowlist", e);
+            return null;
+        }
+    }
+
+    /**
+     * Reduces a full URL to its origin form ({@code scheme://host[:port]}) for use
+     * with {@link DefaultServerTransportSecurityValidator}, which compares the entire
+     * Origin header verbatim.
+     */
+    private static String normalizeOrigin(String url) {
+        try {
+            URI u = URI.create(url);
+            String scheme = u.getScheme();
+            String host = u.getHost();
+            int port = u.getPort();
+            if (scheme == null || host == null) {
+                return null;
+            }
+            return port == -1 ? scheme + "://" + host : scheme + "://" + host + ":" + port;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public synchronized void close() {
