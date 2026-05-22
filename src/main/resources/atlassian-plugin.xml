@@ -15,11 +15,65 @@
     <!-- i18n -->
     <resource type="i18n" name="i18n" location="mcp-plugin"/>
 
-    <!-- MCP REST endpoint -->
-    <rest key="mcp-rest" path="/mcp" version="1.0">
-        <description>MCP Streamable HTTP endpoint</description>
-        <package>com.atlassian.mcp.plugin.rest</package>
-    </rest>
+    <!-- MCP transport filter chain — runs in ascending weight order:
+         Origin (100) → BodySize (200) → RateLimit (300) → AccessControl (350)
+                     → SessionBinding (400) → SecurityHeaders (500) → Transport (600).
+         The transport filter at weight=600 IS the endpoint: it calls the SDK
+         transport servlet's service() directly and never invokes chain.doFilter().
+         async-supported behavior is controlled by the JVM property
+         atlassian.plugins.filter.async.default=true (the <async-supported> XML
+         element on plugin filters is silently ignored — verified via javap on
+         ServletFilterModuleDescriptor.init()). OAuthAnonymousFilter (weight=1)
+         stays at the very front. -->
+    <servlet-filter key="mcp-origin-filter" name="MCP Origin Validation Filter"
+                    class="com.atlassian.mcp.plugin.rest.OriginValidationFilter"
+                    location="before-dispatch" weight="100">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-body-size-filter" name="MCP Body Size Limit Filter"
+                    class="com.atlassian.mcp.plugin.rest.BodySizeLimitFilter"
+                    location="before-dispatch" weight="200">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-rate-limit-filter" name="MCP Rate Limit Filter"
+                    class="com.atlassian.mcp.plugin.rest.RateLimitFilter"
+                    location="before-dispatch" weight="300">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-access-control-filter" name="MCP Access Control Filter"
+                    class="com.atlassian.mcp.plugin.rest.AccessControlFilter"
+                    location="before-dispatch" weight="350">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-session-binding-filter" name="MCP Session Binding Filter"
+                    class="com.atlassian.mcp.plugin.rest.SessionBindingFilter"
+                    location="before-dispatch" weight="400">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-security-headers-filter" name="MCP Security Headers Filter"
+                    class="com.atlassian.mcp.plugin.rest.SecurityHeadersFilter"
+                    location="before-dispatch" weight="500">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+    </servlet-filter>
+
+    <servlet-filter key="mcp-transport-filter" name="MCP Transport Filter"
+                    class="com.atlassian.mcp.plugin.rest.McpTransportFilter"
+                    location="before-dispatch" weight="600">
+        <url-pattern>/plugins/servlet/mcp</url-pattern>
+        <dispatcher>REQUEST</dispatcher>
+        <dispatcher>ASYNC</dispatcher>
+    </servlet-filter>
 
     <!-- Admin REST endpoint -->
     <rest key="mcp-admin-rest" path="/mcp-admin" version="1.0">
@@ -45,13 +99,15 @@
         <condition class="com.atlassian.jira.plugin.webfragment.conditions.UserLoggedInCondition"/>
     </web-item>
 
-    <!-- OAuth + well-known: bypass Jira login filter (BigPicture pattern) -->
+    <!-- OAuth + well-known: bypass Jira login filter (BigPicture pattern).
+         The /rest/mcp/1.0 path is gone in Task 2 (replaced by the SDK servlet at
+         /plugins/servlet/mcp). MCP requests authenticate via standard Jira PAT/OAuth
+         header — they don't need to bypass the login filter. -->
     <servlet-filter key="mcp-oauth-anon-filter" name="MCP OAuth Anonymous Filter"
                     class="com.atlassian.mcp.plugin.rest.OAuthAnonymousFilter"
                     location="before-login" weight="1">
         <url-pattern>/plugins/servlet/mcp-oauth/*</url-pattern>
         <url-pattern>/.well-known/*</url-pattern>
-        <url-pattern>/rest/mcp/1.0</url-pattern>
         <dispatcher>REQUEST</dispatcher>
     </servlet-filter>
 

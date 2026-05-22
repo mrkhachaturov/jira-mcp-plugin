@@ -1,6 +1,8 @@
 package com.atlassian.mcp.plugin.tools;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
+import com.atlassian.mcp.plugin.ResourceContextBuilder;
+import com.atlassian.mcp.plugin.ResourceRegistry;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.tools.issues.*;
 import com.atlassian.mcp.plugin.tools.comments.*;
@@ -17,8 +19,8 @@ import com.atlassian.mcp.plugin.tools.forms.*;
 import com.atlassian.mcp.plugin.tools.metrics.*;
 import com.atlassian.plugin.PluginAccessor;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -34,17 +36,20 @@ public class ToolRegistry {
     public ToolRegistry(
             @ComponentImport PluginAccessor pluginAccessor,
             McpPluginConfig config,
-            JiraRestClient client) {
+            JiraRestClient client,
+            ResourceRegistry resourceRegistry,
+            ResourceContextBuilder resourceContextBuilder) {
         this.pluginAccessor = pluginAccessor;
         this.config = config;
-        registerAllTools(client);
+        UiBinding ui = new UiBinding(resourceRegistry, resourceContextBuilder);
+        registerAllTools(client, ui);
     }
 
-    private void registerAllTools(JiraRestClient client) {
+    private void registerAllTools(JiraRestClient client, UiBinding ui) {
         // Issues & Search (8)
-        register(new SearchTool(client));
-        register(new GetIssueTool(client));
-        register(new GetProjectIssuesTool(client));
+        register(new SearchTool(client, ui));
+        register(new GetIssueTool(client, ui));
+        register(new GetProjectIssuesTool(client, ui));
         register(new CreateIssueTool(client));
         register(new UpdateIssueTool(client));
         register(new DeleteIssueTool(client));
@@ -65,9 +70,9 @@ public class ToolRegistry {
 
         // Boards & Sprints (7)
         register(new GetAgileBoardsTool(client));
-        register(new GetBoardIssuesTool(client));
+        register(new GetBoardIssuesTool(client, ui));
         register(new GetSprintsFromBoardTool(client));
-        register(new GetSprintIssuesTool(client));
+        register(new GetSprintIssuesTool(client, ui));
         register(new CreateSprintTool(client));
         register(new UpdateSprintTool(client));
         register(new AddIssuesToSprintTool(client));
@@ -178,5 +183,27 @@ public class ToolRegistry {
 
     public int totalRegistered() {
         return allTools.size();
+    }
+
+    /**
+     * Build SDK {@code SyncToolSpecification}s for tools currently exposed by the server.
+     *
+     * <p>Applies the same visibility filtering as {@link #listTools(String)}:
+     * <ul>
+     *   <li>required Jira plugin must be enabled (capability gate);</li>
+     *   <li>tool must not be in the admin's disabled list;</li>
+     *   <li>tool must not be a write tool when read-only mode is on.</li>
+     * </ul>
+     */
+    public List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification> toSpecifications() {
+        List<io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification> specs =
+                new ArrayList<>(allTools.size());
+        for (McpTool tool : allTools.values()) {
+            if (!isCapabilityMet(tool)) continue;
+            if (!config.isToolEnabled(tool.name())) continue;
+            if (config.isReadOnlyMode() && tool.isWriteTool()) continue;
+            specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(tool));
+        }
+        return specs;
     }
 }

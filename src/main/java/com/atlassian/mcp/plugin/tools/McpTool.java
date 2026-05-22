@@ -1,6 +1,8 @@
 package com.atlassian.mcp.plugin.tools;
 
 import com.atlassian.mcp.plugin.McpToolException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
 import java.util.Map;
 
 public interface McpTool {
@@ -72,5 +74,54 @@ public interface McpTool {
          * @param message human-readable status message
          */
         void report(int current, int total, String message);
+    }
+
+    /**
+     * The {@code ui://} resource URI that should be advertised via the tool's
+     * {@code _meta.ui.resourceUri} (and {@code openai/widgetResource} for ChatGPT)
+     * to link this tool to an MCP App widget. Return {@code null} (default) if
+     * the tool has no UI binding.
+     */
+    default String uiResourceUri() {
+        return null;
+    }
+
+    /**
+     * Optional structuredContent payload for the tool result. Called by the SDK
+     * adapter after a successful {@code execute()} for tools that want to attach
+     * a typed JSON object (e.g. for MCP Apps widget rendering). Return
+     * {@code null} (default) to skip structuredContent emission.
+     *
+     * @param args         the original tool arguments
+     * @param executeResult the string returned by {@code execute()}
+     * @param jiraUsername the resolved Jira username (may be {@code null})
+     * @param jiraUserDisplay the resolved Jira display name (may be {@code null})
+     */
+    default ObjectNode structuredContent(Map<String, Object> args,
+                                         String executeResult,
+                                         String jiraUsername,
+                                         String jiraUserDisplay) {
+        return null;
+    }
+
+    /**
+     * SDK-aware progress-capable execution. Default implementation falls back to
+     * the legacy {@link #executeWithProgress(Map, String, ProgressCallback)}
+     * (and ultimately {@link #execute(Map, String)}) when no exchange/progress
+     * token plumbing is needed. Batch tools override this to call
+     * {@code exchange.progressNotification(new ProgressNotification(...))} using
+     * the supplied {@code progressToken}.
+     *
+     * @param args          parsed arguments
+     * @param authHeader    user's Authorization header
+     * @param exchange      the SDK server exchange; never {@code null}
+     * @param progressToken progress token from {@code params._meta.progressToken},
+     *                      or {@code null} if the client did not request progress
+     */
+    default String executeWithSdkProgress(Map<String, Object> args,
+                                          String authHeader,
+                                          McpSyncServerExchange exchange,
+                                          Object progressToken) throws McpToolException {
+        return execute(args, authHeader);
     }
 }

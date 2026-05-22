@@ -36,7 +36,7 @@ After generation, copy files to `src/main/java/.../tools/` and update `ToolRegis
 
 | Layer | What |
 |-------|------|
-| MCP endpoint | JAX-RS at `/rest/mcp/1.0/` — Streamable HTTP (JSON-RPC 2.0 + SSE) |
+| MCP endpoint | Servlet at `/plugins/servlet/mcp` — SDK transport (`io.modelcontextprotocol.sdk:mcp-core` 2.0.0-M2), registered programmatically and bridged through an async-supported `servlet-filter` |
 | OAuth proxy | Servlet at `/plugins/servlet/mcp-oauth/` — bridges MCP client OAuth with Jira OAuth 2.0. Supports `authorization_code` + `refresh_token` grants. Tokens passed through from Jira (stateless — Jira's DB manages lifecycle) |
 | Tools | 49 classes in `tools/` — each calls Jira REST API internally via `JiraRestClient` |
 | Response trimmer | `ResponseTrimmer` — strips verbose fields (`self`, `avatarUrls`, `iconUrl`, `groups`, `applicationRoles`) to match upstream's `to_simplified_dict()` |
@@ -70,15 +70,15 @@ just clean            # atlas-clean
 |------|-------|
 | Plugin key | `com.atlassian.mcp.jira-mcp-plugin` |
 | Maven coordinates | `com.atlassian.mcp:jira-mcp-plugin` |
-| MCP endpoint | `POST /rest/mcp/1.0/` |
+| MCP endpoint | `POST /plugins/servlet/mcp` |
 | OAuth endpoints | `/plugins/servlet/mcp-oauth/{metadata,register,authorize,callback,token}` |
 | Admin REST | `GET/PUT /rest/mcp-admin/1.0/` |
 | Admin page | `/plugins/servlet/mcp-admin` |
-| Target Jira | Data Center 10.x |
+| Target Jira | Data Center 11.x |
 
 ## MCP Protocol — Streamable HTTP
 
-Single endpoint `/rest/mcp/1.0/` supporting Streamable HTTP transport (MCP spec 2025-06-18).
+Single endpoint `/plugins/servlet/mcp` supporting Streamable HTTP transport (MCP spec 2025-06-18). The wire-level transport is implemented by the official MCP Java SDK (`io.modelcontextprotocol.sdk:mcp-core` 2.0.0-M2 + `mcp-json-jackson2`); the plugin only registers tools/resources via `SyncToolSpecification` / `SyncResourceSpecification` and provides a `JiraAuthContextExtractor` that surfaces the calling Jira user to tool bodies.
 
 | Method | Action |
 |--------|--------|
@@ -230,13 +230,25 @@ Tests skip automatically when `JIRA_URL`/`JIRA_PAT_RKADMIN` are not set.
 ```
 src/main/java/com/atlassian/mcp/plugin/
 ├── rest/
-│   ├── McpResource.java              # JAX-RS MCP endpoint (POST/GET/DELETE)
+│   ├── McpBootstrap.java             # Builds McpSyncServer (tools + resources) on plugin start
+│   ├── McpTransportFilter.java       # servlet-filter at /plugins/servlet/mcp — bridges to SDK HttpServletStreamableServerTransportProvider, owns URL and never calls chain.doFilter()
+│   ├── JiraAuthContextExtractor.java # Surfaces calling Jira user (username, displayName, accountId) into McpTransportContext for tool execution
+│   ├── McpToolAdapter.java           # Adapts McpTool → SyncToolSpecification
+│   ├── AccessControlFilter.java      # Allowlist gate (allowed users / groups, plugin-enabled flag)
+│   ├── SessionBindingFilter.java     # Enforces MCP-Session-Id ↔ Jira user binding (anti-replay)
+│   ├── OriginValidationFilter.java   # Origin allowlist (MCP spec MUST)
+│   ├── BodySizeLimitFilter.java      # 1 MB cap on /plugins/servlet/mcp POSTs
+│   ├── RateLimitFilter.java          # 120/min per user on MCP, IP-based on OAuth endpoints
+│   ├── SecurityHeadersFilter.java    # nosniff, no-store, X-Frame-Options DENY
+│   ├── BufferedRequestWrapper.java   # Captures POST body for size-limit + downstream re-read
+│   ├── CapturingResponseWrapper.java # Captures SDK response for security-header injection
 │   ├── OAuthServlet.java             # OAuth proxy servlet
 │   ├── OAuthAnonymousFilter.java     # before-login filter for anonymous OAuth access
 │   └── RateLimiter.java              # IP-based rate limiter for anonymous + authenticated endpoints
-├── JsonRpcHandler.java                # JSON-RPC dispatch (tools/*, resources/*)
-├── ResourceRegistry.java              # MCP Apps ui:// resource registry
+├── ResourceRegistry.java              # MCP Apps ui:// resource registry → SyncResourceSpecification
+├── ResourceContextBuilder.java        # Builds dual metadata (Claude _meta.ui + ChatGPT openai/widget*)
 ├── JiraRestClient.java                # HTTP client → Jira REST API (+ ResponseTrimmer)
+├── JiraMarkupConverter.java           # Bidirectional Markdown ↔ Jira wiki markup
 ├── ResponseTrimmer.java               # Strip verbose fields from Jira JSON responses
 ├── McpToolException.java              # Checked exception for tool failures
 ├── config/
@@ -286,8 +298,8 @@ mcp-app/                               # React widget project (MCP Apps)
 
 ## Hard-Won Lessons
 
-### javax, NOT jakarta
-Jira 10.x API JARs use `javax.servlet`, `javax.ws.rs`, `javax.inject`. Always use `javax.*` imports.
+### jakarta, NOT javax
+Jira 11.x runs on Tomcat 10.1 + Spring 6.2.15 + Jakarta EE 10. API JARs are published under `jakarta.servlet`, `jakarta.ws.rs`, `jakarta.inject`, `jakarta.annotation`. Always use `jakarta.*` imports — never `javax.*`. The platform BOM at `com.atlassian.platform.dependencies:platform-public-api:8.1.13` pins all jakarta + Spring + Jackson + Atlassian REST v2 + SAL versions transitively.
 
 ### Spring Scanner requires scan-indexes XML
 `@ComponentImport` requires `src/main/resources/META-INF/spring/plugin-context.xml` with `<atlassian-scanner:scan-indexes/>`.
@@ -298,11 +310,11 @@ Jira 10.x API JARs use `javax.servlet`, `javax.ws.rs`, `javax.inject`. Always us
 ### DynamicImport-Package is required
 Without `<DynamicImport-Package>*</DynamicImport-Package>` in pom.xml, runtime class resolution fails.
 
-### Anonymous REST access in Jira 10
-Use `@UnrestrictedAccess` from `com.atlassian.annotations.security` (NOT the old `@AnonymousAllowed`). Combined with a `before-login` servlet filter for full anonymous access.
+### Anonymous REST access in Jira 11
+Use `@UnrestrictedAccess` from `com.atlassian.annotations.security` (NOT the old `@AnonymousAllowed`). Combined with a `before-login` servlet filter for full anonymous access. Still present and required in Jira 11 / atlassian-annotations.
 
 ### REST package scan must be specific
-Use `<package>com.atlassian.mcp.plugin.rest</package>` — never the parent package.
+Use `<package>com.atlassian.mcp.plugin.rest</package>` — never the parent package. (Verify post-merge — Spring 6 / atlassian-spring-scanner 6.0.2 may have relaxed this; left in place defensively.)
 
 ### Version bumps bust JS/CSS cache
 Jira CDN caches web resources by plugin version. Bump version in pom.xml to force browsers to load new JS/CSS.
@@ -313,9 +325,15 @@ Jira's internal `jira-migration` plugin can cause timeout during enable. Disable
 ### Write tools must structure Jira payloads correctly
 The code generator produces flat `requestBody.put("field", value)` for POST/PUT tools. Jira's REST API often expects nested structures like `{"fields": {"project": {"key": "..."}, "issuetype": {"name": "..."}}}`. Always verify write tool payloads against Jira REST API docs.
 
+### `atlassian.plugins.filter.async.default=true` JVM flag is required
+The official MCP Java SDK's Streamable HTTP transport calls `req.startAsync()` for every non-`initialize` request (it streams the JSON-RPC response back as a single-event SSE envelope). Atlassian's plugin framework wraps every plugin filter in a chain whose default `isAsyncSupported` is `false`, so without this flag the transport throws `IllegalStateException: A filter or servlet of the current chain does not support asynchronous operations`. Set `-Datlassian.plugins.filter.async.default=true` on the Jira JVM (via `setenv.sh`, `JVM_SUPPORT_RECOMMENDED_ARGS`, or container env). This is a deployment requirement.
+
+### `<servlet>` modules cannot be async-supported in Atlassian plugin framework
+`com.atlassian.plugin.servlet.descriptors.BaseServletModuleDescriptor.init()` hardcodes the filter wrapper's `isAsyncSupported` to `false` for `<servlet>` modules — there is no XML knob, and `<async-supported>` in `atlassian-plugin.xml` is silently ignored by the parser (confirmed by inspecting the descriptor's `init()` bytecode). The MCP transport must be registered as a `<servlet-filter>` that owns its URL pattern and short-circuits the chain (never calls `chain.doFilter()`); the JVM flag above is the only effective control for the surrounding wrapper.
+
 ## Critical Rules
 
-- **Always use `javax.*`** imports, never `jakarta.*`
+- **Always use `jakarta.*`** imports, never `javax.*`
 - **Plugin key is `com.atlassian.mcp.jira-mcp-plugin`** everywhere
 - **Use `atlas-mvn`** for local builds, never plain `mvn`
 - **Use `just`** for all workflows — build, deploy, test, codegen

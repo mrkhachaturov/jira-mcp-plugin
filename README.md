@@ -6,7 +6,7 @@
 
 [![Build](https://github.com/mrkhachaturov/jira-mcp-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/mrkhachaturov/jira-mcp-plugin/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Jira DC](https://img.shields.io/badge/Jira%20DC-10.x-0052CC)
+![Jira DC](https://img.shields.io/badge/Jira%20DC-11.x-0052CC)
 ![MCP Tools](https://img.shields.io/badge/MCP%20tools-49-10b981)
 ![Transport](https://img.shields.io/badge/transport-Streamable%20HTTP-6366f1)
 ![MCP Apps](https://img.shields.io/badge/MCP%20Apps-interactive%20UI-f59e0b)
@@ -32,7 +32,7 @@
 
 ```mermaid
 graph TD
-    AI["🤖 AI Agent<br/>Claude Code / Cursor"] -->|"POST /rest/mcp/1.0/"| MCP["🔌 MCP Endpoint<br/>Streamable HTTP"]
+    AI["🤖 AI Agent<br/>Claude Code / Cursor"] -->|"POST /plugins/servlet/mcp"| MCP["🔌 MCP Endpoint<br/>Streamable HTTP"]
     AI -->|"OAuth 2.0"| OAUTH["🔐 OAuth Proxy<br/>/plugins/servlet/mcp-oauth/*"]
 
     MCP --> TR["🛠️ Tool Registry<br/>49 tools"]
@@ -71,13 +71,47 @@ graph TD
   "mcpServers": {
     "jira": {
       "type": "http",
-      "url": "https://your-jira.example.com/rest/mcp/1.0/"
+      "url": "https://your-jira.example.com/plugins/servlet/mcp"
     }
   }
 }
 ```
 
 On first connection, click Authenticate, consent on the Jira page, and you're in.
+
+---
+
+## ⚙️ Deployment requirement — async filter JVM flag
+
+> [!IMPORTANT]
+> Before installing the plugin, set the following JVM flag on the Jira instance:
+>
+> ```
+> -Datlassian.plugins.filter.async.default=true
+> ```
+>
+> The plugin uses the official MCP Java SDK's Streamable HTTP transport, which calls `request.startAsync()` for every non-`initialize` request. Atlassian's plugin framework wraps every plugin filter in a chain whose default `isAsyncSupported` is `false`. Without this flag, the transport throws `IllegalStateException: A filter or servlet of the current chain does not support asynchronous operations` and every MCP call fails.
+
+**For a Tomcat / `setenv.sh` install:**
+
+```bash
+# Append to <jira-install>/bin/setenv.sh
+JVM_SUPPORT_RECOMMENDED_ARGS="${JVM_SUPPORT_RECOMMENDED_ARGS} -Datlassian.plugins.filter.async.default=true"
+export JVM_SUPPORT_RECOMMENDED_ARGS
+```
+
+**For a containerised install (`atlassian/jira-software`):**
+
+```yaml
+# docker-compose.yml
+services:
+  jira:
+    image: atlassian/jira-software:11.3
+    environment:
+      JVM_SUPPORT_RECOMMENDED_ARGS: "-Datlassian.plugins.filter.async.default=true"
+```
+
+Restart Jira after changing the flag. The plugin will refuse to serve MCP requests if the flag is missing.
 
 ---
 
@@ -274,7 +308,7 @@ Fields renamed to match upstream: `issuetype` to `issue_type`, `fixVersions` to 
 
 | | Tool | Purpose |
 |---|------|---------|
-| ☕ | Java 17 | Runtime (via mise) |
+| ☕ | Java 21 | Runtime (via mise) — Jira 11 platform requirement |
 | 🧰 | Atlassian Plugin SDK | `atlas-mvn` for local builds |
 | ⚡ | `just` | Task runner |
 | 🔧 | `mise` | Tool version manager + env var loader |
