@@ -115,9 +115,15 @@ public class McpBootstrap {
                 .jsonSchemaValidator(schemaValidator)
                 .serverInfo(serverInfo)
                 .instructions(SERVER_INSTRUCTIONS)
+                // F-01 / F-02: we never emit notifications/{tools,resources}/list_changed,
+                // so listChanged=false on both. F-16: declare `logging` capability so the
+                // SDK auto-wires the `logging/setLevel` handler (McpAsyncServer registers it
+                // when serverCapabilities.logging() != null) — clients can set min level,
+                // and tool bodies can emit logging notifications via the SyncServerExchange.
                 .capabilities(McpSchema.ServerCapabilities.builder()
-                        .tools(true)
-                        .resources(false, true)
+                        .tools(false)
+                        .resources(false, false)
+                        .logging()
                         .build())
                 .tools(toolRegistry.toSpecifications());
 
