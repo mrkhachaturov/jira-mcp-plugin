@@ -2,9 +2,11 @@ package com.atlassian.mcp.plugin.tools.issues;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
 import com.atlassian.mcp.plugin.tools.McpTool;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
 
 import java.util.*;
 
@@ -41,6 +43,13 @@ public class BatchCreateIssuesTool implements McpTool {
     @Override
     public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
         return executeWithProgress(args, authHeader, (current, total, message) -> {});
+    }
+
+    @Override
+    public String executeWithSdkProgress(Map<String, Object> args, String authHeader,
+                                         McpSyncServerExchange exchange,
+                                         Object progressToken) throws McpToolException {
+        return executeWithProgress(args, authHeader, BatchProgressBridge.bridge(exchange, progressToken));
     }
 
     @Override

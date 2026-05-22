@@ -43,7 +43,10 @@ public class McpEndpointE2ETest {
     private static final String JIRA_PAT_CEO = System.getenv("JIRA_PAT_CEO");
     private static final String PROJECT_KEY = System.getenv().getOrDefault("JIRA_PROJECT_KEY", "TES");
 
-    private static final String MCP_ENDPOINT = "/rest/mcp/1.0/";
+    private static final String MCP_ENDPOINT = "/plugins/servlet/mcp";
+
+    /** Cached session id for non-initialize requests (per JIRA_PAT). */
+    private static String cachedSessionId;
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -89,7 +92,7 @@ public class McpEndpointE2ETest {
 
         assertTrue("Should have result", result.has("result"));
         JsonNode serverInfo = result.path("result").path("serverInfo");
-        assertEquals("jira-mcp", serverInfo.path("name").asText());
+        assertEquals("jira-mcp-plugin", serverInfo.path("name").asText());
         assertTrue("Should have capabilities.tools", result.path("result").has("capabilities"));
     }
 
@@ -497,7 +500,7 @@ public class McpEndpointE2ETest {
 
         // Parse response
         JsonNode parsed = MAPPER.readTree(response.body());
-        assertEquals("jira-mcp", parsed.path("result").path("serverInfo").path("name").asText());
+        assertEquals("jira-mcp-plugin", parsed.path("result").path("serverInfo").path("name").asText());
 
         System.out.println("[e2e] Streamable HTTP initialize: OK, session " + sessionId.substring(0, 8) + "...");
     }
@@ -517,7 +520,7 @@ public class McpEndpointE2ETest {
                 sessionId);
 
         assertEquals("Should return 200", 200, toolResp.statusCode());
-        JsonNode parsed = MAPPER.readTree(toolResp.body());
+        JsonNode parsed = parseMcpResponse(toolResp);
         assertFalse("Should not be error", parsed.path("result").path("isError").asBoolean(false));
 
         System.out.println("[e2e] Streamable HTTP tool call: OK");
@@ -535,12 +538,9 @@ public class McpEndpointE2ETest {
                 "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}",
                 sessionId);
 
-        // Per spec: single response → always JSON (SSE is for multiple messages)
-        String contentType = listResp.headers().firstValue("Content-Type").orElse("");
-        assertTrue("Single response should be JSON, got: " + contentType,
-                contentType.contains("application/json"));
-
-        JsonNode parsed = MAPPER.readTree(listResp.body());
+        // The SDK transport returns SSE-framed JSON for non-initialize responses
+        // when the client advertises Accept: application/json, text/event-stream.
+        JsonNode parsed = parseMcpResponse(listResp);
         JsonNode tools = parsed.path("result").path("tools");
         assertTrue("Should have tools array", tools.isArray());
         assertTrue("Should have 40+ tools", tools.size() >= 40);
@@ -709,7 +709,7 @@ public class McpEndpointE2ETest {
         // Stateless mode — no session header, should still work
         JsonNode result = mcpCall("initialize", MAPPER.createObjectNode());
         assertTrue("Stateless initialize should work", result.has("result"));
-        assertEquals("jira-mcp", result.path("result").path("serverInfo").path("name").asText());
+        assertEquals("jira-mcp-plugin", result.path("result").path("serverInfo").path("name").asText());
     }
 
     // ── Access Control Tests ─────────────────────────────────────────
@@ -830,22 +830,99 @@ public class McpEndpointE2ETest {
     }
 
     private JsonNode mcpCallAs(String method, JsonNode params, String pat) throws Exception {
+        // The SDK's Streamable HTTP transport requires (1) Accept header advertising
+        // both JSON and SSE, and (2) a session established via initialize before
+        // any other method can be invoked. We bootstrap the session lazily here
+        // and reuse it across calls in the same PAT.
+        String sessionId = "initialize".equals(method) ? null : ensureSessionFor(pat);
+
         var body = MAPPER.createObjectNode();
         body.put("jsonrpc", "2.0");
         body.put("id", 1);
         body.put("method", method);
         body.set("params", params);
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
                 .header("Authorization", "Bearer " + pat)
                 .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
                 .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)));
 
-        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-        return MAPPER.readTree(response.body());
+        if (sessionId != null) {
+            builder.header("MCP-Session-Id", sessionId)
+                   .header("MCP-Protocol-Version", "2025-06-18");
+        }
+
+        HttpResponse<String> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        // Capture session id from initialize response so subsequent calls reuse it.
+        if ("initialize".equals(method) && pat != null && pat.equals(JIRA_PAT)) {
+            response.headers().firstValue("MCP-Session-Id").ifPresent(s -> cachedSessionId = s);
+        }
+        return parseMcpResponse(response);
+    }
+
+    /**
+     * Open an initialize request for the given PAT to acquire a session.
+     * For the primary PAT we cache it across calls.
+     */
+    private String ensureSessionFor(String pat) throws Exception {
+        if (pat != null && pat.equals(JIRA_PAT) && cachedSessionId != null) {
+            return cachedSessionId;
+        }
+        var initBody = MAPPER.createObjectNode();
+        initBody.put("jsonrpc", "2.0");
+        initBody.put("id", 0);
+        initBody.put("method", "initialize");
+        ObjectNode initParams = MAPPER.createObjectNode();
+        initParams.put("protocolVersion", "2025-06-18");
+        initParams.set("capabilities", MAPPER.createObjectNode());
+        ObjectNode clientInfo = MAPPER.createObjectNode();
+        clientInfo.put("name", "e2e");
+        clientInfo.put("version", "1.0");
+        initParams.set("clientInfo", clientInfo);
+        initBody.set("params", initParams);
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + pat)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .timeout(Duration.ofSeconds(30))
+                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(initBody)))
+                .build();
+        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+        String sid = resp.headers().firstValue("MCP-Session-Id").orElse(null);
+        if (sid != null && pat != null && pat.equals(JIRA_PAT)) {
+            cachedSessionId = sid;
+        }
+        return sid;
+    }
+
+    /**
+     * Parse a Streamable HTTP response body. The SDK transport returns either
+     * plain JSON (Content-Type: application/json) or a single SSE envelope
+     * (Content-Type: text/event-stream) where the JSON-RPC message lives on the
+     * {@code data:} line. We handle both.
+     */
+    private static JsonNode parseMcpResponse(HttpResponse<String> response) throws Exception {
+        String contentType = response.headers().firstValue("Content-Type").orElse("");
+        String body = response.body();
+        if (contentType.contains("text/event-stream")) {
+            return MAPPER.readTree(extractSseData(body));
+        }
+        return MAPPER.readTree(body);
+    }
+
+    /** Pull the JSON payload out of a single SSE envelope. */
+    private static String extractSseData(String sse) {
+        // Find the last data: line — handles multi-line SSE blocks.
+        int dataIdx = sse.lastIndexOf("data:");
+        if (dataIdx < 0) return sse;
+        int end = sse.indexOf('\n', dataIdx);
+        if (end < 0) end = sse.length();
+        return sse.substring(dataIdx + 5, end).trim();
     }
 
     private JsonNode callTool(String toolName, Map<String, String> args) throws Exception {
