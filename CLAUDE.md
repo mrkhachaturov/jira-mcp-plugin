@@ -55,7 +55,7 @@ just build            # build widget + atlas-package (compile + JAR)
 just build-app        # build MCP App widget only (React → single HTML)
 just deploy           # clean + build + upload JAR to Jira UPM + verify enabled
 just test             # unit tests (excludes e2e)
-just e2e              # 54 e2e tests against live Jira instance
+just e2e              # 14 e2e tests against live Jira instance
 just deploy-and-test  # build + deploy + e2e in one shot
 just dev-app          # widget dev server (Vite hot reload)
 just codegen          # regenerate tools from upstream
@@ -208,7 +208,7 @@ Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`. Ke
 
 ## E2E Tests
 
-44 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
+14 tests in `src/test/java/.../e2e/McpEndpointE2ETest.java`. Requires env vars from `.credentials/jira.env` (auto-loaded by mise).
 
 | Category | What |
 |----------|------|
