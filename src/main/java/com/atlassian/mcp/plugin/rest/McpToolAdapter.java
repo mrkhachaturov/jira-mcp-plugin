@@ -37,12 +37,16 @@ public final class McpToolAdapter {
     /** Build a {@link McpServerFeatures.SyncToolSpecification} from an internal {@link McpTool}. */
     public static McpServerFeatures.SyncToolSpecification adapt(McpTool tool) {
         McpSchema.ToolAnnotations annotations = McpSchema.ToolAnnotations.builder()
+                .title(tool.title())
                 .readOnlyHint(!tool.isWriteTool())
                 .destructiveHint(tool.isDestructiveTool())
+                .idempotentHint(tool.idempotentHint())
+                .openWorldHint(tool.openWorldHint())
                 .build();
 
         McpSchema.Tool.Builder builder = McpSchema.Tool.builder()
                 .name(tool.name())
+                .title(tool.title())
                 .description(tool.description())
                 .inputSchema(tool.inputSchema())
                 .annotations(annotations);

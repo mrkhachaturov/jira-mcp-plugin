@@ -65,6 +65,40 @@ public interface McpTool {
         return false;
     }
 
+    /**
+     * Tool annotation: human-readable display name (null = no override).
+     *
+     * <p>Per MCP spec {@code 2025-11-25/server/tools.mdx} (SEP-973), the optional
+     * {@code title} is surfaced to users when clients render tool lists. Tools
+     * may override to expose a friendly label distinct from the snake_case
+     * {@link #name()}.
+     */
+    default String title() {
+        return null;
+    }
+
+    /**
+     * Tool annotation: idempotent &rArr; calling repeatedly with the same args
+     * has no additional effect beyond the first call.
+     *
+     * <p>Default: read-only tools are idempotent. Write tools may override and
+     * return {@code true} if their effect is keyed by resource identity (e.g.
+     * {@code update_issue} on a stable issue key reaches the same end state
+     * regardless of how many times it runs).
+     */
+    default Boolean idempotentHint() {
+        return !isWriteTool();
+    }
+
+    /**
+     * Tool annotation: open-world &rArr; the tool interacts with external
+     * systems (vs a closed sandbox). All tools in this plugin call the Jira
+     * REST API, so the default is {@code true}.
+     */
+    default Boolean openWorldHint() {
+        return Boolean.TRUE;
+    }
+
     /** Callback for reporting progress during streaming execution. */
     @FunctionalInterface
     interface ProgressCallback {
