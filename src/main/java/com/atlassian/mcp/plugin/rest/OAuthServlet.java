@@ -3,6 +3,7 @@ package com.atlassian.mcp.plugin.rest;
 import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.config.OAuthStateStore;
+import com.atlassian.mcp.plugin.rest.oauth.CimdValidator;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -47,6 +48,7 @@ public class OAuthServlet extends HttpServlet {
     private final OAuthStateStore stateStore;
     private final RateLimiter rateLimiter;
     private final ApplicationProperties applicationProperties;
+    private final CimdValidator cimdValidator;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -59,10 +61,21 @@ public class OAuthServlet extends HttpServlet {
             OAuthStateStore stateStore,
             RateLimiter rateLimiter,
             @ComponentImport ApplicationProperties applicationProperties) {
+        this(config, stateStore, rateLimiter, applicationProperties, new CimdValidator());
+    }
+
+    /** Constructor used by tests to inject a stub {@link CimdValidator}. */
+    public OAuthServlet(
+            McpPluginConfig config,
+            OAuthStateStore stateStore,
+            RateLimiter rateLimiter,
+            ApplicationProperties applicationProperties,
+            CimdValidator cimdValidator) {
         this.config = config;
         this.stateStore = stateStore;
         this.rateLimiter = rateLimiter;
         this.applicationProperties = applicationProperties;
+        this.cimdValidator = cimdValidator;
     }
 
     private String getBaseUrl() {
@@ -149,6 +162,8 @@ public class OAuthServlet extends HttpServlet {
         meta.put("token_endpoint_auth_methods_supported", List.of("none"));
         meta.put("code_challenge_methods_supported", List.of("S256"));
         meta.put("scopes_supported", List.of("WRITE", "READ"));
+        // SEP-991: advertise CIMD support so clients prefer it over DCR.
+        meta.put("client_id_metadata_document_supported", true);
         return meta;
     }
 
@@ -172,6 +187,9 @@ public class OAuthServlet extends HttpServlet {
         meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
         meta.put("token_endpoint_auth_methods_supported", List.of("none"));
         meta.put("scopes_supported", List.of("read", "write"));
+        // SEP-991: advertise CIMD support (forward-compat hint — OIDC has no standard key yet,
+        // we mirror the OAuth Authorization Server Metadata field).
+        meta.put("client_id_metadata_document_supported", true);
         return meta;
     }
 
@@ -270,18 +288,38 @@ public class OAuthServlet extends HttpServlet {
             return;
         }
 
-        OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
-        if (client == null) {
-            resp.setStatus(400);
-            resp.getWriter().write("Unknown client_id");
-            return;
+        // Resolve the client either via CIMD (SEP-991) or DCR fallback. CIMD is preferred per
+        // the 2025-11-25 spec; DCR remains for backwards compatibility with older clients.
+        List<String> allowedRedirectUris;
+        if (CimdValidator.isCimdClientId(clientId)) {
+            try {
+                CimdValidator.CimdMetadata metadata = cimdValidator.resolve(clientId);
+                allowedRedirectUris = metadata.redirectUris;
+            } catch (CimdValidator.CimdException e) {
+                log.warn("[MCP-SEC] CIMD resolve failed for client {} from {}: {}",
+                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
+                resp.setStatus(400);
+                resp.setContentType("application/json");
+                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+                return;
+            }
+        } else {
+            OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
+            if (client == null) {
+                resp.setStatus(400);
+                resp.getWriter().write("Unknown client_id");
+                return;
+            }
+            allowedRedirectUris = client.redirectUris;
         }
 
-        // Validate redirect_uri against registered URIs (prevents open redirect / token theft)
+        // Validate redirect_uri against allowed URIs (prevents open redirect / token theft).
+        // For CIMD this is the metadata document's redirect_uris; for DCR it's the registered set.
         if (redirectUri == null || redirectUri.isEmpty()
-                || client.redirectUris.isEmpty()
-                || !client.redirectUris.contains(redirectUri)) {
-            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}", clientId, getClientIp(req));
+                || allowedRedirectUris == null || allowedRedirectUris.isEmpty()
+                || !allowedRedirectUris.contains(redirectUri)) {
+            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}",
+                    sanitizeLog(clientId), getClientIp(req));
             resp.setStatus(400);
             resp.setContentType("application/json");
             resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri does not match registered URIs\"}");
@@ -375,6 +413,21 @@ public class OAuthServlet extends HttpServlet {
 
         String grantType = req.getParameter("grant_type");
         String clientId = req.getParameter("client_id");
+
+        // If the caller asserts a CIMD-style client_id, re-validate the metadata document.
+        // This catches revoked / mutated CIMDs between /authorize and /token. For DCR clients
+        // and unidentified callers this is a no-op (CIMD discriminator is `https://` prefix).
+        if (CimdValidator.isCimdClientId(clientId)) {
+            try {
+                cimdValidator.resolve(clientId);
+            } catch (CimdValidator.CimdException e) {
+                log.warn("[MCP-SEC] CIMD resolve failed on /token for client {} from {}: {}",
+                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
+                resp.setStatus(400);
+                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+                return;
+            }
+        }
 
         if ("authorization_code".equals(grantType)) {
             handleAuthorizationCodeGrant(req, resp, clientId);
