@@ -222,12 +222,14 @@ public class ResourceRegistry {
                         String requested = request == null ? "null" : request.uri();
                         throw McpError.RESOURCE_NOT_FOUND.apply(requested);
                     }
-                    McpSchema.TextResourceContents content = new McpSchema.TextResourceContents(
-                            resourceUri,
-                            MIME_TYPE,
-                            html,
-                            metaMap);
-                    return new McpSchema.ReadResourceResult(List.of(content), metaMap);
+                    McpSchema.TextResourceContents content = McpSchema.TextResourceContents
+                            .builder(resourceUri, html)
+                            .mimeType(MIME_TYPE)
+                            .meta(metaMap)
+                            .build();
+                    return McpSchema.ReadResourceResult.builder(List.of(content))
+                            .meta(metaMap)
+                            .build();
                 };
 
         return List.of(new SyncResourceSpecification(resource, readHandler));

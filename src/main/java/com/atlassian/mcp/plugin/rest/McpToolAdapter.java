@@ -7,7 +7,6 @@ import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +18,7 @@ import org.slf4j.LoggerFactory;
  * <p>Responsibilities:
  * <ul>
  *   <li>Wrap each tool with a {@link McpSchema.ToolAnnotations} record built via
- *       its canonical constructor (no Builder exists in M2).</li>
+ *       the SDK's builder API.</li>
  *   <li>Attach the tool's {@code uiResourceUri()} (if any) as both Claude-style
  *       {@code _meta.ui.resourceUri} and ChatGPT-style {@code openai/widgetResource}
  *       hints on the {@link McpSchema.Tool#meta()} map.</li>
@@ -27,13 +26,6 @@ import org.slf4j.LoggerFactory;
  *       reading the auth header off the per-request {@link io.modelcontextprotocol.common.McpTransportContext}.</li>
  *   <li>Optionally attach a {@code structuredContent} payload from
  *       {@link McpTool#structuredContent(Map, String, String, String)} on success.</li>
- * </ul>
- *
- * <p>Plan divergences vs the Task 3 spec samples in the plan doc:
- * <ul>
- *   <li>{@code ToolAnnotations} uses the canonical 6-arg record constructor
- *       (no {@code .builder()} — does not exist in M2).</li>
- *   <li>{@code CallToolResult} uses its canonical 4-arg constructor.</li>
  * </ul>
  */
 public final class McpToolAdapter {
@@ -44,13 +36,10 @@ public final class McpToolAdapter {
 
     /** Build a {@link McpServerFeatures.SyncToolSpecification} from an internal {@link McpTool}. */
     public static McpServerFeatures.SyncToolSpecification adapt(McpTool tool) {
-        McpSchema.ToolAnnotations annotations = new McpSchema.ToolAnnotations(
-                /* title */         null,
-                /* readOnlyHint */  !tool.isWriteTool(),
-                /* destructiveHint */ tool.isDestructiveTool(),
-                /* idempotentHint */ null,
-                /* openWorldHint */  null,
-                /* returnDirect */   null);
+        McpSchema.ToolAnnotations annotations = McpSchema.ToolAnnotations.builder()
+                .readOnlyHint(!tool.isWriteTool())
+                .destructiveHint(tool.isDestructiveTool())
+                .build();
 
         McpSchema.Tool.Builder builder = McpSchema.Tool.builder()
                 .name(tool.name())
@@ -72,8 +61,10 @@ public final class McpToolAdapter {
 
         McpSchema.Tool schemaTool = builder.build();
 
-        return new McpServerFeatures.SyncToolSpecification(
-                schemaTool, (exchange, request) -> dispatch(tool, exchange, request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(schemaTool)
+                .callHandler((exchange, request) -> dispatch(tool, exchange, request))
+                .build();
     }
 
     private static McpSchema.CallToolResult dispatch(McpTool tool,
@@ -98,21 +89,25 @@ public final class McpToolAdapter {
                 log.debug("[MCP] structuredContent for '{}' failed: {}", tool.name(), e.getMessage());
             }
 
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent(resultText)),
-                    /* isError */ Boolean.FALSE,
-                    /* structuredContent */ structured,
-                    /* meta */ null);
+            McpSchema.CallToolResult.Builder okBuilder = McpSchema.CallToolResult.builder()
+                    .addTextContent(resultText)
+                    .isError(Boolean.FALSE);
+            if (structured != null) {
+                okBuilder.structuredContent(structured);
+            }
+            return okBuilder.build();
         } catch (McpToolException e) {
             log.debug("[MCP] tool '{}' failed: {}", tool.name(), e.getMessage());
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("Error: " + e.getMessage())),
-                    Boolean.TRUE, null, null);
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Error: " + e.getMessage())
+                    .isError(Boolean.TRUE)
+                    .build();
         } catch (RuntimeException e) {
             log.warn("[MCP] tool '{}' threw unexpectedly", tool.name(), e);
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("Internal error: " + e.getMessage())),
-                    Boolean.TRUE, null, null);
+            return McpSchema.CallToolResult.builder()
+                    .addTextContent("Internal error: " + e.getMessage())
+                    .isError(Boolean.TRUE)
+                    .build();
         }
     }
 

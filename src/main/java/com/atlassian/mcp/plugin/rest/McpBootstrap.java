@@ -32,16 +32,6 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Smoke-test wiring registers two read-only tools (Task 2). Task 3 expands the
  * registration to the full 49-tool list and adds resource specifications.
- *
- * <p>Plan divergences (vs docs/rkstack/plans/2026-05-21-jakarta-sdk-rebuild.md):
- * <ul>
- *   <li>Json mapper construction uses {@code new JacksonMcpJsonMapper(mapper)} (direct
- *       constructor verified via javap) instead of {@code new JacksonMcpJsonMapperSupplier(mapper).get()}
- *       — {@code JacksonMcpJsonMapperSupplier} only has a no-arg constructor.</li>
- *   <li>Schema validator uses {@code new DefaultJsonSchemaValidator(mapper)} directly.</li>
- *   <li>{@code .resources(List)} is omitted when empty — the SDK builder rejects a
- *       null/empty Map argument; we pass the list only when non-empty.</li>
- * </ul>
  */
 @Named("mcpBootstrap")
 public class McpBootstrap {
