@@ -234,6 +234,15 @@
                     <verbose>false</verbose>
                 </configuration>
             </plugin>
+            <!-- Hard kill-switch: e2e tests hit a live Jira via the MCP SDK client.
+                 Cap the surefire fork at 3 min so a network hang can never block CI. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkedProcessTimeoutInSeconds>180</forkedProcessTimeoutInSeconds>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

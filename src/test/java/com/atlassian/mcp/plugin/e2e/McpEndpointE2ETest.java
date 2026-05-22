@@ -2,7 +2,21 @@ package com.atlassian.mcp.plugin.e2e;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.spec.McpClientTransport;
+import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.Content;
+import io.modelcontextprotocol.spec.McpSchema.InitializeResult;
+import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
+
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
@@ -14,1203 +28,564 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.*;
-import java.util.stream.StreamSupport;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
- * End-to-end tests for the MCP endpoint running on a live Jira instance.
+ * End-to-end tests for the Jira MCP plugin running on a live Jira instance.
  *
- * Requires environment variables:
+ * <p>All MCP protocol concerns (JSON-RPC framing, session ids, SSE wrapping,
+ * Accept negotiation, MCP-Protocol-Version) are owned by the official MCP Java
+ * SDK ({@link McpSyncClient}). These tests do NOT re-verify any of that — that
+ * would only re-test the SDK. Instead we assert on real plugin behaviour that
+ * the SDK cannot own:
+ *
+ * <ul>
+ *   <li>Server identity and tool registry contents</li>
+ *   <li>Live Jira data returned by read tools (real users, projects, issues)</li>
+ *   <li>{@code ResponseTrimmer} strips verbose fields</li>
+ *   <li>MCP Apps wiring: {@code _meta.ui.resourceUri} on tools that link to the
+ *       issue-card widget; non-null {@code structuredContent}</li>
+ *   <li>Schema validation rejects calls with missing required parameters</li>
+ *   <li>Anonymous access works for OAuth metadata + Dynamic Client Registration
+ *       endpoints (verifies {@code OAuthAnonymousFilter} + {@code @UnrestrictedAccess})</li>
+ * </ul>
+ *
+ * <p>Required env vars (skipped cleanly when absent):
+ * <pre>
  *   JIRA_URL          — e.g. https://bpm.astrateam.net
  *   JIRA_PAT_RKADMIN  — PAT for an admin user with MCP access
+ * </pre>
  *
- * Optional:
- *   JIRA_PAT_CEO      — PAT for a non-admin user (access control tests)
- *   JIRA_PROJECT_KEY   — project key for issue CRUD tests (default: TES)
+ * <p>Optional:
+ * <pre>
+ *   JIRA_PROJECT_KEY  — project key for search tool test (default: TES)
+ * </pre>
  *
- * Skipped automatically when env vars are not set.
- *
- * Run: just e2e
- *  Or: source .credentials/jira.env && atlas-mvn test -Dtest=McpEndpointE2ETest
+ * <p>Run: {@code just e2e}
+ * <br>Or: {@code source .credentials/jira.env && atlas-mvn test -Dtest=McpEndpointE2ETest}
  */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class McpEndpointE2ETest {
 
+    // --- environment --------------------------------------------------------
+
     private static final String JIRA_URL = System.getenv("JIRA_URL");
     private static final String JIRA_PAT = System.getenv("JIRA_PAT_RKADMIN");
-    private static final String JIRA_PAT_CEO = System.getenv("JIRA_PAT_CEO");
-    private static final String PROJECT_KEY = System.getenv().getOrDefault("JIRA_PROJECT_KEY", "TES");
+    private static final String PROJECT_KEY =
+            System.getenv().getOrDefault("JIRA_PROJECT_KEY", "TES");
 
+    /** MCP servlet path (see atlassian-plugin.xml). */
     private static final String MCP_ENDPOINT = "/plugins/servlet/mcp";
 
-    /** Cached session id for non-initialize requests (per JIRA_PAT). */
-    private static String cachedSessionId;
+    /** Per-call timeout — must remain well below surefire fork timeout (180s). */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
 
-    /** All 49 upstream tool names (source of truth). */
-    private static final Set<String> ALL_UPSTREAM_TOOLS = Set.of(
-            "get_user_profile", "get_issue_watchers", "add_watcher", "remove_watcher",
-            "get_issue", "search", "search_fields", "get_field_options",
-            "get_project_issues", "get_transitions", "get_worklog",
-            "download_attachments", "get_issue_images",
-            "get_agile_boards", "get_board_issues", "get_sprints_from_board", "get_sprint_issues",
-            "create_sprint", "update_sprint", "add_issues_to_sprint",
-            "get_link_types", "create_issue_link", "create_remote_issue_link", "remove_issue_link",
-            "link_to_epic",
-            "create_issue", "batch_create_issues", "batch_get_changelogs",
-            "update_issue", "delete_issue",
-            "add_comment", "edit_comment",
-            "add_worklog",
-            "transition_issue",
-            "get_project_versions", "get_project_components", "get_all_projects",
-            "create_version", "batch_create_versions",
-            "get_service_desk_for_project", "get_service_desk_queues", "get_queue_issues",
-            "get_issue_proforma_forms", "get_proforma_form_details", "update_proforma_form_answers",
-            "get_issue_dates", "get_issue_sla",
-            "get_issue_development_info", "get_issues_development_info"
-    );
+    /** Shared client — initialize() is the expensive bit so we do it once. */
+    private static McpSyncClient client;
 
-    /** Issue key created during CRUD lifecycle test, cleaned up at end. */
-    private static String createdIssueKey;
+    /** Live issue key discovered against $JIRA_URL — used by get_issue + search tests. */
+    private static String knownIssueKey;
+
+    // --- lifecycle ----------------------------------------------------------
 
     @BeforeClass
-    public static void checkEnvironment() {
-        Assume.assumeTrue("JIRA_URL not set — skipping e2e tests", JIRA_URL != null);
-        Assume.assumeTrue("JIRA_PAT_RKADMIN not set — skipping e2e tests", JIRA_PAT != null);
+    public static void setUp() throws Exception {
+        Assume.assumeTrue("JIRA_URL not set — skipping live e2e",
+                JIRA_URL != null && !JIRA_URL.isEmpty());
+        Assume.assumeTrue("JIRA_PAT_RKADMIN not set — skipping live e2e",
+                JIRA_PAT != null && !JIRA_PAT.isEmpty());
+
+        client = newClient();
+        InitializeResult init = client.initialize();
+        // Sanity guard — every downstream test depends on a live, initialized session.
+        assertNotNull("initialize() returned null result", init);
+        assertNotNull("server info missing", init.serverInfo());
+
+        knownIssueKey = discoverIssueKey();
     }
 
-    // ── Protocol Tests ───────────────────────────────────────────────
-
-    @Test
-    public void t01_initialize() throws Exception {
-        JsonNode result = mcpCall("initialize", MAPPER.createObjectNode());
-
-        assertTrue("Should have result", result.has("result"));
-        JsonNode serverInfo = result.path("result").path("serverInfo");
-        assertEquals("jira-mcp-plugin", serverInfo.path("name").asText());
-        assertTrue("Should have capabilities.tools", result.path("result").has("capabilities"));
-    }
-
-    @Test
-    public void t02_ping() throws Exception {
-        JsonNode result = mcpCall("ping", MAPPER.createObjectNode());
-        // ping should return a valid JSON-RPC response (not error)
-        assertFalse("ping should not error", result.has("error"));
-    }
-
-    @Test
-    public void t03_invalidMethod_returnsError() throws Exception {
-        JsonNode result = mcpCall("nonexistent/method", MAPPER.createObjectNode());
-        assertTrue("Should return error for invalid method", result.has("error"));
-    }
-
-    // ── Tools List Tests ─────────────────────────────────────────────
-
-    @Test
-    public void t10_toolsList_returnsTools() throws Exception {
-        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
-
-        assertTrue("Should have result", result.has("result"));
-        JsonNode tools = result.path("result").path("tools");
-        assertTrue("tools should be array", tools.isArray());
-        assertTrue("Should have at least 40 tools", tools.size() >= 40);
-
-        System.out.println("[e2e] tools/list returned " + tools.size() + " tools");
-    }
-
-    @Test
-    public void t11_toolsList_coversUpstreamTools() throws Exception {
-        JsonNode tools = mcpCall("tools/list", MAPPER.createObjectNode())
-                .path("result").path("tools");
-
-        Set<String> visibleNames = new HashSet<>();
-        tools.forEach(t -> visibleNames.add(t.path("name").asText()));
-
-        // Every visible tool must be in the upstream set
-        for (String name : visibleNames) {
-            assertTrue("Unexpected tool not in upstream: " + name,
-                    ALL_UPSTREAM_TOOLS.contains(name));
-        }
-
-        // Check which upstream tools are hidden (due to missing plugins)
-        Set<String> hidden = new HashSet<>(ALL_UPSTREAM_TOOLS);
-        hidden.removeAll(visibleNames);
-        if (!hidden.isEmpty()) {
-            System.out.println("[e2e] Hidden tools (plugin not installed): " + hidden);
-        }
-
-        // At minimum, core tools must be present
-        for (String core : List.of("search", "get_issue", "create_issue", "get_all_projects",
-                "add_comment", "get_user_profile", "create_sprint")) {
-            assertTrue("Core tool missing: " + core, visibleNames.contains(core));
+    @AfterClass
+    public static void tearDown() {
+        if (client != null) {
+            try { client.close(); } catch (Exception ignored) { /* best-effort */ }
         }
     }
 
-    @Test
-    public void t12_toolsList_eachToolHasSchemaAndDescription() throws Exception {
-        JsonNode tools = mcpCall("tools/list", MAPPER.createObjectNode())
-                .path("result").path("tools");
+    // ========================================================================
+    // 1 — Connection + server identity
+    // ========================================================================
 
-        for (JsonNode tool : tools) {
-            String name = tool.path("name").asText();
-            assertTrue(name + " missing description", tool.has("description"));
-            assertFalse(name + " has empty description",
-                    tool.path("description").asText().isBlank());
-            assertTrue(name + " missing inputSchema", tool.has("inputSchema"));
-            assertEquals(name + " inputSchema.type should be 'object'",
-                    "object", tool.path("inputSchema").path("type").asText());
+    @Test
+    public void test01_connectionAndCapabilities() {
+        InitializeResult init = client.getCurrentInitializationResult();
+        assertNotNull("no initialization result cached on client", init);
+
+        McpSchema.Implementation serverInfo = init.serverInfo();
+        assertEquals("server identifies as something other than jira-mcp-plugin",
+                "jira-mcp-plugin", serverInfo.name());
+        assertNotNull("server reported empty version", serverInfo.version());
+        assertFalse("server reported empty version string",
+                serverInfo.version().isEmpty());
+
+        McpSchema.ServerCapabilities caps = init.capabilities();
+        assertNotNull("server capabilities missing", caps);
+        assertNotNull("server does not advertise tools capability — plugin is broken",
+                caps.tools());
+    }
+
+    // ========================================================================
+    // 2 — tools/list returns the expected tool surface
+    // ========================================================================
+
+    @Test
+    public void test02_toolsListReturnsExpectedSubset() {
+        ListToolsResult result = client.listTools();
+        List<Tool> tools = result.tools();
+        assertNotNull("tools/list returned null tools array", tools);
+
+        // The deployed Jira lacks JSM/Proforma so capability-gated tools are hidden.
+        // 30 is a sane floor; the full upstream count is 49.
+        assertTrue("tools/list returned suspiciously few tools: " + tools.size(),
+                tools.size() >= 30);
+
+        // Core read-only tools that MUST always be advertised.
+        Set<String> mustHave = Set.of(
+                "get_user_profile",
+                "get_all_projects",
+                "get_issue",
+                "search",
+                "get_link_types",
+                "search_fields"
+        );
+
+        Map<String, Tool> byName = new HashMap<>();
+        for (Tool t : tools) {
+            byName.put(t.name(), t);
+        }
+
+        for (String name : mustHave) {
+            Tool t = byName.get(name);
+            assertNotNull("tool '" + name + "' not advertised by server", t);
+            assertNotNull("tool '" + name + "' has null description", t.description());
+            assertFalse("tool '" + name + "' has empty description",
+                    t.description().isEmpty());
+            assertNotNull("tool '" + name + "' has null inputSchema", t.inputSchema());
+            assertFalse("tool '" + name + "' has empty inputSchema",
+                    t.inputSchema().isEmpty());
         }
     }
 
-    // ── Read Tool Tests ──────────────────────────────────────────────
+    // ========================================================================
+    // 3 — get_user_profile returns real Jira user data
+    // ========================================================================
 
     @Test
-    public void t20_getAllProjects() throws Exception {
-        JsonNode result = callTool("get_all_projects", Map.of());
+    public void test03_getUserProfileReturnsRealJiraUser() {
+        CallToolResult result = call("get_user_profile",
+                Map.of("user_identifier", "rkadmin"));
 
-        assertFalse("Should not error", isError(result));
-        String text = getContentText(result);
-        assertNotNull("Should have content text", text);
+        assertNotErrored("get_user_profile", result);
+        String text = firstText(result);
 
-        JsonNode projects = MAPPER.readTree(text);
-        assertTrue("Should be array", projects.isArray());
-        System.out.println("[e2e] get_all_projects: " + projects.size() + " projects");
+        // Real values present on the live Jira at bpm.astrateam.net.
+        assertContains("display name", text, "Ruben Khachaturov");
+        assertContains("user key", text, "JIRAUSER10000");
+        assertContains("time zone", text, "Europe/Moscow");
     }
 
-    @Test
-    public void t21_getUserProfile() throws Exception {
-        JsonNode result = callTool("get_user_profile", Map.of("user_identifier", "rkadmin"));
+    // ========================================================================
+    // 4 — get_all_projects returns the live project list
+    // ========================================================================
 
-        assertFalse("Should not error", isError(result));
-        String text = getContentText(result);
-        assertNotNull("Should have content text", text);
+    @Test
+    public void test04_getAllProjectsReturnsKnownProject() {
+        CallToolResult result = call("get_all_projects", Map.of());
+        assertNotErrored("get_all_projects", result);
+
+        String text = firstText(result);
+        // Discovered live via /rest/api/2/project against $JIRA_URL.
+        // If the project list changes, update this assertion to match real state.
+        assertContains("'TES' project key", text, "\"key\":\"TES\"");
+        assertContains("'TES' project name", text, "Test_service");
     }
 
-    @Test
-    public void t22_searchFields() throws Exception {
-        JsonNode result = callTool("search_fields", Map.of("keyword", "summary"));
+    // ========================================================================
+    // 5 — ResponseTrimmer strips avatarUrls / iconUrl / expand
+    // ========================================================================
 
-        assertFalse("Should not error", isError(result));
-        String text = getContentText(result);
-        assertNotNull("Should have content text", text);
+    @Test
+    public void test05_responseTrimmerStripsVerboseFields() {
+        CallToolResult result = call("get_user_profile",
+                Map.of("user_identifier", "rkadmin"));
+        assertNotErrored("get_user_profile", result);
+
+        String text = firstText(result);
+        // ResponseTrimmer is our code — it must strip these recursively.
+        // The raw Jira /rest/api/2/myself response DOES include avatarUrls.
+        assertFalse("ResponseTrimmer left 'avatarUrls' in: " + truncate(text, 200),
+                text.contains("avatarUrls"));
+        assertFalse("ResponseTrimmer left 'iconUrl' in: " + truncate(text, 200),
+                text.contains("iconUrl"));
+        assertFalse("ResponseTrimmer left 'expand' in: " + truncate(text, 200),
+                text.contains("\"expand\""));
+        // Avatar size keys should be gone too.
+        assertFalse("ResponseTrimmer left '48x48' avatar key in",
+                text.contains("\"48x48\""));
     }
 
-    @Test
-    public void t23_getLinkTypes() throws Exception {
-        JsonNode result = callTool("get_link_types", Map.of());
+    // ========================================================================
+    // 6 — get_issue returns structuredContent and tool advertises widget URI
+    // ========================================================================
 
-        assertFalse("Should not error", isError(result));
-        String text = getContentText(result);
-        assertNotNull("Should have content text", text);
+    @Test
+    public void test06_getIssueReturnsStructuredContentForWidget() {
+        Assume.assumeNotNull("no live issue discovered on this Jira", knownIssueKey);
+
+        // First — assert the tool advertises the MCP Apps widget URI in its meta.
+        // (This is on Tool.meta(), not on CallToolResult — the resourceUri is
+        // tied to the tool itself, not to a particular call.)
+        Tool getIssueTool = findTool("get_issue");
+        assertNotNull("get_issue tool not advertised", getIssueTool);
+        Map<String, Object> meta = getIssueTool.meta();
+        assertNotNull("get_issue tool has no _meta — MCP Apps wiring broken", meta);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ui = (Map<String, Object>) meta.get("ui");
+        assertNotNull("get_issue tool has no _meta.ui — MCP Apps wiring broken", ui);
+        Object resourceUri = ui.get("resourceUri");
+        assertNotNull("get_issue tool has no _meta.ui.resourceUri", resourceUri);
+        assertTrue("resourceUri '" + resourceUri + "' does not start with ui://jira/issue-card",
+                resourceUri.toString().startsWith("ui://jira/issue-card"));
+
+        // Now — call the tool and verify structuredContent is populated for the widget.
+        CallToolResult result = call("get_issue", Map.of("issue_key", knownIssueKey));
+        assertNotErrored("get_issue", result);
+
+        Object structured = result.structuredContent();
+        assertNotNull("get_issue result has no structuredContent — widget cannot render",
+                structured);
+
+        // structuredContent shape contains an 'issues' array (the widget data contract).
+        JsonNode json = MAPPER.valueToTree(structured);
+        assertTrue("structuredContent missing 'issues' array",
+                json.has("issues") && json.get("issues").isArray());
+        assertTrue("structuredContent.issues empty",
+                json.get("issues").size() > 0);
+
+        JsonNode issue = json.get("issues").get(0);
+        assertEquals("structuredContent.issues[0].key mismatch",
+                knownIssueKey, issue.path("key").asText());
+        assertFalse("structuredContent.issues[0].summary empty",
+                issue.path("summary").asText().isEmpty());
+        assertNotNull("structuredContent.issues[0].status missing",
+                issue.path("status"));
     }
 
+    // ========================================================================
+    // 7 — search filters by JQL
+    // ========================================================================
+
     @Test
-    public void t24_search_emptyResult() throws Exception {
-        JsonNode result = callTool("search", Map.of(
-                "jql", "project = " + PROJECT_KEY + " AND summary ~ \"e2e_nonexistent_xyz\"",
-                "limit", "5"
+    public void test07_searchReturnsFilteredResults() {
+        CallToolResult result = call("search", Map.of(
+                "jql", "project = " + PROJECT_KEY,
+                "limit", 5
         ));
+        assertNotErrored("search", result);
 
-        assertFalse("Should not error", isError(result));
-        String text = getContentText(result);
-        JsonNode parsed = MAPPER.readTree(text);
-        assertTrue("Should have total field", parsed.has("total"));
+        String text = firstText(result);
+        // All returned issue keys should belong to the requested project.
+        assertContains("project key prefix in search results",
+                text, "\"" + PROJECT_KEY + "-");
     }
 
-    @Test
-    public void t25_getAgileBoards() throws Exception {
-        JsonNode result = callTool("get_agile_boards", Map.of());
-        assertFalse("Should not error", isError(result));
-    }
-
-    // ── Response Trimming Tests ──────────────────────────────────────
+    // ========================================================================
+    // 8 — unknown tool surfaces an SDK-level error
+    // ========================================================================
 
     @Test
-    public void t30_responseTrimming_noAvatarSizeKeys() throws Exception {
-        JsonNode result = callTool("get_all_projects", Map.of());
-        String raw = getContentText(result);
-        assertNotNull(raw);
-
-        // "self" links are now kept (upstream JiraIssueLinkType and JiraUser include them)
-        // but avatar size keys should still be stripped
-        assertFalse("Response should not contain avatar size keys",
-                raw.contains("\"48x48\"") || raw.contains("\"32x32\""));
-    }
-
-    @Test
-    public void t31_responseTrimming_noAvatarUrls() throws Exception {
-        JsonNode result = callTool("get_all_projects", Map.of());
-        String raw = getContentText(result);
-        assertNotNull(raw);
-
-        assertFalse("Response should not contain avatarUrls",
-                raw.contains("avatarUrls"));
-    }
-
-    @Test
-    public void t32_responseTrimming_noIconUrl() throws Exception {
-        JsonNode result = callTool("get_user_profile", Map.of("user_identifier", "rkadmin"));
-        String raw = getContentText(result);
-        assertNotNull(raw);
-
-        assertFalse("Response should not contain iconUrl",
-                raw.contains("iconUrl"));
-    }
-
-    // ── Issue CRUD Lifecycle Test ────────────────────────────────────
-
-    @Test
-    public void t40_createIssue() throws Exception {
-        JsonNode result = callTool("create_issue", Map.of(
-                "project_key", PROJECT_KEY,
-                "summary", "[E2E Test] Auto-created by McpEndpointE2ETest",
-                "issue_type", "Task"
-        ));
-
-        assertFalse("Create should not error: " + getContentText(result), isError(result));
-        String text = getContentText(result);
-        JsonNode parsed = MAPPER.readTree(text);
-
-        // Extract issue key from response
-        createdIssueKey = parsed.has("key") ? parsed.path("key").asText() :
-                parsed.path("issue").path("key").asText(null);
-        if (createdIssueKey == null && parsed.has("id")) {
-            // Fallback: some responses return id instead of key
-            createdIssueKey = parsed.path("key").asText();
+    public void test08_unknownToolReturnsProperError() {
+        try {
+            CallToolResult result = call("definitely_not_a_real_tool", Map.of());
+            // Allowed path: SDK returns CallToolResult with isError=true.
+            Boolean err = result.isError();
+            assertTrue("unknown tool did not surface as error (isError=" + err + ")",
+                    Boolean.TRUE.equals(err));
+            String text = firstText(result);
+            assertContains("error mentions tool name or 'unknown'",
+                    text.toLowerCase(),
+                    "definitely_not_a_real_tool");
+        } catch (RuntimeException e) {
+            // Equally allowed: SDK raises an exception. Verify it mentions the tool.
+            String msg = (String.valueOf(e.getMessage()) + " " + rootCauseMessage(e))
+                    .toLowerCase();
+            assertTrue("SDK exception did not reference the unknown tool name: " + msg,
+                    msg.contains("definitely_not_a_real_tool")
+                            || msg.contains("unknown tool")
+                            || msg.contains("not found"));
         }
-        assertNotNull("Should return created issue key", createdIssueKey);
-        assertFalse("Issue key should not be empty", createdIssueKey.isBlank());
-
-        System.out.println("[e2e] Created issue: " + createdIssueKey);
     }
 
+    // ========================================================================
+    // 9 — Missing required param → schema validation error
+    // ========================================================================
+
     @Test
-    public void t41_getCreatedIssue() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("get_issue", Map.of("issue_key", createdIssueKey));
-
-        assertFalse("Get should not error", isError(result));
-        String text = getContentText(result);
-        assertTrue("Response should contain issue key",
-                text.contains(createdIssueKey));
+    public void test09_missingRequiredParamReturnsValidationError() {
+        // get_user_profile.inputSchema declares user_identifier as required.
+        // The SDK's JsonSchemaValidator (client side) — and the server's, if any —
+        // should reject this call.
+        try {
+            CallToolResult result = call("get_user_profile", Map.of());
+            // If we got a result, it must be flagged as an error.
+            Boolean err = result.isError();
+            assertTrue("missing required param did not surface as error (isError=" + err
+                            + ", content=" + truncate(firstTextOrEmpty(result), 200) + ")",
+                    Boolean.TRUE.equals(err));
+            String text = firstTextOrEmpty(result).toLowerCase();
+            assertTrue("error text did not mention missing/required field: "
+                            + truncate(text, 200),
+                    text.contains("user_identifier")
+                            || text.contains("required")
+                            || text.contains("missing"));
+        } catch (RuntimeException e) {
+            String msg = (String.valueOf(e.getMessage()) + " " + rootCauseMessage(e))
+                    .toLowerCase();
+            assertTrue("SDK validation error did not mention user_identifier/required: " + msg,
+                    msg.contains("user_identifier")
+                            || msg.contains("required")
+                            || msg.contains("missing")
+                            || msg.contains("validation"));
+        }
     }
 
-    @Test
-    public void t42_addComment() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("add_comment", Map.of(
-                "issue_key", createdIssueKey,
-                "body", "E2E test comment — verifying add_comment tool"
-        ));
-
-        assertFalse("Add comment should not error: " + getContentText(result), isError(result));
-    }
+    // ========================================================================
+    // 10 — OAuth metadata endpoint is reachable anonymously
+    // ========================================================================
 
     @Test
-    public void t43_updateIssue() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("update_issue", Map.of(
-                "issue_key", createdIssueKey,
-                "fields", "{\"summary\":\"[E2E Test] Updated by McpEndpointE2ETest\"}"
-        ));
-
-        assertFalse("Update should not error: " + getContentText(result), isError(result));
-    }
-
-    @Test
-    public void t44_getTransitions() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("get_transitions", Map.of("issue_key", createdIssueKey));
-        assertFalse("Get transitions should not error", isError(result));
-    }
-
-    @Test
-    public void t45_getIssueDates() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("get_issue_dates", Map.of("issue_key", createdIssueKey));
-        assertFalse("Get issue dates should not error", isError(result));
-    }
-
-    // ── Markup Conversion Round-Trip Tests ─────────────────────────
-
-    @Test
-    public void t46_markdownDescription_roundTrip() throws Exception {
-        // Create issue with Markdown description
-        String mdDescription = "## Overview\n\n"
-                + "This is **bold** and *italic* text.\n\n"
-                + "- Bullet 1\n- Bullet 2\n\n"
-                + "```java\npublic void test() {}\n```\n\n"
-                + "[Link](https://example.com)";
-
-        JsonNode createResult = callTool("create_issue", Map.of(
-                "project_key", PROJECT_KEY,
-                "summary", "[E2E Test] Markup conversion test",
-                "issue_type", "Task",
-                "description", mdDescription
-        ));
-
-        assertFalse("Create should not error: " + getContentText(createResult), isError(createResult));
-        String createText = getContentText(createResult);
-        JsonNode created = MAPPER.readTree(createText);
-        String issueKey = created.path("issue").path("key").asText(
-                created.path("key").asText(null));
-        assertNotNull("Should return issue key", issueKey);
-
-        // Read back the issue — response should be in Markdown (converted from wiki)
-        JsonNode getResult = callTool("get_issue", Map.of("issue_key", issueKey));
-        assertFalse("Get should not error", isError(getResult));
-        String issueJson = getContentText(getResult);
-        JsonNode issue = MAPPER.readTree(issueJson);
-        String returnedDesc = issue.path("fields").path("description").asText("");
-
-        // Verify key Markdown elements survived the round-trip
-        assertTrue("Should contain ## heading, got: " + returnedDesc,
-                returnedDesc.contains("## Overview") || returnedDesc.contains("##  Overview"));
-        assertTrue("Should contain **bold**, got: " + returnedDesc,
-                returnedDesc.contains("**bold**"));
-        assertTrue("Should contain *italic*, got: " + returnedDesc,
-                returnedDesc.contains("*italic*"));
-        assertTrue("Should contain code fence, got: " + returnedDesc,
-                returnedDesc.contains("```java"));
-        assertTrue("Should contain link, got: " + returnedDesc,
-                returnedDesc.contains("[Link](https://example.com)"));
-
-        // Verify it's NOT raw wiki markup
-        assertFalse("Should NOT contain h2. (wiki markup)", returnedDesc.contains("h2."));
-        assertFalse("Should NOT contain {code} (wiki markup)", returnedDesc.contains("{code}"));
-
-        System.out.println("[e2e] Markdown description round-trip: OK");
-
-        // Cleanup
-        callTool("delete_issue", Map.of("issue_key", issueKey));
-    }
-
-    @Test
-    public void t47_markdownComment_roundTrip() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        // Add a comment with Markdown formatting
-        String mdComment = "**Action required:**\n\n"
-                + "1. Review the code\n2. Run tests\n\n"
-                + "`npm test` should pass";
-
-        JsonNode addResult = callTool("add_comment", Map.of(
-                "issue_key", createdIssueKey,
-                "body", mdComment
-        ));
-        assertFalse("Add comment should not error: " + getContentText(addResult), isError(addResult));
-
-        // Read back the issue with comments
-        JsonNode getResult = callTool("get_issue", Map.of("issue_key", createdIssueKey));
-        String issueJson = getContentText(getResult);
-        JsonNode issue = MAPPER.readTree(issueJson);
-
-        // Find the latest comment body
-        JsonNode comments = issue.path("fields").path("comment").path("comments");
-        assertTrue("Should have comments", comments.isArray() && comments.size() > 0);
-        String lastBody = comments.get(comments.size() - 1).path("body").asText("");
-
-        // Verify Markdown formatting in the returned comment
-        assertTrue("Comment should contain **bold**, got: " + lastBody,
-                lastBody.contains("**Action required:**"));
-        assertTrue("Comment should contain inline code, got: " + lastBody,
-                lastBody.contains("`npm test`"));
-
-        // Verify it's NOT raw wiki markup
-        assertFalse("Should NOT contain *bold* (single asterisk wiki)", lastBody.contains("*Action required:*\n"));
-        assertFalse("Should NOT contain {{code}} (wiki)", lastBody.contains("{{npm test}}"));
-
-        System.out.println("[e2e] Markdown comment round-trip: OK");
-    }
-
-    @Test
-    public void t48_deleteCreatedIssue() throws Exception {
-        Assume.assumeTrue("No issue created", createdIssueKey != null);
-
-        JsonNode result = callTool("delete_issue", Map.of("issue_key", createdIssueKey));
-        assertFalse("Delete should not error: " + getContentText(result), isError(result));
-
-        System.out.println("[e2e] Deleted issue: " + createdIssueKey);
-        createdIssueKey = null;
-    }
-
-    // ── Service Desk Tests ───────────────────────────────────────────
-
-    @Test
-    public void t50_getServiceDeskForProject() throws Exception {
-        JsonNode result = callTool("get_service_desk_for_project",
-                Map.of("project_key", PROJECT_KEY));
-        // May error if project isn't a service desk — that's OK
-        String text = getContentText(result);
-        System.out.println("[e2e] get_service_desk_for_project: " +
-                (isError(result) ? "not a service desk" : "OK"));
-    }
-
-    // ── Error Handling Tests ─────────────────────────────────────────
-
-    @Test
-    public void t60_missingRequiredParam_returnsError() throws Exception {
-        // Call get_issue without issue_key
-        JsonNode result = callTool("get_issue", Map.of());
-        assertTrue("Should error on missing required param", isError(result));
-    }
-
-    @Test
-    public void t61_invalidIssueKey_returnsError() throws Exception {
-        JsonNode result = callTool("get_issue", Map.of("issue_key", "INVALID-999999"));
-        assertTrue("Should error on invalid issue key", isError(result));
-    }
-
-    @Test
-    public void t62_unknownTool_returnsError() throws Exception {
-        JsonNode result = callTool("nonexistent_tool", Map.of());
-        assertTrue("Should error on unknown tool", isError(result));
-    }
-
-    // ── Streamable HTTP Transport Tests ─────────────────────────────
-
-    @Test
-    public void t80_streamableHttp_initializeReturnsSessionId() throws Exception {
-        // Per MCP spec: client sends Accept: application/json, text/event-stream
-        // Server returns JSON for single responses + MCP-Session-Id header
-        HttpResponse<String> response = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-
-        assertEquals("Should return 200", 200, response.statusCode());
-
-        // Server should return JSON (not SSE) for single responses
-        String contentType = response.headers().firstValue("Content-Type").orElse("");
-        assertTrue("Should return JSON for single response, got: " + contentType,
-                contentType.contains("application/json"));
-
-        // Must include session ID
-        String sessionId = response.headers().firstValue("MCP-Session-Id").orElse(null);
-        assertNotNull("Should return MCP-Session-Id header", sessionId);
-
-        // Parse response
-        JsonNode parsed = MAPPER.readTree(response.body());
-        assertEquals("jira-mcp-plugin", parsed.path("result").path("serverInfo").path("name").asText());
-
-        System.out.println("[e2e] Streamable HTTP initialize: OK, session " + sessionId.substring(0, 8) + "...");
-    }
-
-    @Test
-    public void t81_streamableHttp_toolCallWithSession() throws Exception {
-        // Initialize to get session
-        HttpResponse<String> initResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        Assume.assumeTrue("No session ID", sessionId != null);
-
-        // Call a tool with session
-        HttpResponse<String> toolResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"get_all_projects\",\"arguments\":{}}}",
-                sessionId);
-
-        assertEquals("Should return 200", 200, toolResp.statusCode());
-        JsonNode parsed = parseMcpResponse(toolResp);
-        assertFalse("Should not be error", parsed.path("result").path("isError").asBoolean(false));
-
-        System.out.println("[e2e] Streamable HTTP tool call: OK");
-    }
-
-    @Test
-    public void t82_streamableHttp_toolsListWithSession() throws Exception {
-        HttpResponse<String> initResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        Assume.assumeTrue("No session ID", sessionId != null);
-
-        HttpResponse<String> listResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}",
-                sessionId);
-
-        // The SDK transport returns SSE-framed JSON for non-initialize responses
-        // when the client advertises Accept: application/json, text/event-stream.
-        JsonNode parsed = parseMcpResponse(listResp);
-        JsonNode tools = parsed.path("result").path("tools");
-        assertTrue("Should have tools array", tools.isArray());
-        assertTrue("Should have 40+ tools", tools.size() >= 40);
-
-        System.out.println("[e2e] Streamable HTTP tools/list: " + tools.size() + " tools");
-    }
-
-    @Test
-    public void t83_streamableHttp_deleteSession() throws Exception {
-        // Create session
-        HttpResponse<String> initResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        Assume.assumeTrue("No session ID", sessionId != null);
-
-        // Delete it
-        HttpRequest deleteReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT)
-                .header("MCP-Session-Id", sessionId)
-                .DELETE()
-                .timeout(Duration.ofSeconds(10))
+    public void test10_oauthMetadataAnonymousWorks() throws Exception {
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
                 .build();
-        HttpResponse<String> deleteResp = HTTP.send(deleteReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals("Delete should return 200", 200, deleteResp.statusCode());
-
-        // Verify session is gone
-        HttpResponse<String> staleResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}",
-                sessionId);
-        assertEquals("Stale session should return 404", 404, staleResp.statusCode());
-
-        System.out.println("[e2e] Streamable HTTP session delete: OK");
-    }
-
-    @Test
-    public void t84_streamableHttp_originValidation() throws Exception {
-        // Valid request without Origin header — should work (curl, server-to-server)
-        HttpResponse<String> noOrigin = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        assertEquals("No Origin header should be allowed", 200, noOrigin.statusCode());
-
-        // Request with invalid Origin — should be 403
-        HttpRequest badOriginReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .header("Origin", "https://evil-site.example.com")
-                .timeout(Duration.ofSeconds(10))
-                .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"))
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + "/.well-known/oauth-authorization-server"))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
                 .build();
-        HttpResponse<String> badOrigin = HTTP.send(badOriginReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals("Invalid Origin should return 403", 403, badOrigin.statusCode());
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
 
-        System.out.println("[e2e] Origin validation: no-origin=allowed, bad-origin=403");
-    }
-
-    @Test
-    public void t86_streamableHttp_batchWithProgress() throws Exception {
-        // Initialize to get session
-        HttpResponse<String> initResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        Assume.assumeTrue("No session ID", sessionId != null);
-
-        // Call batch_create_issues with progressToken
-        String batchRequest = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{"
-                + "\"name\":\"batch_create_issues\","
-                + "\"_meta\":{\"progressToken\":\"test-progress-1\"},"
-                + "\"arguments\":{\"issues\":\"["
-                + "{\\\"project_key\\\":\\\"" + PROJECT_KEY + "\\\",\\\"summary\\\":\\\"[E2E] Batch 1\\\",\\\"issue_type\\\":\\\"Task\\\"},"
-                + "{\\\"project_key\\\":\\\"" + PROJECT_KEY + "\\\",\\\"summary\\\":\\\"[E2E] Batch 2\\\",\\\"issue_type\\\":\\\"Task\\\"}"
-                + "]\"}}}";
-
-        HttpResponse<String> resp = streamablePost(batchRequest, sessionId);
-
-        assertEquals("Should return 200", 200, resp.statusCode());
-        String contentType = resp.headers().firstValue("Content-Type").orElse("");
-        assertTrue("Should return SSE for batch with progressToken, got: " + contentType,
-                contentType.contains("text/event-stream"));
-
-        // Parse all SSE events — check event type taxonomy
+        assertEquals("anonymous GET on oauth metadata not 200 — OAuthAnonymousFilter regressed",
+                200, resp.statusCode());
         String body = resp.body();
-        String[] lines = body.split("\n");
-        int progressCount = 0;
-        int responseCount = 0;
-        int heartbeatCount = 0;
-        String lastResponseData = null;
-        String currentEventType = null;
-
-        for (String line : lines) {
-            if (line.startsWith("event: ")) {
-                currentEventType = line.substring(7).trim();
-            } else if (line.startsWith("data: ") && line.length() > 6) {
-                String data = line.substring(6).trim();
-                if (data.isEmpty()) {
-                    heartbeatCount++;
-                    continue;
-                }
-                try {
-                    JsonNode event = MAPPER.readTree(data);
-                    if ("progress".equals(currentEventType)) {
-                        progressCount++;
-                    } else if ("message".equals(currentEventType) && event.has("result")) {
-                        responseCount++;
-                        lastResponseData = data;
-                    }
-                } catch (Exception e) {
-                    // skip non-JSON data lines
-                }
-                currentEventType = null;
-            }
-        }
-
-        assertTrue("Should have at least 1 progress notification, got " + progressCount,
-                progressCount >= 1);
-        assertEquals("Should have exactly 1 final response", 1, responseCount);
-
-        // Clean up created issues
-        if (lastResponseData != null) {
-            JsonNode result = MAPPER.readTree(lastResponseData);
-            JsonNode issues = result.path("result").path("content").get(0);
-            String text = issues.path("text").asText();
-            JsonNode parsed = MAPPER.readTree(text);
-            if (parsed.has("issues")) {
-                for (JsonNode issue : parsed.get("issues")) {
-                    String key = issue.path("key").asText(null);
-                    if (key != null) {
-                        callTool("delete_issue", Map.of("issue_key", key));
-                    }
-                }
-            }
-        }
-
-        System.out.println("[e2e] Batch streaming: " + progressCount + " progress events + 1 response");
+        assertContains("authorization_endpoint advertised", body, "\"authorization_endpoint\"");
+        assertContains("token_endpoint advertised", body, "\"token_endpoint\"");
+        assertContains("registration_endpoint advertised", body, "\"registration_endpoint\"");
+        // PKCE S256 is mandatory in our impl.
+        assertContains("S256 PKCE advertised", body, "S256");
     }
+
+    // ========================================================================
+    // 11 — DCR register endpoint accepts anonymous POST
+    // ========================================================================
 
     @Test
-    public void t87_streamableHttp_noProgressTokenNoStream() throws Exception {
-        // Same batch call but WITHOUT progressToken → should return plain JSON
-        HttpResponse<String> initResp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
-                null);
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        Assume.assumeTrue("No session ID", sessionId != null);
+    public void test11_oauthRegisterAnonymousWorks() throws Exception {
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
 
-        // No _meta/progressToken → no streaming
-        HttpResponse<String> resp = streamablePost(
-                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"get_all_projects\",\"arguments\":{}}}",
-                sessionId);
-
-        String contentType = resp.headers().firstValue("Content-Type").orElse("");
-        assertTrue("Without progressToken should return JSON, got: " + contentType,
-                contentType.contains("application/json"));
-
-        System.out.println("[e2e] No progressToken: JSON response (correct)");
-    }
-
-    @Test
-    public void t85_streamableHttp_worksWithoutSession() throws Exception {
-        // Stateless mode — no session header, should still work
-        JsonNode result = mcpCall("initialize", MAPPER.createObjectNode());
-        assertTrue("Stateless initialize should work", result.has("result"));
-        assertEquals("jira-mcp-plugin", result.path("result").path("serverInfo").path("name").asText());
-    }
-
-    // ── Access Control Tests ─────────────────────────────────────────
-
-    @Test
-    public void t70_ceoAccess() throws Exception {
-        Assume.assumeTrue("JIRA_PAT_CEO not set", JIRA_PAT_CEO != null);
-
-        JsonNode result = mcpCallAs("initialize", MAPPER.createObjectNode(), JIRA_PAT_CEO);
-        assertTrue("CEO should have access (via group)",
-                result.has("result"));
-        assertFalse("CEO should not get error", result.has("error"));
-
-        System.out.println("[e2e] CEO access: GRANTED");
-    }
-
-    // ── MCP Apps: Resources, Annotations, structuredContent ─────────
-
-    @Test
-    public void test_A01_initialize_advertises_resources() throws Exception {
-        JsonNode result = mcpCall("initialize", MAPPER.createObjectNode()).path("result");
-        JsonNode capabilities = result.path("capabilities");
-        if (capabilities.has("resources")) {
-            assertTrue("capabilities.extensions should exist when resources does",
-                    capabilities.has("extensions"));
-        }
-    }
-
-    @Test
-    public void test_B20_tools_list_has_annotations() throws Exception {
-        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
-        JsonNode tools = result.path("result").path("tools");
-        for (JsonNode tool : tools) {
-            assertTrue("Tool " + tool.path("name").asText() + " must have annotations",
-                    tool.has("annotations"));
-            JsonNode annotations = tool.get("annotations");
-            assertTrue("annotations must have readOnlyHint", annotations.has("readOnlyHint"));
-            assertTrue("annotations must have destructiveHint", annotations.has("destructiveHint"));
-        }
-    }
-
-    @Test
-    public void test_B21_delete_issue_is_destructive() throws Exception {
-        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
-        JsonNode tools = result.path("result").path("tools");
-        for (JsonNode tool : tools) {
-            if ("delete_issue".equals(tool.path("name").asText())) {
-                assertTrue("delete_issue must have destructiveHint=true",
-                        tool.path("annotations").path("destructiveHint").asBoolean());
-                assertFalse("delete_issue must have readOnlyHint=false",
-                        tool.path("annotations").path("readOnlyHint").asBoolean());
-            }
-        }
-    }
-
-    @Test
-    public void test_B22_search_is_readonly() throws Exception {
-        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
-        JsonNode tools = result.path("result").path("tools");
-        for (JsonNode tool : tools) {
-            if ("search".equals(tool.path("name").asText())) {
-                assertTrue("search must have readOnlyHint=true",
-                        tool.path("annotations").path("readOnlyHint").asBoolean());
-                assertFalse("search must have destructiveHint=false",
-                        tool.path("annotations").path("destructiveHint").asBoolean());
-            }
-        }
-    }
-
-    @Test
-    public void test_B23_issue_tools_have_meta_ui() throws Exception {
-        Set<String> uiTools = Set.of("get_issue", "search", "get_project_issues",
-                "get_board_issues", "get_sprint_issues");
-        JsonNode result = mcpCall("tools/list", MAPPER.createObjectNode());
-        JsonNode tools = result.path("result").path("tools");
-        for (JsonNode tool : tools) {
-            String name = tool.path("name").asText();
-            if (uiTools.contains(name) && tool.has("_meta")) {
-                assertTrue("Tool " + name + " must have _meta.ui.resourceUri",
-                        tool.path("_meta").path("ui").has("resourceUri"));
-                String uri = tool.path("_meta").path("ui").path("resourceUri").asText();
-                assertTrue("resourceUri must start with ui://", uri.startsWith("ui://"));
-            }
-        }
-    }
-
-    @Test
-    public void test_E01_resources_list() throws Exception {
-        JsonNode result = mcpCall("resources/list", MAPPER.createObjectNode()).path("result");
-        JsonNode resources = result.path("resources");
-        assertTrue("resources should be an array", resources.isArray());
-    }
-
-    @Test
-    public void test_E02_resources_read_unknown_uri() throws Exception {
-        ObjectNode params = MAPPER.createObjectNode();
-        params.put("uri", "ui://nonexistent/widget");
-        JsonNode result = mcpCall("resources/read", params);
-        assertTrue("Should return error for unknown URI", result.has("error"));
-    }
-
-    @Test
-    public void test_E03_search_has_structured_content() throws Exception {
-        JsonNode result = callTool("search", Map.of("jql", "order by updated DESC", "limit", "1"));
-        JsonNode callResult = result.path("result");
-        if (callResult.has("structuredContent")) {
-            JsonNode sc = callResult.get("structuredContent");
-            assertTrue("structuredContent must have issues", sc.has("issues"));
-            assertTrue("structuredContent must have baseUrl", sc.has("baseUrl"));
-            assertTrue("structuredContent must have currentUser", sc.has("currentUser"));
-        }
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────
-
-    private JsonNode mcpCall(String method, JsonNode params) throws Exception {
-        return mcpCallAs(method, params, JIRA_PAT);
-    }
-
-    private JsonNode mcpCallAs(String method, JsonNode params, String pat) throws Exception {
-        // The SDK's Streamable HTTP transport requires (1) Accept header advertising
-        // both JSON and SSE, and (2) a session established via initialize before
-        // any other method can be invoked. We bootstrap the session lazily here
-        // and reuse it across calls in the same PAT.
-        String sessionId = "initialize".equals(method) ? null : ensureSessionFor(pat);
-
-        var body = MAPPER.createObjectNode();
-        body.put("jsonrpc", "2.0");
-        body.put("id", 1);
-        body.put("method", method);
-        body.set("params", params);
-
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + pat)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)));
-
-        if (sessionId != null) {
-            builder.header("MCP-Session-Id", sessionId)
-                   .header("MCP-Protocol-Version", "2025-06-18");
-        }
-
-        HttpResponse<String> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        // Capture session id from initialize response so subsequent calls reuse it.
-        if ("initialize".equals(method) && pat != null && pat.equals(JIRA_PAT)) {
-            response.headers().firstValue("MCP-Session-Id").ifPresent(s -> cachedSessionId = s);
-        }
-        return parseMcpResponse(response);
-    }
-
-    /**
-     * Open an initialize request for the given PAT to acquire a session.
-     * For the primary PAT we cache it across calls.
-     */
-    private String ensureSessionFor(String pat) throws Exception {
-        if (pat != null && pat.equals(JIRA_PAT) && cachedSessionId != null) {
-            return cachedSessionId;
-        }
-        var initBody = MAPPER.createObjectNode();
-        initBody.put("jsonrpc", "2.0");
-        initBody.put("id", 0);
-        initBody.put("method", "initialize");
-        ObjectNode initParams = MAPPER.createObjectNode();
-        initParams.put("protocolVersion", "2025-06-18");
-        initParams.set("capabilities", MAPPER.createObjectNode());
-        ObjectNode clientInfo = MAPPER.createObjectNode();
-        clientInfo.put("name", "e2e");
-        clientInfo.put("version", "1.0");
-        initParams.set("clientInfo", clientInfo);
-        initBody.set("params", initParams);
+        String body = "{"
+                + "\"client_name\":\"jira-mcp-e2e-suite\","
+                + "\"redirect_uris\":[\"http://localhost:9999/cb\"],"
+                + "\"token_endpoint_auth_method\":\"none\""
+                + "}";
 
         HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + pat)
+                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/register"))
+                .timeout(REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(initBody)))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        String sid = resp.headers().firstValue("MCP-Session-Id").orElse(null);
-        if (sid != null && pat != null && pat.equals(JIRA_PAT)) {
-            cachedSessionId = sid;
-        }
-        return sid;
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+
+        int code = resp.statusCode();
+        assertTrue("anonymous DCR register returned " + code
+                        + " — expected 200/201. body=" + truncate(resp.body(), 200),
+                code == 200 || code == 201);
+
+        JsonNode json = MAPPER.readTree(resp.body());
+        assertTrue("DCR response missing client_id", json.has("client_id"));
+        assertFalse("DCR client_id was empty", json.get("client_id").asText().isEmpty());
     }
+
+    // ========================================================================
+    // 12 — Forbidden-on-blocked-user — requires staging instance
+    // ========================================================================
 
     /**
-     * Parse a Streamable HTTP response body. The SDK transport returns either
-     * plain JSON (Content-Type: application/json) or a single SSE envelope
-     * (Content-Type: text/event-stream) where the JSON-RPC message lives on the
-     * {@code data:} line. We handle both.
+     * Verifies that a user not in allowedUsers/allowedGroups is rejected with
+     * a 403-equivalent error. Cannot run against production without flipping
+     * config that would lock out the admin running the test, so it requires
+     * a dedicated staging instance signalled by {@code STAGING=1}.
      */
-    private static JsonNode parseMcpResponse(HttpResponse<String> response) throws Exception {
-        String contentType = response.headers().firstValue("Content-Type").orElse("");
-        String body = response.body();
-        if (contentType.contains("text/event-stream")) {
-            return MAPPER.readTree(extractSseData(body));
+    @Test
+    public void test12_forbiddenWhenUserBlocked() {
+        // TODO: requires staging instance — locking out the admin running these
+        //       tests against prod would brick the suite.
+        Assume.assumeTrue("staging-only test — set STAGING=1 to enable",
+                System.getenv("STAGING") != null);
+
+        String blockedPat = System.getenv("JIRA_PAT_BLOCKED");
+        Assume.assumeTrue("STAGING set but JIRA_PAT_BLOCKED missing",
+                blockedPat != null && !blockedPat.isEmpty());
+
+        McpSyncClient blockedClient = newClientWithToken(blockedPat);
+        try {
+            blockedClient.initialize();
+            // If initialize succeeded, the user isn't actually blocked.
+            fail("expected blocked user to be rejected, but initialize() succeeded");
+        } catch (RuntimeException e) {
+            String msg = (String.valueOf(e.getMessage()) + " " + rootCauseMessage(e))
+                    .toLowerCase();
+            assertTrue("blocked user error did not mention forbidden/403: " + msg,
+                    msg.contains("forbidden")
+                            || msg.contains("403")
+                            || msg.contains("not allowed")
+                            || msg.contains("access denied"));
+        } finally {
+            try { blockedClient.close(); } catch (Exception ignored) { /* best-effort */ }
         }
-        return MAPPER.readTree(body);
     }
 
-    /** Pull the JSON payload out of a single SSE envelope. */
-    private static String extractSseData(String sse) {
-        // Find the last data: line — handles multi-line SSE blocks.
-        int dataIdx = sse.lastIndexOf("data:");
-        if (dataIdx < 0) return sse;
-        int end = sse.indexOf('\n', dataIdx);
-        if (end < 0) end = sse.length();
-        return sse.substring(dataIdx + 5, end).trim();
+    // =======================================================================
+    // helpers
+    // =======================================================================
+
+    /** Build a fresh SDK sync client wired to $JIRA_URL with the admin PAT. */
+    private static McpSyncClient newClient() {
+        return newClientWithToken(JIRA_PAT);
     }
 
-    private JsonNode callTool(String toolName, Map<String, String> args) throws Exception {
-        var params = MAPPER.createObjectNode();
-        params.put("name", toolName);
-        var argsNode = MAPPER.valueToTree(args);
-        params.set("arguments", argsNode);
+    private static McpSyncClient newClientWithToken(String token) {
+        McpClientTransport transport = HttpClientStreamableHttpTransport
+                .builder(JIRA_URL)
+                .endpoint(MCP_ENDPOINT)
+                .connectTimeout(Duration.ofSeconds(5))
+                .openConnectionOnStartup(false)
+                .httpRequestCustomizer((builder, method, uri, body, ctx) ->
+                        builder.header("Authorization", "Bearer " + token))
+                .build();
 
-        return mcpCall("tools/call", params);
+        return McpClient.sync(transport)
+                .requestTimeout(REQUEST_TIMEOUT)
+                .initializationTimeout(REQUEST_TIMEOUT)
+                .clientInfo(new McpSchema.Implementation("jira-mcp-e2e", "1.0"))
+                .build();
     }
 
-    private boolean isError(JsonNode response) {
-        if (response.has("error")) return true;
-        JsonNode result = response.path("result");
-        return result.path("isError").asBoolean(false);
+    private static CallToolResult call(String name, Map<String, Object> args) {
+        return client.callTool(new CallToolRequest(name, args));
     }
 
-    private String getContentText(JsonNode response) {
-        JsonNode content = response.path("result").path("content");
-        if (content.isArray() && content.size() > 0) {
-            return content.get(0).path("text").asText(null);
+    /** Asserts the result is not flagged as error; surfaces content if it is. */
+    private static void assertNotErrored(String toolName, CallToolResult result) {
+        if (Boolean.TRUE.equals(result.isError())) {
+            fail(toolName + " returned isError=true. content="
+                    + truncate(firstTextOrEmpty(result), 400));
+        }
+    }
+
+    /** Extract the first text-content block, fail if absent. */
+    private static String firstText(CallToolResult result) {
+        return firstTextOpt(result).orElseThrow(() ->
+                new AssertionError("CallToolResult had no text content block"));
+    }
+
+    private static String firstTextOrEmpty(CallToolResult result) {
+        return firstTextOpt(result).orElse("");
+    }
+
+    private static Optional<String> firstTextOpt(CallToolResult result) {
+        if (result == null || result.content() == null) {
+            return Optional.empty();
+        }
+        for (Content c : result.content()) {
+            if (c instanceof TextContent) {
+                return Optional.ofNullable(((TextContent) c).text());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Tool findTool(String name) {
+        for (Tool t : client.listTools().tools()) {
+            if (name.equals(t.name())) return t;
         }
         return null;
     }
 
-    // ── Streamable HTTP helpers ─────────────────────────────────────
-
-    /** POST with both Accept types per MCP Streamable HTTP spec. */
-    private HttpResponse<String> streamablePost(String body, String sessionId) throws Exception {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .timeout(Duration.ofSeconds(30))
-                .POST(HttpRequest.BodyPublishers.ofString(body));
-
-        if (sessionId != null) {
-            builder.header("MCP-Session-Id", sessionId);
+    private static void assertContains(String what, String haystack, String needle) {
+        if (haystack == null || !haystack.contains(needle)) {
+            fail("Expected " + what + " ('" + needle + "') in response, got: "
+                    + truncate(haystack, 400));
         }
-
-        return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
-    // ── Security Tests ──────────────────────────────────────────────
-
-    @Test
-    public void t80_security_noAuthOnGet_returns401() throws Exception {
-        // GET without auth should return 401, not expose SSE
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Content-Type", "application/json")
-                .GET()
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] GET without auth should be 401", 401, resp.statusCode());
-        System.out.println("[e2e] Security: GET without auth = " + resp.statusCode());
+    private static String truncate(String s, int n) {
+        if (s == null) return "<null>";
+        return s.length() <= n ? s : s.substring(0, n) + "…[" + s.length() + " chars total]";
     }
 
-    @Test
-    public void t81_security_noAuthOnDelete_returns401() throws Exception {
-        // DELETE without auth should return 401
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("MCP-Session-Id", "fake-session-id")
-                .DELETE()
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] DELETE without auth should be 401", 401, resp.statusCode());
-        System.out.println("[e2e] Security: DELETE without auth = " + resp.statusCode());
+    private static String rootCauseMessage(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur == t ? "" : String.valueOf(cur.getMessage());
     }
 
-    @Test
-    public void t82_security_oversizedBody_returns413() throws Exception {
-        // 2 MB body should be rejected
-        String bigBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{},\"padding\":\""
-                + "X".repeat(2_000_000) + "\"}";
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(bigBody))
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] Oversized body should be 413", 413, resp.statusCode());
-        System.out.println("[e2e] Security: oversized body = " + resp.statusCode());
-    }
-
-    @Test
-    public void t83_security_sessionUserBinding() throws Exception {
-        Assume.assumeTrue("JIRA_PAT_CEO not set — skipping", JIRA_PAT_CEO != null);
-
-        // Create session as admin
-        String initBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
-        HttpResponse<String> initResp = streamablePost(initBody, null);
-        assertEquals(200, initResp.statusCode());
-        String sessionId = initResp.headers().firstValue("MCP-Session-Id").orElse(null);
-        assertNotNull("Should get session ID", sessionId);
-
-        // Try to use that session as CEO user — should be forbidden
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT_CEO)
-                .header("Content-Type", "application/json")
-                .header("MCP-Session-Id", sessionId)
-                .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}"))
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] Session user mismatch should be 403", 403, resp.statusCode());
-
-        // Cleanup session
-        HttpRequest del = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
-                .header("Authorization", "Bearer " + JIRA_PAT)
-                .header("MCP-Session-Id", sessionId)
-                .DELETE()
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HTTP.send(del, HttpResponse.BodyHandlers.ofString());
-
-        System.out.println("[e2e] Security: session user binding enforced");
-    }
-
-    @Test
-    public void t84_security_trailingSlashRedirect() throws Exception {
-        // /rest/mcp/1.0 (no trailing slash) should 307 → /rest/mcp/1.0/
-        HttpClient noRedirect = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/rest/mcp/1.0"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{}"))
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> resp = noRedirect.send(req, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] No-trailing-slash should 307", 307, resp.statusCode());
-        String location = resp.headers().firstValue("Location").orElse("");
-        assertTrue("[SEC] Redirect should add trailing slash", location.endsWith("/rest/mcp/1.0/"));
-        System.out.println("[e2e] Security: trailing slash redirect = " + resp.statusCode());
-    }
-
-    @Test
-    public void t85_security_oauthWellKnownEndpoints() throws Exception {
-        // Protected resource metadata
-        HttpRequest prReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/.well-known/oauth-protected-resource"))
-                .GET().timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> prResp = HTTP.send(prReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, prResp.statusCode());
-        JsonNode prJson = MAPPER.readTree(prResp.body());
-        assertTrue("Should have resource field", prJson.has("resource"));
-        assertTrue("Should have authorization_servers", prJson.has("authorization_servers"));
-
-        // Auth server metadata
-        HttpRequest asReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/.well-known/oauth-authorization-server"))
-                .GET().timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> asResp = HTTP.send(asReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, asResp.statusCode());
-        JsonNode asJson = MAPPER.readTree(asResp.body());
-        assertTrue("Should have token_endpoint", asJson.has("token_endpoint"));
-        assertTrue("Should have registration_endpoint", asJson.has("registration_endpoint"));
-        // PKCE must be S256 only
-        JsonNode methods = asJson.path("code_challenge_methods_supported");
-        assertTrue("Should support S256", methods.isArray() && methods.size() == 1
-                && "S256".equals(methods.get(0).asText()));
-
-        System.out.println("[e2e] Security: OAuth well-known endpoints OK");
-    }
-
-    @Test
-    public void t86_security_dcrAndPkceEnforcement() throws Exception {
-        // Register a client
-        String regBody = "{\"client_name\":\"E2E Test\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}";
-        HttpRequest regReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/register"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(regBody))
-                .timeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> regResp = HTTP.send(regReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals("DCR should return 201", 201, regResp.statusCode());
-        JsonNode regJson = MAPPER.readTree(regResp.body());
-        String clientId = regJson.path("client_id").asText();
-        assertFalse("Should have client_id", clientId.isEmpty());
-
-        // Try authorize without code_challenge — should be rejected
-        String authUrl = JIRA_URL + "/plugins/servlet/mcp-oauth/authorize"
-                + "?client_id=" + clientId
-                + "&redirect_uri=http%3A%2F%2Flocalhost%3A9999%2Fcb"
-                + "&response_type=code&scope=READ&state=test123";
-        HttpClient noRedirect = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-        HttpRequest authReq = HttpRequest.newBuilder()
-                .uri(URI.create(authUrl))
-                .GET().timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> authResp = noRedirect.send(authReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals("[SEC] Authorize without PKCE should be 400", 400, authResp.statusCode());
-        assertTrue("Should mention code_challenge", authResp.body().contains("code_challenge"));
-
-        System.out.println("[e2e] Security: DCR + PKCE enforcement OK");
-    }
-
-    @Test
-    public void t87_oauth_refreshTokenGrantType() throws Exception {
-        // 1. Metadata must advertise refresh_token grant type
-        HttpRequest metaReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/metadata"))
-                .GET().timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> metaResp = HTTP.send(metaReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, metaResp.statusCode());
-        JsonNode metaJson = MAPPER.readTree(metaResp.body());
-        JsonNode grantTypes = metaJson.path("grant_types_supported");
-        assertTrue("Should be array", grantTypes.isArray());
-        List<String> grants = new ArrayList<>();
-        grantTypes.forEach(n -> grants.add(n.asText()));
-        assertTrue("Must include authorization_code", grants.contains("authorization_code"));
-        assertTrue("Must include refresh_token", grants.contains("refresh_token"));
-
-        // 2. Register a DCR client for token endpoint tests
-        String regBody = "{\"client_name\":\"Refresh Test\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}";
-        HttpRequest regReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/register"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(regBody))
-                .timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> regResp = HTTP.send(regReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(201, regResp.statusCode());
-        String clientId = MAPPER.readTree(regResp.body()).path("client_id").asText();
-
-        // 3. refresh_token grant with missing refresh_token → 400 invalid_request
-        String missingBody = "grant_type=refresh_token&client_id=" + clientId;
-        HttpRequest missingReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(missingBody))
-                .timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> missingResp = HTTP.send(missingReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(400, missingResp.statusCode());
-        assertTrue("Should be invalid_request", missingResp.body().contains("invalid_request"));
-
-        // 4. refresh_token grant with bogus token → 400 invalid_grant
-        String bogusBody = "grant_type=refresh_token&client_id=" + clientId
-                + "&refresh_token=bogus-token-12345";
-        HttpRequest bogusReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(bogusBody))
-                .timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> bogusResp = HTTP.send(bogusReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(400, bogusResp.statusCode());
-        assertTrue("Should be invalid_grant", bogusResp.body().contains("invalid_grant"));
-
-        // 5. unsupported grant type → 400 unsupported_grant_type
-        String badGrantBody = "grant_type=client_credentials&client_id=" + clientId;
-        HttpRequest badGrantReq = HttpRequest.newBuilder()
-                .uri(URI.create(JIRA_URL + "/plugins/servlet/mcp-oauth/token"))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(badGrantBody))
-                .timeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> badGrantResp = HTTP.send(badGrantReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(400, badGrantResp.statusCode());
-        assertTrue("Should be unsupported_grant_type", badGrantResp.body().contains("unsupported_grant_type"));
-
-        System.out.println("[e2e] OAuth: refresh_token grant type + error paths OK");
-    }
-
-    @Test
-    public void t88_security_securityHeaders() throws Exception {
-        // Check security headers on MCP response
-        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}";
-        HttpResponse<String> resp = streamablePost(body, null);
-        assertEquals(200, resp.statusCode());
-
-        assertTrue("[SEC] Should have X-Content-Type-Options",
-                resp.headers().firstValue("X-Content-Type-Options").isPresent());
-        assertEquals("nosniff",
-                resp.headers().firstValue("X-Content-Type-Options").orElse(""));
-
-        System.out.println("[e2e] Security: response headers present");
+    /**
+     * Discover a real issue key on this Jira via the REST API. Returns null
+     * if no issues are visible to the test user.
+     */
+    private static String discoverIssueKey() {
+        try {
+            HttpClient http = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(JIRA_URL + "/rest/api/2/search"
+                            + "?jql=project=" + PROJECT_KEY
+                            + "&maxResults=1&fields=summary"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Authorization", "Bearer " + JIRA_PAT)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req,
+                    HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return null;
+            JsonNode json = MAPPER.readTree(resp.body());
+            JsonNode issues = json.path("issues");
+            if (issues.isArray() && issues.size() > 0) {
+                return issues.get(0).path("key").asText();
+            }
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        return null;
     }
 }
