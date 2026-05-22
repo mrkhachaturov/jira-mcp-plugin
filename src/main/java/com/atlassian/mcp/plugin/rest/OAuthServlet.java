@@ -82,10 +82,7 @@ public class OAuthServlet extends HttpServlet {
         String ip = getClientIp(req);
 
         if (path.equals("/protected-resource") || path.equals("/protected-resource/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
-                sendRateLimited(resp);
-                return;
-            }
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
             addSecurityHeaders(resp);
             resp.setContentType("application/json");
             Map<String, Object> meta = new LinkedHashMap<>();
@@ -94,10 +91,7 @@ public class OAuthServlet extends HttpServlet {
             mapper.writeValue(resp.getWriter(), meta);
 
         } else if (path.equals("/metadata") || path.equals("/metadata/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-metadata", RATE_METADATA)) {
-                sendRateLimited(resp);
-                return;
-            }
+            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
             addSecurityHeaders(resp);
             resp.setContentType("application/json");
             if (!config.isOAuthEnabled()) {
@@ -119,10 +113,7 @@ public class OAuthServlet extends HttpServlet {
             mapper.writeValue(resp.getWriter(), meta);
 
         } else if (path.startsWith("/authorize")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-authorize", RATE_AUTHORIZE)) {
-                sendRateLimited(resp);
-                return;
-            }
+            if (!enforceRate(resp, ip, "oauth-authorize", RATE_AUTHORIZE)) return;
             handleAuthorize(req, resp);
 
         } else if (path.startsWith("/callback")) {
@@ -143,16 +134,14 @@ public class OAuthServlet extends HttpServlet {
         resp.setContentType("application/json");
 
         if (path.equals("/register") || path.equals("/register/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-register", RATE_REGISTER)) {
+            if (!enforceRate(resp, ip, "oauth-register", RATE_REGISTER)) {
                 log.warn("[MCP-SEC] Rate limit on /register from {}", ip);
-                sendRateLimited(resp);
                 return;
             }
             handleRegister(req, resp);
         } else if (path.equals("/token") || path.equals("/token/")) {
-            if (!rateLimiter.isAllowed(ip, "oauth-token", RATE_TOKEN)) {
+            if (!enforceRate(resp, ip, "oauth-token", RATE_TOKEN)) {
                 log.warn("[MCP-SEC] Rate limit on /token from {}", ip);
-                sendRateLimited(resp);
                 return;
             }
             handleToken(req, resp);
@@ -528,11 +517,26 @@ public class OAuthServlet extends HttpServlet {
         resp.setHeader("Cache-Control", "no-store");
     }
 
-    private static void sendRateLimited(HttpServletResponse resp) throws IOException {
-        resp.setStatus(429);
-        resp.setContentType("application/json");
-        resp.setHeader("Retry-After", "60");
-        resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+    /**
+     * Per-IP rate-limit gate that also emits the F-09 RateLimit-* response headers per
+     * draft-ietf-httpapi-ratelimit-headers-09. Sets {@code Retry-After} on 429 per RFC 9110.
+     * Returns {@code true} if the request may proceed.
+     */
+    private boolean enforceRate(HttpServletResponse resp, String ip, String endpoint, int maxPerMin)
+            throws IOException {
+        boolean allowed = rateLimiter.isAllowed(ip, endpoint, maxPerMin);
+        RateLimiter.Snapshot snap = rateLimiter.snapshot(ip, endpoint, maxPerMin);
+        resp.setHeader("RateLimit-Limit", Integer.toString(snap.limit));
+        resp.setHeader("RateLimit-Remaining", Integer.toString(snap.remaining));
+        resp.setHeader("RateLimit-Reset", Long.toString(snap.resetSeconds));
+        if (!allowed) {
+            resp.setStatus(429);
+            resp.setContentType("application/json");
+            resp.setHeader("Retry-After", Long.toString(Math.max(1L, snap.resetSeconds)));
+            resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+            return false;
+        }
+        return true;
     }
 
     /** Read up to maxBytes from stream. Returns null if exceeded. */

@@ -19,6 +19,23 @@ public class RateLimiter {
     private final AtomicLong currentBucket = new AtomicLong(System.currentTimeMillis() / BUCKET_MS);
 
     /**
+     * Snapshot of current rate-limit state for a given bucket key + endpoint, used to
+     * emit RateLimit-* response headers per
+     * <a href="https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/">draft-ietf-httpapi-ratelimit-headers-09</a>.
+     */
+    public static final class Snapshot {
+        public final int limit;
+        public final int remaining;
+        public final long resetSeconds;
+
+        public Snapshot(int limit, int remaining, long resetSeconds) {
+            this.limit = limit;
+            this.remaining = remaining;
+            this.resetSeconds = resetSeconds;
+        }
+    }
+
+    /**
      * Check if a request from the given IP to the given endpoint is allowed.
      *
      * @param ip         remote IP address
@@ -48,5 +65,30 @@ public class RateLimiter {
         String key = ip + ":" + endpoint;
         AtomicInteger counter = counters.computeIfAbsent(key, k -> new AtomicInteger(0));
         return counter.incrementAndGet() <= maxPerMin;
+    }
+
+    /**
+     * Read-only inspection of the current bucket state for the given key. Does NOT consume a slot.
+     * Intended for emitting RateLimit-* response headers after a successful consume.
+     *
+     * <p>The returned {@code resetSeconds} is the time (in seconds) until the current
+     * one-minute window rolls over. Remaining is {@code max(0, maxPerMin - used)} where
+     * {@code used} is the current counter value (clamped at {@code maxPerMin}).
+     */
+    public Snapshot snapshot(String ip, String endpoint, int maxPerMin) {
+        long now = System.currentTimeMillis();
+        long bucket = now / BUCKET_MS;
+        long resetSeconds = Math.max(0L, ((bucket + 1) * BUCKET_MS - now + 999) / 1000);
+
+        // If the bucket has rolled over since the last consume, snapshot reflects a fresh window.
+        if (bucket != currentBucket.get()) {
+            return new Snapshot(maxPerMin, maxPerMin, resetSeconds);
+        }
+
+        String key = ip + ":" + endpoint;
+        AtomicInteger counter = counters.get(key);
+        int used = counter == null ? 0 : counter.get();
+        int remaining = Math.max(0, maxPerMin - used);
+        return new Snapshot(maxPerMin, remaining, resetSeconds);
     }
 }
