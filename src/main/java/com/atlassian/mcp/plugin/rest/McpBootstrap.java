@@ -147,6 +147,12 @@ public class McpBootstrap {
             spec = spec.resources(resourceSpecs);
         }
 
+        // F-10: register parameterised resource templates (jira://issue/{issueKey}, ...).
+        var templateSpecs = resourceRegistry.toResourceTemplateSpecifications();
+        if (templateSpecs != null && !templateSpecs.isEmpty()) {
+            spec = spec.resourceTemplates(templateSpecs);
+        }
+
         // F-07: register completion handlers (project_key today; status / issue_type /
         // assignee deferred — see CompletionRegistry javadoc).
         var completionSpecs = completionRegistry.toSpecifications();
@@ -156,9 +162,10 @@ public class McpBootstrap {
 
         this.server = spec.build();
 
-        log.info("[MCP] SDK transport built ({} tools, {} resources, {} completions)",
+        log.info("[MCP] SDK transport built ({} tools, {} resources, {} resource templates, {} completions)",
                 toolRegistry.toSpecifications().size(),
                 resourceSpecs == null ? 0 : resourceSpecs.size(),
+                templateSpecs == null ? 0 : templateSpecs.size(),
                 completionSpecs == null ? 0 : completionSpecs.size());
 
         return transport;
