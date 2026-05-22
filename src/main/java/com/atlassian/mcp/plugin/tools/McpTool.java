@@ -121,6 +121,26 @@ public interface McpTool {
     }
 
     /**
+     * Optional per-tool icon (data URI or http URL). Null = client falls back
+     * to the server-level icon advertised in {@code Implementation.icons}.
+     * Per MCP spec {@code 2025-11-25} (SEP-973), the wire shape is
+     * {@code icons: [{ src, mimeType, sizes }]}; this method returns just the
+     * {@code src} string and the adapter infers the rest.
+     */
+    default String iconUri() {
+        return null;
+    }
+
+    /**
+     * Optional outputSchema describing the {@code structuredContent} payload
+     * the tool emits. Null = no schema advertised (clients can't validate
+     * structuredContent shape). Per MCP spec {@code 2025-11-25} (SEP-1330).
+     */
+    default Map<String, Object> outputSchema() {
+        return null;
+    }
+
+    /**
      * Optional structuredContent payload for the tool result. Called by the SDK
      * adapter after a successful {@code execute()} for tools that want to attach
      * a typed JSON object (e.g. for MCP Apps widget rendering). Return
