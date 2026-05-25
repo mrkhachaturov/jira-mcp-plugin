@@ -13,9 +13,10 @@ export interface Issue {
 }
 
 export interface Comment {
-  author: string
+  author: { name: string; displayName: string } | null
   body: string
   created: string
+  updated: string
 }
 
 export interface StructuredContent {
