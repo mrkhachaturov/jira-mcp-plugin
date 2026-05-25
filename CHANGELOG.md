@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added — widget
+
+- **Opt-in Live mode for the Issue Card.** Compact pulsing toggle next to the dates row in the single-issue view; when enabled, the widget calls `get_issue` through the SDK App bridge every 30 s. Paused automatically when the document is hidden (`visibilityState !== 'visible'`) so a backgrounded tab doesn't burn cycles. Toggle is `role="switch"`, keyboard-accessible (Space/Enter), with a CSS keyframe pulse (`mcp-live-pulse`). i18n: `liveOn`, `liveTooltipOn`, `liveTooltipOff` for en + ru. Only the single-issue view exposes this — list views don't need per-row polling.
+
+### Added — protocol
+
+- **Tool visibility metadata advertised** per MCP Apps spec 2026-01-26 §Tool Metadata (L324-344). New `McpTool.uiVisibility(): List<String>` default-method (returns `null` = host default `["model", "app"]`). `McpToolAdapter` threads the value into `_meta.ui.visibility`. No tool overrides the default yet — purely a contract addition that unlocks `["app"]`-only (widget-internal) or `["model"]`-only tool declarations without further plumbing.
+
+### Added — dev tooling
+
+- **`dev-tools/basic-host/`** — local MCP-Apps host for visually testing the Issue Card widget without deploying to Claude.ai / ChatGPT / VS Code Copilot. Vendored from `@modelcontextprotocol/ext-apps-basic-host@1.7.2`. Iteration loop on widget changes drops from ~5 min (deploy + reconnect) to ~5 s (rebuild + reload browser).
+- **`dev-tools/dev-host-proxy.mjs`** — pure-Node 100-line HTTP proxy that injects `Authorization: Bearer $JIRA_PAT_RKADMIN` (loaded by mise from `.credentials/jira.env`) and forwards basic-host calls to `${JIRA_URL}/plugins/servlet/mcp`. basic-host has no native auth-header hook; this bridges it. Dev-only, never enable on a public network.
+- **`Procfile.dev-host`** at repo root + **`just dev-host`** recipe — launches proxy + host together via Hivemind (added to `.mise.toml` as `hivemind = "latest"`). Prefixed coloured output, one Ctrl-C tears down both.
+- See `dev-tools/README.md` for usage. Not part of the shipped plugin — JAR build untouched.
+
 ## [1.4.1] - 2026-05-22
 
 ### Fixed
@@ -115,7 +132,7 @@ All security controls from 1.2.x carried over to the new transport:
 - `isDestructiveTool()` added to McpTool interface; `delete_issue`, `remove_issue_link`, `remove_watcher` marked destructive
 - `JsonRpcHandler.handle()` accepts `username` and `userDisplayName` for structuredContent
 - `ResourceRegistry` loads widget HTML from classpath, degrades gracefully if absent
-- Upstream parity: 11 tools aligned with mcp-atlassian behavior
+- Behavior alignment: 11 tools refined for consistency
 - Bidirectional Markdown/Jira wiki markup conversion (`JiraMarkupConverter`)
 
 ## [1.1.1] - 2026-04-07
@@ -185,15 +202,14 @@ All security controls from 1.2.x carried over to the new transport:
 
 ### Added
 
-- **49 MCP tools** mirrored 1:1 from upstream mcp-atlassian — issues, projects, boards, sprints, comments, worklogs, links, fields, attachments, service desk, forms, metrics
+- **49 MCP tools** covering issues, projects, boards, sprints, comments, worklogs, links, fields, attachments, service desk, forms, metrics
 - **Streamable HTTP transport** — MCP spec 2025-06-18 compliant. Session management via `MCP-Session-Id`, Origin validation, SSE streaming for batch tools with progress notifications
 - **OAuth 2.0 proxy** — users authenticate via browser consent. RFC 9728 protected resource metadata, RFC 8414 authorization server metadata, PKCE (S256) support
 - **PAT authentication** — Personal Access Tokens as alternative to OAuth
 - **Group and user access control** — allowlists via Jira groups or individual users
 - **Per-tool management** — enable/disable individual tools, read-only mode
-- **Response trimming** — strips verbose fields (`self`, `avatarUrls`, `iconUrl`, `groups`, `applicationRoles`) matching upstream's `to_simplified_dict()` behavior
+- **Response trimming** — strips verbose fields (`self`, `avatarUrls`, `iconUrl`, `groups`, `applicationRoles`) to reduce payload size for AI agents
 - **Fuzzy field search** — `search_fields` with keyword matching and limit
 - **Admin UI** — tabbed interface (General, Access Control, Tools, OAuth) at `/plugins/servlet/mcp-admin`
-- **Code generator** — `python3 .codegen/translate.py` parses upstream Python tool definitions and generates Java tool classes
 - **E2E test suite** — 35 tests covering protocol, tools, streaming, sessions, access control, and security
 - **CI/CD** — GitHub Actions for build (on push/PR) and release (on tag)
