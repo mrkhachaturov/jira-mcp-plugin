@@ -25,6 +25,10 @@ const messages: Record<string, Record<string, string>> = {
     assigning: 'Assigning…',
     assignFailed: 'Failed to assign.',
     collapse: '▾',
+    liveOn: 'Live',
+    liveOff: 'Live',
+    liveTooltipOn: 'Auto-refresh every 30s — click to pause',
+    liveTooltipOff: 'Click to auto-refresh every 30s',
   },
   ru: {
     loading: 'Загрузка…',
@@ -52,6 +56,10 @@ const messages: Record<string, Record<string, string>> = {
     assigning: 'Назначение…',
     assignFailed: 'Не удалось назначить.',
     collapse: '▾',
+    liveOn: 'Live',
+    liveOff: 'Live',
+    liveTooltipOn: 'Авто-обновление каждые 30с — нажмите для паузы',
+    liveTooltipOff: 'Нажмите для авто-обновления каждые 30с',
   },
 }
 

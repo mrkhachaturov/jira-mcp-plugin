@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { McpApp } from '@modelcontextprotocol/ext-apps'
 import type { Issue } from '../types'
 import { StatusBadge } from './status-badge'
@@ -33,9 +33,45 @@ function renderDescription(text: string): string {
   return marked.parse(text) as string
 }
 
+const LIVE_INTERVAL_MS = 30_000
+
 export function IssueDetail({ issue, baseUrl, app, currentUser, onRefresh, children }: IssueDetailProps) {
   const issueUrl = `${baseUrl.replace(/\/$/, '')}/browse/${issue.key}`
   const [assigning, setAssigning] = useState(false)
+  const [live, setLive] = useState(false)
+  const onRefreshRef = useRef(onRefresh)
+  onRefreshRef.current = onRefresh
+
+  // Live polling: 30s cadence, paused when document is hidden.
+  // No-op when `live` is false or no onRefresh callback exists.
+  useEffect(() => {
+    if (!live || !onRefreshRef.current) return
+    let timer: ReturnType<typeof setInterval> | null = null
+    const start = () => {
+      if (timer) return
+      timer = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          onRefreshRef.current?.()
+        }
+      }, LIVE_INTERVAL_MS)
+    }
+    const stop = () => {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') start()
+      else stop()
+    }
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [live])
 
   function handleOpenIssue() {
     if (app) app.openLink({ url: issueUrl })
@@ -155,10 +191,39 @@ export function IssueDetail({ issue, baseUrl, app, currentUser, onRefresh, child
         </div>
       </div>
 
-      {/* Dates */}
-      <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+      {/* Dates + Live toggle */}
+      <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '12px', alignItems: 'center' }}>
         <span>Created: {formatDate(issue.created)}</span>
         <span>{t('updated')}: {formatDate(issue.updated)}</span>
+        {onRefresh && (
+          <span
+            role="switch"
+            aria-checked={live}
+            tabIndex={0}
+            onClick={() => setLive(v => !v)}
+            onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLive(v => !v) } }}
+            title={live ? t('liveTooltipOn') : t('liveTooltipOff')}
+            style={{
+              marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+              color: live ? 'var(--accent)' : 'var(--text-secondary)',
+              userSelect: 'none',
+            }}
+          >
+            <span style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: live ? 'var(--accent)' : 'var(--text-secondary)',
+              opacity: live ? 1 : 0.5,
+              animation: live ? 'mcp-live-pulse 1.6s ease-in-out infinite' : 'none',
+            }} />
+            {t('liveOn')}
+          </span>
+        )}
       </div>
 
       {/* Description (rendered Markdown) */}
@@ -194,7 +259,7 @@ export function IssueDetail({ issue, baseUrl, app, currentUser, onRefresh, child
               marginBottom: '6px',
             }}>
               <div style={{ fontWeight: 600, marginBottom: '3px', color: 'var(--text)' }}>
-                {comment.author}
+                {comment.author ? comment.author.displayName : '—'}
                 <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: '8px' }}>
                   {formatDate(comment.created)}
                 </span>

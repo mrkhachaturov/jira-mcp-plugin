@@ -27,3 +27,8 @@ button {
 }
 button:hover { background: var(--border); }
 button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+
+@keyframes mcp-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.35); }
+}
