@@ -1,0 +1,5 @@
+# Synced content (mcp-docs/) is regenerable via `just wiki-sync` — do not commit.
+# Curated project/ content is hand-written and committed.
+*/
+!/.gitkeep
+!project/

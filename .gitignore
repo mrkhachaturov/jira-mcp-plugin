@@ -18,6 +18,7 @@ target/
 .rkstack/
 .mcp.json
 .worktrees/
+CLAUDE.local.md
 
 # OS
 .DS_Store
