@@ -70,12 +70,32 @@ run:
 debug:
     atlas-debug
 
-# Regenerate Java tool classes from upstream Python definitions
-[group('dev')]
-codegen:
-    python3 .codegen/translate.py
-
 # Widget dev server (hot reload)
 [group('dev')]
 dev-app:
     cd mcp-app && npm run dev
+
+# Refresh wiki/mcp-docs/ from the upstream MCP documentation repo
+[group('dev')]
+wiki-sync:
+    bash scripts/sync-mcp-docs.sh
+
+# Local MCP Apps test harness: vendored basic-host + auth proxy.
+# basic-host (port 8080) is a stripped-down MCP host that lists tools and
+# renders widget UIs in a sandboxed iframe (port 8081). The proxy on :3001
+# injects Authorization: Bearer $JIRA_PAT_RKADMIN (loaded by mise from
+# .credentials/jira.env) and forwards to $JIRA_URL/plugins/servlet/mcp.
+# Open http://localhost:8080, pick the jira-mcp-plugin server, choose a
+# UI-linked tool (get_issue, search, get_*_issues), supply JSON input, call.
+# See dev-tools/README.md for details.
+[group('dev')]
+dev-host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HARNESS_DIR=dev-tools/basic-host
+    if [ ! -d "$HARNESS_DIR/node_modules" ]; then
+      echo "[dev-host] installing basic-host deps (one-time, ~150 MB)..."
+      npm --prefix "$HARNESS_DIR" install
+    fi
+    echo "[dev-host] launching proxy + basic-host via hivemind"
+    mise exec -- hivemind Procfile.dev-host

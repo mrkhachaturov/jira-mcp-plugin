@@ -1,0 +1,2 @@
+proxy: node dev-tools/dev-host-proxy.mjs
+host: cd dev-tools/basic-host && SERVERS='["http://localhost:3001/mcp"]' npm start
