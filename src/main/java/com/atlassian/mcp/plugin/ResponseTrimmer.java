@@ -10,20 +10,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Transforms Jira REST API JSON responses to match the upstream mcp-atlassian
- * Python project's to_simplified_dict() output format.
- *
- * The upstream uses Pydantic models with whitelist-based serialization
- * (model_dump(exclude_none=True)). Since our plugin receives raw Jira JSON
- * and doesn't have Pydantic models, we approximate by:
- *   1. Recursively stripping fields the upstream models never include
- *      (self links, avatar URLs, icon URLs, expand metadata)
- *   2. Stripping top-level response metadata the upstream never returns
- *      (renderedFields, editmeta, changelog, operations, names, schema)
- *   3. Simplifying nested objects the way upstream does (e.g., extracting
- *      "name" from {id, name, self, description, iconUrl} objects)
- *
- * This mirrors upstream behavior while working with raw JSON.
+ * Trims Jira REST API JSON responses to reduce payload size for AI agents:
+ *   1. Recursively strips fields agents don't need (avatar URLs, icon URLs,
+ *      expand metadata, group/role containers).
+ *   2. Strips top-level response metadata (renderedFields, editmeta,
+ *      changelog, operations, names, schema).
+ *   3. Simplifies nested objects (e.g. extracts "name" from
+ *      {id, name, self, description, iconUrl} objects).
  */
 public final class ResponseTrimmer {
 
@@ -33,27 +26,25 @@ public final class ResponseTrimmer {
 
     /**
      * Fields to remove recursively from ALL JSON objects.
-     * Upstream Pydantic models never serialize these.
      *
-     * Note: "self" is kept — upstream JiraIssueLinkType includes it, and
-     * JiraUser converts it to "avatar_url" (the 48x48 URL). Removing "self"
-     * globally breaks link type and user responses. Individual avatar dimension
-     * keys (48x48 etc.) inside "avatarUrls" are stripped along with the
-     * "avatarUrls" container itself.
+     * Note: "self" is kept — JiraIssueLinkType responses need it, and the
+     * 48x48 avatar URL is converted to "avatar_url" for user objects. Removing
+     * "self" globally would break link type and user responses. Individual
+     * avatar dimension keys (48x48 etc.) inside "avatarUrls" are stripped along
+     * with the "avatarUrls" container itself.
      */
     private static final Set<String> STRIP_RECURSIVE = Set.of(
             "avatarUrls",
             "iconUrl",
             "expand",
             "48x48", "32x32", "24x24", "16x16",
-            // Empty container fields — upstream models never include these
+            // Empty container fields agents never need
             "applicationRoles",
             "groups"
     );
 
     /**
      * Top-level fields to remove from issue/search responses.
-     * Upstream's to_simplified_dict() never includes these.
      */
     private static final Set<String> STRIP_TOP_LEVEL = Set.of(
             "renderedFields",
@@ -65,8 +56,7 @@ public final class ResponseTrimmer {
     );
 
     /**
-     * Fields in the upstream JiraIssue model that get renamed.
-     * Upstream: issuetype → issue_type, fixVersions → fix_versions, etc.
+     * Field renames applied to issue payloads for naming consistency.
      */
     private static final Map<String, String> RENAME_FIELDS = Map.of(
             "issuetype", "issue_type",
@@ -75,8 +65,7 @@ public final class ResponseTrimmer {
 
     /**
      * Text fields that contain Jira wiki markup and should be converted
-     * to Markdown for AI agent consumption. Mirrors upstream's
-     * jira_to_markdown() preprocessing.
+     * to Markdown for AI agent consumption.
      */
     private static final Set<String> WIKI_MARKUP_FIELDS = Set.of(
             "description",
@@ -85,7 +74,7 @@ public final class ResponseTrimmer {
     );
 
     /**
-     * Trim a JSON response string to match upstream's simplified output.
+     * Trim a JSON response string to the simplified output shape.
      * Returns the original string unchanged if it's not valid JSON.
      */
     public static String trim(String json) {
@@ -114,7 +103,7 @@ public final class ResponseTrimmer {
                 }
             }
 
-            // Rename fields to match upstream model naming
+            // Apply field renames
             for (var entry : RENAME_FIELDS.entrySet()) {
                 JsonNode val = obj.remove(entry.getKey());
                 if (val != null) {

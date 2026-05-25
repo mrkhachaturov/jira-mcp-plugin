@@ -10,10 +10,7 @@ import java.util.regex.Pattern;
 /**
  * Bidirectional converter between Jira wiki markup and Markdown.
  * <p>
- * Ported from upstream mcp-atlassian's {@code JiraPreprocessor} in
- * {@code preprocessing/jira.py}. Uses the same regex-based approach with
- * code-block protection (extract → transform → restore).
- * <p>
+ * Regex-based approach with code-block protection (extract → transform → restore).
  * Both methods are null/blank-safe and idempotent on non-markup input.
  */
 public final class JiraMarkupConverter {
@@ -21,7 +18,6 @@ public final class JiraMarkupConverter {
     private JiraMarkupConverter() {}
 
     // ── Valid Jira code block languages ──────────────────────────────────
-    // Source: upstream VALID_JIRA_LANGUAGES set
     private static final Set<String> VALID_JIRA_LANGUAGES = Set.of(
             "actionscript", "actionscript3", "ada", "applescript",
             "bash", "sh", "c", "c#", "csharp", "cs", "c++", "cpp",

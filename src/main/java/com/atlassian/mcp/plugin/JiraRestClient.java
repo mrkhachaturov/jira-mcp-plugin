@@ -82,7 +82,6 @@ public class JiraRestClient {
                 throw new McpToolException(
                         "Jira API returned HTTP " + response.statusCode() + ": " + response.body());
             }
-            // Trim response to match upstream mcp-atlassian's to_simplified_dict() output
             return ResponseTrimmer.trim(response.body());
         } catch (IOException e) {
             throw new McpToolException("Failed to connect to Jira REST API: " + e.getMessage(), e);

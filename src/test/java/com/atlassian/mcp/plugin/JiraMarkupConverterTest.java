@@ -5,8 +5,6 @@ import org.junit.Test;
 
 /**
  * Unit tests for JiraMarkupConverter — both jiraToMarkdown() and markdownToJira().
- * Each conversion direction is tested against the upstream mcp-atlassian Python
- * implementation's expected behavior.
  */
 public class JiraMarkupConverterTest {
 
@@ -131,7 +129,7 @@ public class JiraMarkupConverterTest {
 
     @Test
     public void jiraToMd_blockQuote() {
-        // Upstream captures the space after "bq." so output is ">  text"
+        // The space after "bq." is preserved, so output is ">  text"
         String md = JiraMarkupConverter.jiraToMarkdown("bq. This is a quote");
         assertTrue(md.contains(">  This is a quote"));
     }

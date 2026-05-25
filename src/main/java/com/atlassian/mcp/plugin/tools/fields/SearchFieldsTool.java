@@ -10,8 +10,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Mirrors upstream mcp-atlassian search_fields: fuzzy keyword matching + limit.
- * Upstream uses fuzzywuzzy partial_ratio; we approximate with substring + prefix scoring.
+ * search_fields: fuzzy keyword matching + limit. Uses substring + prefix scoring.
  */
 public class SearchFieldsTool implements McpTool {
     private final JiraRestClient client;
@@ -80,7 +79,7 @@ public class SearchFieldsTool implements McpTool {
 
     /**
      * Score a field against a keyword. Higher = better match.
-     * Checks id, key, name, and clauseNames — same candidates as upstream.
+     * Checks id, key, name, and clauseNames.
      */
     private static int similarity(String needle, Map<String, Object> field) {
         int best = 0;
@@ -99,7 +98,6 @@ public class SearchFieldsTool implements McpTool {
 
     /**
      * Simple fuzzy score: exact match > starts with > contains > no match.
-     * Approximates fuzzywuzzy partial_ratio behavior.
      */
     private static int score(String needle, String candidate) {
         if (candidate.isEmpty()) return 0;

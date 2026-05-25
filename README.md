@@ -18,7 +18,7 @@
 |---|-------|---------|
 | 🔌 | Plugin | Single JAR, installed via UPM, runs inside the Jira JVM |
 | 🔐 | Auth | OAuth 2.0 (browser consent) + Personal Access Tokens |
-| 🛠️ | Tools | 49 tools mirrored 1:1 from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) upstream |
+| 🛠️ | Tools | 49 tools covering issues, projects, boards, sprints, comments, worklogs, links, fields, attachments, service desk, forms, and metrics |
 | 📡 | Transport | Streamable HTTP (MCP spec 2025-11-25) with SSE progress streaming |
 | 🎨 | MCP Apps | Interactive Issue Card widget with transitions, comments, and assign (Claude Desktop, ChatGPT, VS Code) |
 
@@ -296,11 +296,11 @@ Access via Jira Admin > MCP Server > MCP Configuration.
 
 ## ✂️ Response trimming
 
-Jira's REST API returns a lot of data that AI agents don't need: avatar URLs, self links, icon URLs, empty group containers. The plugin strips these before returning results, matching the upstream mcp-atlassian's `to_simplified_dict()` behavior.
+Jira's REST API returns a lot of data that AI agents don't need: avatar URLs, self links, icon URLs, empty group containers. The plugin strips these before returning results.
 
 Fields stripped recursively: `self`, `avatarUrls`, `iconUrl`, `expand`, `groups`, `applicationRoles`
 
-Fields renamed to match upstream: `issuetype` to `issue_type`, `fixVersions` to `fix_versions`
+Fields renamed for consistency: `issuetype` to `issue_type`, `fixVersions` to `fix_versions`
 
 ---
 
@@ -328,7 +328,6 @@ just deploy-and-test
 # 📋 Or step by step
 just deploy              # build + upload to Jira UPM
 just e2e                 # run e2e tests against live Jira
-just codegen             # regenerate tools from upstream Python definitions
 ```
 
 ---
@@ -349,10 +348,6 @@ graph LR
 Development uses `1.0.0-SNAPSHOT` in pom.xml. When you push a tag like `v1.0.0`, GitHub Actions strips the SNAPSHOT suffix and builds a clean release JAR. The CHANGELOG.md entry for that version is included in the release notes.
 
 ---
-
-## 🙏 Credits
-
-Tool definitions are mirrored from [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) by [@sooperset](https://github.com/sooperset). That project is a Python-based MCP server for Atlassian products. This plugin re-implements the same 49 tools as a native Jira plugin so you don't need an external process.
 
 ## 📄 License
 
