@@ -102,6 +102,12 @@ public final class McpToolAdapter {
             Map<String, Object> meta = new HashMap<>();
             Map<String, Object> uiBlock = new HashMap<>();
             uiBlock.put("resourceUri", uiUri);
+            // MCP Apps 2026-01-26 spec §Tool Metadata (L324-344): optional visibility array.
+            // Null = omit field, host treats as ["model", "app"] (default per spec L328).
+            java.util.List<String> visibility = tool.uiVisibility();
+            if (visibility != null && !visibility.isEmpty()) {
+                uiBlock.put("visibility", visibility);
+            }
             meta.put("ui", uiBlock);
             meta.put("openai/widgetResource", uiUri);
             meta.put("openai/outputTemplate", uiUri);

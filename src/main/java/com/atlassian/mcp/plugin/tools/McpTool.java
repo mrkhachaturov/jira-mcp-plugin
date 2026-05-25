@@ -7,7 +7,7 @@ import java.util.Map;
 
 public interface McpTool {
 
-    /** Tool name matching upstream mcp-atlassian. */
+    /** Tool name (snake_case). */
     String name();
 
     /** Human-readable description. */
@@ -117,6 +117,23 @@ public interface McpTool {
      * the tool has no UI binding.
      */
     default String uiResourceUri() {
+        return null;
+    }
+
+    /**
+     * Optional MCP Apps tool visibility per {@code 2026-01-26} spec §Tool Metadata
+     * (L324-344). Values: {@code "model"} (callable by the agent), {@code "app"}
+     * (callable from a widget only). Return {@code null} (default) to omit the
+     * field — host treats this as {@code ["model", "app"]}.
+     *
+     * <p>Use cases:
+     * <ul>
+     *   <li>App-only helper tools (e.g. an internal "refresh" endpoint a widget
+     *       calls but the model should never invoke) → return {@code ["app"]}.</li>
+     *   <li>Tools we never want exposed to widgets → return {@code ["model"]}.</li>
+     * </ul>
+     */
+    default java.util.List<String> uiVisibility() {
         return null;
     }
 
