@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-05-31
+
 ### Fixed — auth / spec compliance
 
 - **Unauthenticated MCP requests now return a spec-compliant `401`, not a `302` login redirect.** On a login-required instance, Seraph intercepted the anonymous `POST /plugins/servlet/mcp` and 302-redirected it to the HTML login page *before* `AccessControlFilter` could run — so the RFC 9728 `401 + WWW-Authenticate: Bearer … resource_metadata=…` challenge that MCP clients need for OAuth discovery was dead code for anonymous callers. All six MCP servlet-filters (`BodySizeLimitFilter`, `RateLimitFilter`, `AccessControlFilter`, `SessionBindingFilter`, `SecurityHeadersFilter`, `McpTransportFilter`) now carry `@UnrestrictedAccess`, which exempts the path from the login *redirect* while still authenticating any presented token. Anonymous becomes *reachable* (the chain emits the 401 challenge) but never *authorized* — `AccessControlFilter` still returns 401 when the principal is null.
