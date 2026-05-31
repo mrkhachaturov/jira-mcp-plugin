@@ -1,13 +1,7 @@
+min_version = "2026.5.15"
+
 [tools]
 just = "latest"
 java = "temurin-21"
 maven = "3.9"
-# Process manager for `just dev-host` — runs the basic-host harness and the
-# auth proxy together with prefixed output and proper signal handling.
-# See Procfile.dev-host.
 hivemind = "latest"
-
-[env]
-_.file = [
-    { path = ".credentials/jira.env", redact = true },
-]

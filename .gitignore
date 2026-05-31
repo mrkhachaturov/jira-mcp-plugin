@@ -20,6 +20,10 @@ target/
 .worktrees/
 CLAUDE.local.md
 
+# mise — personal overrides (env file paths, machine-specific tools)
+mise.local.toml
+.mise.local.toml
+
 # OS
 .DS_Store
 Thumbs.db
