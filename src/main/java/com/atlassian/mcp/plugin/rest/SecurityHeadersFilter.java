@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import jakarta.inject.Named;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -10,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 /** Adds security headers to every MCP response. */
+@UnrestrictedAccess
 @Named("mcpSecurityHeadersFilter")
 public class SecurityHeadersFilter implements Filter {
 

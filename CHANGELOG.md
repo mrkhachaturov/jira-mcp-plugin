@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed — auth / spec compliance
+
+- **Unauthenticated MCP requests now return a spec-compliant `401`, not a `302` login redirect.** On a login-required instance, Seraph intercepted the anonymous `POST /plugins/servlet/mcp` and 302-redirected it to the HTML login page *before* `AccessControlFilter` could run — so the RFC 9728 `401 + WWW-Authenticate: Bearer … resource_metadata=…` challenge that MCP clients need for OAuth discovery was dead code for anonymous callers. All six MCP servlet-filters (`BodySizeLimitFilter`, `RateLimitFilter`, `AccessControlFilter`, `SessionBindingFilter`, `SecurityHeadersFilter`, `McpTransportFilter`) now carry `@UnrestrictedAccess`, which exempts the path from the login *redirect* while still authenticating any presented token. Anonymous becomes *reachable* (the chain emits the 401 challenge) but never *authorized* — `AccessControlFilter` still returns 401 when the principal is null.
+- **Discovery now advertises only the registered `WRITE` scope.** The `WWW-Authenticate` challenge and every OAuth/OIDC discovery document advertised `scope="read write"` / `["WRITE","READ"]` / `["read","write"]`, but the Jira "MCP" Application Link registers a single `Write` right (which already grants read). Advertising a separately-requestable `read` scope makes clients request a token the OAuth provider can reject with `invalid_scope`. The 401 challenge (`AccessControlFilter`), `/metadata`, `/openid-configuration`, and both `/.well-known/*` documents now advertise exactly `WRITE`.
+- **`.well-known/oauth-authorization-server` brought to parity with `/metadata`** — now advertises `refresh_token` in `grant_types_supported` and `client_id_metadata_document_supported: true`. The anonymous filter also serves `/.well-known/openid-configuration` (previously only the servlet path was reachable).
+- **Read-only mode / disabled-tool toggles take effect at call time without a plugin reload.** The SDK sync server freezes its tool list at filter `init()`, so admin toggles of `readOnlyMode` / `disabledTools` only applied to `tools/list`, not `tools/call`. `McpToolAdapter.dispatch` now re-checks `McpPluginConfig` per call and returns an error result for a disabled tool or a write tool in read-only mode.
+
+### Hardened — security
+
+- **CIMD fetch now has an SSRF address guard.** The CIMD `client_id` is an attacker-supplied HTTPS URL fetched server-side from the **unauthenticated** `/authorize` request. [CimdValidator](src/main/java/com/atlassian/mcp/plugin/rest/oauth/CimdValidator.java) already enforced HTTPS-only + no-redirects + 8 KB cap + timeouts; it now also **resolves the host and rejects loopback / link-local / RFC-1918 private / CGNAT / unique-local / `169.254.169.254` cloud-metadata** addresses *before* the fetch. This blocks the obvious SSRF vectors (internal IPs, localhost services, cloud metadata). Residual DNS-rebinding risk is accepted (the `/authorize` entry point is rate-limited; full closure needs connection-level IP pinning).
+- **CIMD `redirect_uri` matching hardened.** Replaced naive `startsWith("http://localhost")` (which accepted `http://localhost.evil.example/…`) with `URI`-parsed **host-exact** matching; embedded-credential URIs (`http://user@localhost/…`) are rejected. Added **negative caching** (5 min) so a repeatedly-failing CIMD URL can't be replayed to hammer the resolver.
+- **Body-size cap enforced on actual bytes, not `Content-Length`.** [BodySizeLimitFilter](src/main/java/com/atlassian/mcp/plugin/rest/BodySizeLimitFilter.java) previously trusted the `Content-Length` header, so a chunked / unknown-length / under-declared request slipped an oversized body past the 1 MiB gate. It now drains the stream up to the cap and returns 413 on overflow, re-wrapping the read bytes so the SDK transport still reads the body intact.
+
+### Added — tests
+
+- Unit: `CimdValidatorTest` — blocked-address rejection (localhost, `169.254.169.254`), host-exact `redirect_uri` matching, bounded cache.
+- e2e regression guards: unauthenticated → `401` + `WWW-Authenticate` (no login-redirect HTML); invalid PAT → `401`; every discovery document advertises exactly `["WRITE"]` and a non-empty `issuer`; oversized body (fixed-length, chunked, and unknown-length) → `413`; CIMD `client_id` resolving to an internal address → `400 invalid_client`.
+
 ### Added — widget
 
 - **Opt-in Live mode for the Issue Card.** Compact pulsing toggle next to the dates row in the single-issue view; when enabled, the widget calls `get_issue` through the SDK App bridge every 30 s. Paused automatically when the document is hidden (`visibilityState !== 'visible'`) so a backgrounded tab doesn't burn cycles. Toggle is `role="switch"`, keyboard-accessible (Space/Enter), with a CSS keyframe pulse (`mcp-live-pulse`). i18n: `liveOn`, `liveTooltipOn`, `liveTooltipOff` for en + ru. Only the single-issue view exposes this — list views don't need per-row polling.

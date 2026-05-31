@@ -161,7 +161,11 @@ public class OAuthServlet extends HttpServlet {
         meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
         meta.put("token_endpoint_auth_methods_supported", List.of("none"));
         meta.put("code_challenge_methods_supported", List.of("S256"));
-        meta.put("scopes_supported", List.of("WRITE", "READ"));
+        // Advertise only the scope registered on the Jira "MCP" Application Link (WRITE — which
+        // already grants read). The OAuth provider validates the requested scope against the
+        // registered set, so advertising an unregistered "READ" leads clients to request a scope
+        // that gets rejected.
+        meta.put("scopes_supported", List.of("WRITE"));
         // SEP-991: advertise CIMD support so clients prefer it over DCR.
         meta.put("client_id_metadata_document_supported", true);
         return meta;
@@ -186,7 +190,7 @@ public class OAuthServlet extends HttpServlet {
         meta.put("code_challenge_methods_supported", List.of("S256"));
         meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
         meta.put("token_endpoint_auth_methods_supported", List.of("none"));
-        meta.put("scopes_supported", List.of("read", "write"));
+        meta.put("scopes_supported", List.of("WRITE"));
         // SEP-991: advertise CIMD support (forward-compat hint — OIDC has no standard key yet,
         // we mirror the OAuth Authorization Server Metadata field).
         meta.put("client_id_metadata_document_supported", true);

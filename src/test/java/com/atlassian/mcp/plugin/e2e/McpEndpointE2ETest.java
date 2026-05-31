@@ -562,9 +562,263 @@ public class McpEndpointE2ETest {
                 meta.containsKey("openai/widgetDescription"));
     }
 
+    // ========================================================================
+    // 15 — Unauthenticated POST returns a spec-compliant 401, not a login redirect
+    // ========================================================================
+
+    /**
+     * On a login-required instance Seraph 302-redirects any path not exempt from login
+     * enforcement. The MCP authorization spec (RFC 9728 discovery) requires a
+     * {@code 401 + WWW-Authenticate} so a non-browser MCP client can discover the OAuth flow.
+     * This guards the {@code @UnrestrictedAccess} annotation on the six MCP filters: without it
+     * the anonymous request is 302'd before {@code AccessControlFilter} can emit the 401.
+     */
+    @Test
+    public void test15_unauthenticatedReturns401NotLoginRedirect() throws Exception {
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}"))
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals("unauthenticated POST must be 401, not a 302 login redirect",
+                401, resp.statusCode());
+        String wwwAuth = resp.headers().firstValue("WWW-Authenticate").orElse("");
+        assertFalse("401 must carry WWW-Authenticate", wwwAuth.isEmpty());
+        // The advertised scope must be exactly the token registered on the Jira "MCP" Application
+        // Link (WRITE, which already grants read). Advertising "read write" makes clients request
+        // a separate "read" token the OAuth provider can reject with invalid_scope.
+        assertTrue("WWW-Authenticate must advertise scope=\"WRITE\", was: " + wwwAuth,
+                wwwAuth.contains("scope=\"WRITE\""));
+        assertFalse("WWW-Authenticate must not advertise the unregistered 'read' scope, was: "
+                        + wwwAuth,
+                wwwAuth.toLowerCase().contains("read"));
+        assertFalse("must not be a login redirect HTML page",
+                resp.body().toLowerCase().contains("<html"));
+    }
+
+    // ========================================================================
+    // 16 — Invalid PAT also returns 401, not a login redirect
+    // ========================================================================
+
+    @Test
+    public void test16_invalidPatReturns401NotLoginRedirect() throws Exception {
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer not-a-real-pat-token")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}"))
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals("invalid-PAT POST must be 401, not a 302 login redirect",
+                401, resp.statusCode());
+        String wwwAuth = resp.headers().firstValue("WWW-Authenticate").orElse("");
+        assertFalse("401 must carry WWW-Authenticate", wwwAuth.isEmpty());
+        assertTrue("WWW-Authenticate must advertise scope=\"WRITE\", was: " + wwwAuth,
+                wwwAuth.contains("scope=\"WRITE\""));
+        assertFalse("WWW-Authenticate must not advertise the unregistered 'read' scope, was: "
+                        + wwwAuth,
+                wwwAuth.toLowerCase().contains("read"));
+        assertFalse("must not be a login redirect HTML page",
+                resp.body().toLowerCase().contains("<html"));
+    }
+
+    // ========================================================================
+    // 17 — Every discovery document advertises exactly the registered WRITE scope
+    // ========================================================================
+
+    /**
+     * Every OAuth/OIDC discovery document must advertise exactly the scope registered on the
+     * Jira "MCP" Application Link — only {@code WRITE} (which already grants read). Advertising
+     * {@code READ} as a separately requestable scope makes MCP clients request a token the OAuth
+     * provider can reject with {@code invalid_scope}. Regression guard for the bug where the
+     * consent flow advertised {@code ["WRITE","READ"]} / {@code scope="read write"} against a
+     * WRITE-only Application Link.
+     */
+    @Test
+    public void test17_discoveryAdvertisesOnlyRegisteredWriteScope() throws Exception {
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        for (String path : List.of(
+                "/plugins/servlet/mcp-oauth/metadata",
+                "/.well-known/oauth-authorization-server",
+                "/.well-known/openid-configuration",
+                "/plugins/servlet/mcp-oauth/openid-configuration")) {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(JIRA_URL + path))
+                    .timeout(REQUEST_TIMEOUT)
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(path + " must return 200", 200, resp.statusCode());
+
+            JsonNode doc = MAPPER.readTree(resp.body());
+            // Every discovery document must carry a non-empty issuer (RFC 8414 / OIDC Discovery).
+            assertTrue(path + " must advertise a non-empty issuer, body=" + truncate(resp.body(), 300),
+                    doc.path("issuer").isTextual() && !doc.path("issuer").asText().isEmpty());
+
+            JsonNode scopes = doc.path("scopes_supported");
+            assertTrue(path + " must advertise scopes_supported, body=" + truncate(resp.body(), 300),
+                    scopes.isArray());
+            assertEquals(path + " must advertise exactly one scope, was: " + scopes,
+                    1, scopes.size());
+            assertEquals(path + " must advertise only the registered WRITE scope, was: " + scopes,
+                    "WRITE", scopes.get(0).asText());
+        }
+    }
+
+    // ========================================================================
+    // 18 — Oversized fixed-length body rejected with 413
+    // ========================================================================
+
+    /**
+     * The body cap (1 MiB) must be enforced on the actual bytes, not a trusted
+     * {@code Content-Length}. This is the fixed-length fast path.
+     */
+    @Test
+    public void test18_oversizedFixedLengthBodyReturns413() throws Exception {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(oversizedJson()))
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("oversized fixed-length body must be rejected with 413",
+                413, resp.statusCode());
+    }
+
+    // ========================================================================
+    // 19 — Oversized chunked body (no Content-Length) rejected with 413
+    // ========================================================================
+
+    /** Guards the bypass where omitting Content-Length (chunked) slips an oversized body past. */
+    @Test
+    public void test19_oversizedChunkedBodyReturns413() throws Exception {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT)
+                .header("Content-Type", "application/json")
+                .POST(streamingOversizedPublisher())
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("oversized chunked body must be rejected with 413",
+                413, resp.statusCode());
+    }
+
+    // ========================================================================
+    // 20 — Oversized unknown-length (InputStream) body rejected with 413
+    // ========================================================================
+
+    @Test
+    public void test20_oversizedNoContentLengthBodyReturns413() throws Exception {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        byte[] payload = oversizedJson().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+                .header("Authorization", "Bearer " + JIRA_PAT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofInputStream(
+                        () -> new java.io.ByteArrayInputStream(payload)))
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals("oversized no-Content-Length body must be rejected with 413",
+                413, resp.statusCode());
+    }
+
+    // ========================================================================
+    // 21 — CIMD SSRF: client_id resolving to an internal address is rejected
+    // ========================================================================
+
+    /**
+     * The CIMD {@code client_id} URL is fetched server-side from an unauthenticated
+     * {@code /authorize} request, so a URL whose host resolves to loopback / private /
+     * cloud-metadata space must be rejected (SSRF) with {@code invalid_client}, not fetched.
+     */
+    @Test
+    public void test21_cimdSsrfAuthorizeReturnsInvalidClient() throws Exception {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        for (String host : List.of("localhost", "10.0.0.1", "169.254.169.254")) {
+            String clientId = "https://" + host + "/.well-known/oauth-client";
+            String url = JIRA_URL + "/plugins/servlet/mcp-oauth/authorize"
+                    + "?client_id=" + enc(clientId)
+                    + "&redirect_uri=" + enc("http://localhost:9999/cb")
+                    + "&response_type=code"
+                    + "&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+                    + "&code_challenge_method=S256"
+                    + "&state=xyz";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(REQUEST_TIMEOUT)
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals("CIMD SSRF to " + host + " must be rejected with 400",
+                    400, resp.statusCode());
+            assertTrue("CIMD SSRF to " + host + " must be invalid_client, body=" + resp.body(),
+                    resp.body().contains("invalid_client"));
+        }
+    }
+
     // =======================================================================
     // helpers
     // =======================================================================
+
+    private static String enc(String s) {
+        return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** A JSON document well over the 1 MiB body cap. */
+    private static String oversizedJson() {
+        int padLen = 1_200_000;
+        StringBuilder sb = new StringBuilder(padLen + 64);
+        sb.append("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"x\":\"");
+        for (int i = 0; i < padLen; i++) sb.append('a');
+        sb.append("\"}}");
+        return sb.toString();
+    }
+
+    /**
+     * Streaming publisher with unknown length → chunked transfer encoding (no
+     * Content-Length header), emitting more than the 1 MiB cap.
+     */
+    private static HttpRequest.BodyPublisher streamingOversizedPublisher() {
+        return HttpRequest.BodyPublishers.ofByteArrays(() -> new java.util.Iterator<byte[]>() {
+            int remaining = 1_300_000;
+            final byte[] chunk = new byte[16_384];
+            { java.util.Arrays.fill(chunk, (byte) 'a'); }
+
+            @Override public boolean hasNext() { return remaining > 0; }
+
+            @Override public byte[] next() {
+                int n = Math.min(chunk.length, remaining);
+                remaining -= n;
+                if (n == chunk.length) return chunk;
+                byte[] tail = new byte[n];
+                java.util.Arrays.fill(tail, (byte) 'a');
+                return tail;
+            }
+        });
+    }
 
     /** Build a fresh SDK sync client wired to $JIRA_URL with the admin PAT. */
     private static McpSyncClient newClient() {

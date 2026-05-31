@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
@@ -28,6 +29,7 @@ import org.slf4j.LoggerFactory;
  * <p>Captures the session id from the {@code initialize} response and binds it
  * to the authenticated Jira user. DELETE removes the binding on success.
  */
+@UnrestrictedAccess
 @Named("mcpSessionBindingFilter")
 public class SessionBindingFilter implements Filter {
 

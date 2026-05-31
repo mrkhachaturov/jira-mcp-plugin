@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.crowd.embedded.api.Group;
 import com.atlassian.jira.security.groups.GroupManager;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
@@ -35,6 +36,7 @@ import org.slf4j.LoggerFactory;
  * <p>Ports the logic from {@code McpResource.checkAuth} +
  * {@code McpResource.isAccessAllowed} on the pre-Task-2 branch.
  */
+@UnrestrictedAccess
 @Named("mcpAccessControlFilter")
 public class AccessControlFilter implements Filter {
 
@@ -77,12 +79,13 @@ public class AccessControlFilter implements Filter {
             log.warn("[MCP-SEC] unauthenticated request from {}", clientIp(httpReq));
             httpResp.setHeader("Content-Type", "application/json");
             httpResp.setStatus(401);
-            // F-06 / SEP-835: advertise the scopes a client could request. The plugin's access
-            // model is currently binary (allowlisted user = full access), so we cannot indicate
-            // which specific scope was insufficient mid-request — instead the header advertises
-            // the full set of scopes a client may request. Full per-tool scope enforcement is
-            // deferred to v1.5+.
-            String challenge = "Bearer realm=\"jira-mcp\", scope=\"read write\"";
+            // F-06 / SEP-835: advertise the scope a client should request. This must match the
+            // single scope registered on the Jira "MCP" Application Link (WRITE — which already
+            // grants read), since the OAuth provider validates the requested scope against the
+            // registered set. The plugin's access model is binary (allowlisted user = full
+            // access), so we cannot indicate which specific scope was insufficient mid-request.
+            // Full per-tool scope enforcement is deferred to v1.5+.
+            String challenge = "Bearer realm=\"jira-mcp\", scope=\"WRITE\"";
             if (config.isOAuthEnabled()) {
                 String resourceMetadata = "/plugins/servlet/mcp-oauth/protected-resource";
                 challenge = challenge + ", resource_metadata=\"" + resourceMetadata + "\"";

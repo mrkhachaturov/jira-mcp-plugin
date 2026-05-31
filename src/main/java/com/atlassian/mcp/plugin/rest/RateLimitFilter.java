@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
@@ -26,6 +27,7 @@ import org.slf4j.LoggerFactory;
  * draft-ietf-httpapi-ratelimit-headers-09</a>. Also sets {@code Retry-After} on 429
  * per RFC 9110 §10.2.3.
  */
+@UnrestrictedAccess
 @Named("mcpRateLimitFilter")
 public class RateLimitFilter implements Filter {
 

@@ -1,5 +1,6 @@
 package com.atlassian.mcp.plugin.rest;
 
+import com.atlassian.annotations.security.UnrestrictedAccess;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.servlet.Filter;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
  * {@code req.startAsync()} for non-initialize JSON-RPC requests; with the JVM
  * flag set, the chain is async-supported and the call succeeds.
  */
+@UnrestrictedAccess
 @Named("mcpTransportFilter")
 public class McpTransportFilter implements Filter {
 

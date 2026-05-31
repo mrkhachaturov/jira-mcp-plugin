@@ -2,9 +2,13 @@ package com.atlassian.mcp.plugin.rest.oauth;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -27,11 +31,27 @@ import org.slf4j.LoggerFactory;
  * authorization spec (SEP-991).
  *
  * <p>A CIMD-style {@code client_id} is an HTTPS URL that resolves to a JSON document describing
- * the client (its display name, registered redirect URIs, etc.). This validator fetches that
- * document, enforces a strict size cap (8 KB) and timeouts to prevent SSRF/DoS, parses it, and
- * caches the parsed metadata in memory for one hour.
+ * the client (its display name, registered redirect URIs, etc.). Because the URL is
+ * attacker-controlled and fetched from inside the Jira JVM by an <b>unauthenticated</b>
+ * {@code /authorize} request, this validator enforces a layered SSRF/DoS defense:
  *
- * <p>Thread-safe. Cache is bounded to 1000 entries; oldest entries are evicted when full.
+ * <ul>
+ *   <li><b>HTTPS only, no redirects</b> — the client is built with {@code Redirect.NEVER} so a
+ *       benign URL cannot 302-bounce onto an internal target.</li>
+ *   <li><b>Address guard</b> — the host is resolved and the fetch is rejected if <em>any</em>
+ *       A/AAAA record is loopback, link-local, site-local (RFC 1918), CGNAT (100.64.0.0/10),
+ *       unique-local (fc00::/7), or the cloud-metadata IP (169.254.169.254), <em>before</em> the
+ *       request is sent. This blocks static internal-IP DNS records. It does <em>not</em> pin the
+ *       address the {@link HttpClient} later connects to (the JDK re-resolves DNS at connect time),
+ *       so an active DNS-rebinding attacker who flips the record between this check and the connect
+ *       is an accepted residual risk — the {@code /authorize} entry point is rate-limited, and full
+ *       closure would require connection-level IP pinning.</li>
+ *   <li><b>Bounded body</b> — the 8 KB cap is enforced while streaming, not after buffering.</li>
+ *   <li><b>Timeouts</b> — 5 s connect / 10 s request.</li>
+ * </ul>
+ *
+ * <p>Thread-safe. The result cache is bounded to 1000 entries with positive and (short) negative
+ * caching so a repeatedly-failing URL cannot be used to hammer the resolver.
  */
 public final class CimdValidator {
 
@@ -40,15 +60,18 @@ public final class CimdValidator {
     /** Hard cap on the metadata document body (8 KB). */
     public static final int MAX_BODY_BYTES = 8 * 1024;
 
-    /** Cache TTL — 1 hour. The spec says clients SHOULD respect HTTP cache headers; we use a
-     *  conservative fixed TTL here as a forward-compatible baseline. */
-    private static final Duration CACHE_TTL = Duration.ofHours(1);
+    /** Cache TTL for a successful resolution. */
+    private static final Duration POSITIVE_TTL = Duration.ofHours(1);
 
-    /** Maximum number of cached metadata entries. Mirrors DCR cache shape. */
+    /** Cache TTL for a failed resolution — short, so a transient failure self-heals quickly. */
+    private static final Duration NEGATIVE_TTL = Duration.ofMinutes(5);
+
+    /** Maximum number of cached entries (positive + negative combined). */
     private static final int CACHE_MAX = 1000;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
+    private final boolean enforceSsrfGuards;
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
     public CimdValidator() {
@@ -56,13 +79,18 @@ public final class CimdValidator {
                         .followRedirects(HttpClient.Redirect.NEVER)
                         .connectTimeout(Duration.ofSeconds(5))
                         .build(),
-                new ObjectMapper());
+                new ObjectMapper(),
+                true);
     }
 
-    /** Constructor for tests — allows injecting a stub HttpClient. */
-    public CimdValidator(HttpClient httpClient, ObjectMapper mapper) {
+    /**
+     * Constructor for tests — allows injecting a stub {@link HttpClient} and disabling the address
+     * guard when a test needs to resolve a stub host that would otherwise be blocked.
+     */
+    public CimdValidator(HttpClient httpClient, ObjectMapper mapper, boolean enforceSsrfGuards) {
         this.httpClient = httpClient;
         this.mapper = mapper;
+        this.enforceSsrfGuards = enforceSsrfGuards;
     }
 
     /**
@@ -87,10 +115,9 @@ public final class CimdValidator {
     /**
      * Fetches and validates the CIMD at {@code clientIdUrl}. Returns the parsed metadata.
      *
-     * <p>Performs an in-process cache lookup first; on miss, performs a bounded HTTPS GET
-     * (8 KB cap, 5 s connect / 10 s request timeout, no redirects). Validates that the document
-     * is well-formed JSON, contains a {@code redirect_uris} array of HTTPS or {@code http://localhost}
-     * URIs, and that the document's own {@code client_id} (if present) matches the URL.
+     * <p>Performs an in-process cache lookup first (positive and negative); on miss, performs the
+     * guarded HTTPS GET and validates the document. Failures are negatively cached so a bad URL
+     * cannot be replayed to hammer the resolver.
      */
     public CimdMetadata resolve(String clientIdUrl) throws CimdException {
         if (!isCimdClientId(clientIdUrl)) {
@@ -99,12 +126,20 @@ public final class CimdValidator {
 
         CacheEntry cached = cache.get(clientIdUrl);
         if (cached != null && cached.expiresAt.isAfter(Instant.now())) {
+            if (cached.failure != null) {
+                throw new CimdException("cached failure: " + cached.failure);
+            }
             return cached.metadata;
         }
 
-        CimdMetadata metadata = fetchAndValidate(clientIdUrl);
-        putInCache(clientIdUrl, metadata);
-        return metadata;
+        try {
+            CimdMetadata metadata = fetchAndValidate(clientIdUrl);
+            putPositive(clientIdUrl, metadata);
+            return metadata;
+        } catch (CimdException e) {
+            putNegative(clientIdUrl, e.getMessage());
+            throw e;
+        }
     }
 
     private CimdMetadata fetchAndValidate(String clientIdUrl) throws CimdException {
@@ -114,6 +149,10 @@ public final class CimdValidator {
         } catch (URISyntaxException e) {
             throw new CimdException("Invalid CIMD URL: " + e.getMessage());
         }
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new CimdException("CIMD URL must be https");
+        }
+        guardSsrf(uri.getHost());
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(uri)
@@ -122,9 +161,9 @@ public final class CimdValidator {
                 .GET()
                 .build();
 
-        HttpResponse<byte[]> response;
+        HttpResponse<InputStream> response;
         try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
@@ -136,13 +175,9 @@ public final class CimdValidator {
             throw new CimdException("CIMD fetch returned HTTP " + response.statusCode());
         }
 
-        byte[] body = response.body();
+        byte[] body = readBounded(response.body(), MAX_BODY_BYTES);
         if (body == null) {
-            throw new CimdException("CIMD response had no body");
-        }
-        if (body.length > MAX_BODY_BYTES) {
-            throw new CimdException(
-                    "CIMD document exceeds " + MAX_BODY_BYTES + " byte cap (" + body.length + ")");
+            throw new CimdException("CIMD document exceeds " + MAX_BODY_BYTES + " byte cap");
         }
 
         JsonNode root;
@@ -179,28 +214,103 @@ public final class CimdValidator {
             String uriStr = n.asText();
             if (!isAllowedRedirectUri(uriStr)) {
                 throw new CimdException(
-                        "CIMD redirect_uri must use https:// or http://localhost or http://127.0.0.1");
+                        "CIMD redirect_uri must use https:// or http://localhost|127.0.0.1");
             }
             redirectUris.add(uriStr);
         }
 
-        String clientName = textOrNull(root, "client_name");
-        String scope = textOrNull(root, "scope");
-        String tokenAuthMethod = textOrNull(root, "token_endpoint_auth_method");
-
         return new CimdMetadata(
                 clientIdUrl,
-                clientName,
+                textOrNull(root, "client_name"),
                 Collections.unmodifiableList(redirectUris),
-                scope,
-                tokenAuthMethod);
+                textOrNull(root, "scope"),
+                textOrNull(root, "token_endpoint_auth_method"));
     }
 
-    private static boolean isAllowedRedirectUri(String uri) {
-        if (uri == null) return false;
-        if (uri.startsWith("https://")) return true;
-        // Loopback per RFC 8252 — common for native MCP clients
-        if (uri.startsWith("http://localhost") || uri.startsWith("http://127.0.0.1")) return true;
+    /**
+     * SSRF host guard: resolve all A/AAAA records and reject if ANY is loopback, link-local,
+     * site-local (RFC 1918), any-local, CGNAT (100.64.0.0/10), unique-local (fc00::/7), or the
+     * cloud-metadata IP (169.254.169.254). Rejects static internal-IP DNS records before the fetch.
+     * Does not bind the address the {@link HttpClient} later connects to, so an active DNS-rebinding
+     * attacker is an accepted residual risk (see class javadoc).
+     */
+    private void guardSsrf(String host) throws CimdException {
+        if (!enforceSsrfGuards) return;
+        if (host == null || host.isEmpty()) {
+            throw new CimdException("CIMD URL has no host");
+        }
+        InetAddress[] addrs;
+        try {
+            addrs = InetAddress.getAllByName(host);
+        } catch (UnknownHostException e) {
+            throw new CimdException("CIMD host does not resolve: " + host);
+        }
+        for (InetAddress a : addrs) {
+            if (a.isLoopbackAddress() || a.isLinkLocalAddress() || a.isSiteLocalAddress()
+                    || a.isAnyLocalAddress() || isUniqueLocalOrMetadata(a)) {
+                throw new CimdException(
+                        "CIMD host resolves to a blocked address: " + a.getHostAddress());
+            }
+        }
+    }
+
+    private static boolean isUniqueLocalOrMetadata(InetAddress a) {
+        byte[] b = a.getAddress();
+        if (b.length == 16 && (b[0] & 0xFE) == 0xFC) {
+            return true; // fc00::/7 unique-local
+        }
+        return b.length == 4 && (
+                // 169.254.169.254 cloud-metadata IP
+                ((b[0] & 0xFF) == 169 && (b[1] & 0xFF) == 254
+                        && (b[2] & 0xFF) == 169 && (b[3] & 0xFF) == 254)
+                // 100.64.0.0/10 CGNAT (RFC 6598)
+                || ((b[0] & 0xFF) == 100 && (b[1] & 0xC0) == 0x40));
+    }
+
+    /** Reads up to {@code max} bytes from the response stream; null if the body exceeds the cap. */
+    private static byte[] readBounded(InputStream in, int max) {
+        if (in == null) return new byte[0];
+        try (InputStream stream = in) {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] chunk = new byte[2048];
+            long total = 0;
+            int n;
+            while ((n = stream.read(chunk)) != -1) {
+                total += n;
+                if (total > max) return null;
+                buf.write(chunk, 0, n);
+            }
+            return buf.toByteArray();
+        } catch (IOException e) {
+            return new byte[0];
+        }
+    }
+
+    /**
+     * Allowed redirect URIs: https for any host, OR http ONLY for the exact loopback hosts
+     * (localhost / 127.0.0.1 / [::1]). Host is exact-matched via {@link URI} parsing so
+     * {@code http://localhost.evil.example} and embedded-credential URIs are rejected.
+     */
+    // Package-private (not private) so CimdValidatorTest can assert host-exact matching directly.
+    static boolean isAllowedRedirectUri(String uri) {
+        if (uri == null || uri.isEmpty()) return false;
+        URI u;
+        try {
+            u = new URI(uri);
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        if (u.getUserInfo() != null) return false; // reject embedded credentials
+        String scheme = u.getScheme();
+        String host = u.getHost();
+        if (scheme == null || host == null) return false;
+        if ("https".equalsIgnoreCase(scheme)) return true;
+        if ("http".equalsIgnoreCase(scheme)) {
+            return host.equalsIgnoreCase("localhost")
+                    || host.equals("127.0.0.1")
+                    || host.equals("[::1]")
+                    || host.equals("::1");
+        }
         return false;
     }
 
@@ -209,22 +319,29 @@ public final class CimdValidator {
         return (n != null && n.isTextual()) ? n.asText() : null;
     }
 
-    private void putInCache(String url, CimdMetadata metadata) {
-        // Simple cap: when cache is full, drop the oldest entries (insertion-time approximation).
-        if (cache.size() >= CACHE_MAX) {
-            // Best-effort eviction — drop everything that's already expired first
-            Instant now = Instant.now();
-            cache.entrySet().removeIf(e -> e.getValue().expiresAt.isBefore(now));
-            // If still full, evict the earliest-inserted entry
-            if (cache.size() >= CACHE_MAX) {
-                cache.entrySet().stream()
-                        .min(Map.Entry.comparingByValue(
-                                (a, b) -> a.insertedAt.compareTo(b.insertedAt)))
-                        .ifPresent(e -> cache.remove(e.getKey()));
-            }
-        }
+    private void putPositive(String url, CimdMetadata metadata) {
+        evictIfFull();
+        cache.put(url, new CacheEntry(metadata, null, Instant.now().plus(POSITIVE_TTL)));
+    }
+
+    private void putNegative(String url, String failure) {
+        evictIfFull();
+        cache.put(url, new CacheEntry(
+                null, failure == null ? "error" : failure, Instant.now().plus(NEGATIVE_TTL)));
+    }
+
+    private void evictIfFull() {
+        if (cache.size() < CACHE_MAX) return;
         Instant now = Instant.now();
-        cache.put(url, new CacheEntry(metadata, now, now.plus(CACHE_TTL)));
+        // Best-effort eviction — drop everything already expired first
+        cache.entrySet().removeIf(e -> e.getValue().expiresAt.isBefore(now));
+        // If still full, evict the entry closest to expiry
+        if (cache.size() >= CACHE_MAX) {
+            cache.entrySet().stream()
+                    .min(Map.Entry.comparingByValue(
+                            (a, b) -> a.expiresAt.compareTo(b.expiresAt)))
+                    .ifPresent(e -> cache.remove(e.getKey()));
+        }
     }
 
     /** Visible for testing — clears the cache. */
@@ -273,12 +390,12 @@ public final class CimdValidator {
 
     private static final class CacheEntry {
         final CimdMetadata metadata;
-        final Instant insertedAt;
+        final String failure;
         final Instant expiresAt;
 
-        CacheEntry(CimdMetadata metadata, Instant insertedAt, Instant expiresAt) {
+        CacheEntry(CimdMetadata metadata, String failure, Instant expiresAt) {
             this.metadata = metadata;
-            this.insertedAt = insertedAt;
+            this.failure = failure;
             this.expiresAt = expiresAt;
         }
     }

@@ -12,7 +12,8 @@ import java.io.IOException;
 /**
  * Filter with location="before-login" that:
  * 1. Passes through /plugins/servlet/mcp-oauth/* requests (handled by OAuthServlet)
- * 2. Directly serves /.well-known/oauth-* responses (can't use servlets at root)
+ * 2. Directly serves /.well-known/oauth-* and /.well-known/openid-configuration responses
+ *    (can't use servlets at root)
  * 3. Redirects /rest/mcp/1.0 → /rest/mcp/1.0/ (JAX-RS needs trailing slash)
  */
 @UnrestrictedAccess
@@ -33,7 +34,7 @@ public class OAuthAnonymousFilter implements Filter {
         String uri = req.getRequestURI();
 
         // Handle /.well-known/* directly — servlets can't serve at root
-        if (uri.contains("/.well-known/oauth-")) {
+        if (uri.contains("/.well-known/oauth-") || uri.contains("/.well-known/openid-configuration")) {
             handleWellKnown(uri, resp);
             return;
         }
@@ -68,10 +69,22 @@ public class OAuthAnonymousFilter implements Filter {
                     + "\"token_endpoint\":\"" + oauthBase + "/token\","
                     + "\"registration_endpoint\":\"" + oauthBase + "/register\","
                     + "\"response_types_supported\":[\"code\"],"
-                    + "\"grant_types_supported\":[\"authorization_code\"],"
+                    + "\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],"
                     + "\"token_endpoint_auth_methods_supported\":[\"none\"],"
                     + "\"code_challenge_methods_supported\":[\"S256\"],"
-                    + "\"scopes_supported\":[\"WRITE\",\"READ\"]}");
+                    + "\"scopes_supported\":[\"WRITE\"],"
+                    + "\"client_id_metadata_document_supported\":true}");
+        } else if (uri.contains("openid-configuration")) {
+            resp.getWriter().write("{\"issuer\":\"" + oauthBase + "\","
+                    + "\"authorization_endpoint\":\"" + oauthBase + "/authorize\","
+                    + "\"token_endpoint\":\"" + oauthBase + "/token\","
+                    + "\"registration_endpoint\":\"" + oauthBase + "/register\","
+                    + "\"response_types_supported\":[\"code\"],"
+                    + "\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],"
+                    + "\"token_endpoint_auth_methods_supported\":[\"none\"],"
+                    + "\"code_challenge_methods_supported\":[\"S256\"],"
+                    + "\"scopes_supported\":[\"WRITE\"],"
+                    + "\"client_id_metadata_document_supported\":true}");
         } else {
             resp.setStatus(404);
             resp.getWriter().write("{\"error\":\"Not found\"}");

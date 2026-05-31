@@ -11,9 +11,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Caches the request body so it can be read more than once. Used by
- * {@link SessionBindingFilter} to inspect the JSON body for {@code "method":"initialize"}
- * before passing the request down the chain to the SDK servlet.
+ * Caches the request body so it can be read more than once. {@link BodySizeLimitFilter}
+ * constructs it from an already-bounded {@code byte[]}; {@link SessionBindingFilter} uses the
+ * read-from-request constructor to inspect {@code "method":"initialize"} before the SDK
+ * servlet reads the body downstream.
  */
 public final class BufferedRequestWrapper extends HttpServletRequestWrapper {
     private final byte[] body;
@@ -21,6 +22,12 @@ public final class BufferedRequestWrapper extends HttpServletRequestWrapper {
     public BufferedRequestWrapper(HttpServletRequest request) throws IOException {
         super(request);
         this.body = request.getInputStream().readAllBytes();
+    }
+
+    /** Construct from a body the caller already read (bounded), avoiding a second read. */
+    public BufferedRequestWrapper(HttpServletRequest request, byte[] body) {
+        super(request);
+        this.body = body;
     }
 
     public byte[] body() {

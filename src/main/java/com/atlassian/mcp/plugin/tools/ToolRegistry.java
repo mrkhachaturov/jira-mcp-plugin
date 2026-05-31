@@ -202,7 +202,7 @@ public class ToolRegistry {
             if (!isCapabilityMet(tool)) continue;
             if (!config.isToolEnabled(tool.name())) continue;
             if (config.isReadOnlyMode() && tool.isWriteTool()) continue;
-            specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(tool));
+            specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(tool, config));
         }
         return specs;
     }
