@@ -28,7 +28,7 @@ Narrow with `path:` when the area is known. The filter is a substring match agai
 
 | Topic | `path:` filter |
 |---|---|
-| Current stable spec | `specification/2025-11-25/` |
+| Current stable spec | `specification/<latest>/` — newest dated dir (see below) |
 | Draft spec (in-flight changes) | `specification/draft/` |
 | Spec history (all versions) | `specification/` |
 | Spec Enhancement Proposals | `seps/` |
@@ -38,7 +38,7 @@ Narrow with `path:` when the area is known. The filter is a substring match agai
 | Developer guides & tutorials | `docs/docs/` |
 | Anthropic MCP blog posts | `blog/` |
 
-Spec versions available: `2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25` (current stable), `draft`.
+Spec versions are dated directories under `specification/`. To list what's mirrored, `ls wiki/mcp-docs/docs/specification/`. The **current stable** version is the newest dated directory (every entry except `draft`); `draft` holds in-flight changes. Never hardcode a version here — the mirror updates via `just wiki-sync`, so resolve the latest at read time.
 
 ## Reading Full Files
 
@@ -64,7 +64,7 @@ For surgical reads of long files, pass `offset` / `limit` to `Read`.
 | `/mcp-docs <question>` | Search + synthesize from top 3–5 chunks |
 | `/mcp-docs explain "<concept>"` | Broader search (`limit: 10`), group hits by category, cover definition + version differences + gotchas |
 | `/mcp-docs sep <number>` | Locate `SEP-<number>` file under `seps/`, summarize motivation + design + status |
-| `/mcp-docs spec <topic> [version]` | Scope to `path: "specification/<version>/"` (default: `2025-11-25`) |
+| `/mcp-docs spec <topic> [version]` | Scope to `path: "specification/<version>/"` (default: newest dated dir under `specification/`) |
 | `/mcp-docs` (no args) | `ls wiki/mcp-docs/` and suggest a question |
 
 ## Common Mistakes to Avoid
