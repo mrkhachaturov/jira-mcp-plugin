@@ -2,28 +2,28 @@ package com.atlassian.mcp.plugin.tools.links;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
-import java.util.List;
 import java.util.Locale;
 
-public class GetLinkTypesTool extends DeclarativeTool {
+public class GetLinkTypesTool extends TypedTool<GetLinkTypesTool.Args> {
 
-  private static final ToolParam<String> NAME_FILTER =
-      ToolParam.string(
-          "name_filter", "(Optional) Filter link types by name substring (case-insensitive)");
+  public record Args(
+      @ToolArg("(Optional) Keep only link types whose name contains this text, case-insensitively")
+          String nameFilter) {}
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final JiraRestClient client;
 
   public GetLinkTypesTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -43,16 +43,10 @@ public class GetLinkTypesTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(NAME_FILTER);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String response = client.get("/rest/api/2/issueLinkType", context.authHeader());
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String nameFilter = args.get(NAME_FILTER);
-    String response = client.get("/rest/api/2/issueLinkType", authHeader);
-
-    return nameFilter == null ? response : filterByName(response, nameFilter);
+    return args.nameFilter() == null ? response : filterByName(response, args.nameFilter());
   }
 
   /**

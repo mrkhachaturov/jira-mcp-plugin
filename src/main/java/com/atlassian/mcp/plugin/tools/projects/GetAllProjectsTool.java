@@ -2,20 +2,22 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
-import java.util.List;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-public class GetAllProjectsTool extends DeclarativeTool {
+public class GetAllProjectsTool extends TypedTool<GetAllProjectsTool.Args> {
 
-  private static final ToolParam<Boolean> INCLUDE_ARCHIVED =
-      ToolParam.bool("include_archived", "Whether to include archived projects in the results")
-          .withDefault(false);
+  public record Args(
+      @ToolArg(
+              value = "Whether to include archived projects in the results; false by default",
+              defaultValue = "false")
+          boolean includeArchived) {}
 
   private final JiraRestClient client;
 
   public GetAllProjectsTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -35,14 +37,8 @@ public class GetAllProjectsTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(INCLUDE_ARCHIVED);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    boolean includeArchived = args.get(INCLUDE_ARCHIVED);
-
-    return client.get("/rest/api/2/project?includeArchived=" + includeArchived, authHeader);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get(
+        "/rest/api/2/project?includeArchived=" + args.includeArchived(), context.authHeader());
   }
 }

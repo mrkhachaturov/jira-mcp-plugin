@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
+import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
@@ -59,6 +60,15 @@ public class GetLinkTypesToolTest {
     when(client.get(anyString(), any())).thenReturn("[]");
 
     assertEquals("[]", tool.execute(Map.of("name_filter", "blo"), "Bearer t"));
+  }
+
+  @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(McpToolException.class, () -> tool.execute(Map.of("start_at", 0), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("start_at"));
+    verifyNoInteractions(client);
   }
 
   @Test

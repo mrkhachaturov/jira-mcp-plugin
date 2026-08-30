@@ -56,6 +56,17 @@ public class GetProjectComponentsToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("project_key", "PROJ", "expand", "lead"), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("expand"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();

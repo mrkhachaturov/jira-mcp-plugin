@@ -50,6 +50,24 @@ public class GetProjectVersionsToolTest {
   }
 
   @Test
+  public void blankProjectKeyIsRejected() {
+    assertThrows(
+        McpToolException.class, () -> tool.execute(Map.of("project_key", "   "), "Bearer t"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("project_key", "PROJ", "expand", "operations"), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("expand"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();

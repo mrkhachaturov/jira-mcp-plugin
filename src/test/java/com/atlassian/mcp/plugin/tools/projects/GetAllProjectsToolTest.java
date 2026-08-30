@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
+import com.atlassian.mcp.plugin.McpToolException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,12 +49,26 @@ public class GetAllProjectsToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class, () -> tool.execute(Map.of("expand", "lead"), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("expand"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(
-        Set.of("include_archived"), ((Map<String, Object>) schema.get("properties")).keySet());
+    assertEquals(Set.of("include_archived"), props.keySet());
     assertEquals(List.of(), schema.get("required"));
+
+    Map<String, Object> includeArchived = (Map<String, Object>) props.get("include_archived");
+    assertEquals("boolean", includeArchived.get("type"));
+    assertEquals(Boolean.FALSE, includeArchived.get("default"));
   }
 }

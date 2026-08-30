@@ -136,7 +136,7 @@ public class JiraRequestBodyContractTest {
                         }));
   }
 
-  private static final List<String> AWAITING_MIGRATION = List.of("batch_create_versions");
+  private static final List<String> AWAITING_MIGRATION = List.of();
 
   @Test
   public void everyWriteToolSendsABodyJiraAccepts() throws Exception {

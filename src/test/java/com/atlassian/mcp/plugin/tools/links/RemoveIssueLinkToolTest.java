@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
@@ -25,9 +26,22 @@ public class RemoveIssueLinkToolTest {
 
   @Test
   public void linkIdReachesTheRequestPath() throws Exception {
+    tool.execute(Map.of("link_id", 10042), "Bearer t");
+
+    verify(client).delete("/rest/api/2/issueLink/10042", "Bearer t");
+  }
+
+  @Test
+  public void linkIdAcceptsTheStringForm() throws Exception {
     tool.execute(Map.of("link_id", "10042"), "Bearer t");
 
     verify(client).delete("/rest/api/2/issueLink/10042", "Bearer t");
+  }
+
+  @Test
+  public void aLinkIdThatIsNotANumberIsRejected() {
+    assertThrows(McpToolException.class, () -> tool.execute(Map.of("link_id", "abc"), "Bearer t"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -39,12 +53,25 @@ public class RemoveIssueLinkToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("link_id", 10042, "issue_key", "PROJ-1"), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("issue_key"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(Set.of("link_id"), ((Map<String, Object>) schema.get("properties")).keySet());
-    assertEquals(java.util.List.of("link_id"), (java.util.List<String>) schema.get("required"));
+    assertEquals(Set.of("link_id"), props.keySet());
+    assertEquals(List.of("link_id"), schema.get("required"));
+    assertEquals("integer", ((Map<String, Object>) props.get("link_id")).get("type"));
   }
 
   @Test

@@ -2,41 +2,34 @@ package com.atlassian.mcp.plugin.tools.links;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class CreateRemoteIssueLinkTool extends DeclarativeTool {
+public class CreateRemoteIssueLinkTool extends TypedTool<CreateRemoteIssueLinkTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string(
-              "issue_key", "The key of the issue to add the link to (e.g., 'PROJ-123', 'ACV2-642')")
-          .required();
-  private static final ToolParam<String> URL =
-      ToolParam.string(
-              "url", "The URL to link to (e.g., 'https://example.com/page' or Confluence page URL)")
-          .required();
-  private static final ToolParam<String> TITLE =
-      ToolParam.string(
-              "title", "The title/name of the link (e.g., 'Documentation Page', 'Confluence Page')")
-          .required();
-  private static final ToolParam<String> SUMMARY =
-      ToolParam.string("summary", "(Optional) Description of the link");
-  private static final ToolParam<String> RELATIONSHIP =
-      ToolParam.string(
-          "relationship",
-          "(Optional) Relationship description (e.g., 'causes', 'relates to', 'documentation')");
-  private static final ToolParam<String> ICON_URL =
-      ToolParam.string("icon_url", "(Optional) URL to a 16x16 icon for the link");
+  public record Args(
+      @ToolArg(value = "The key of the issue to add the link to (e.g. 'PROJ-123')", required = true)
+          String issueKey,
+      @ToolArg(
+              value = "The URL to link to (e.g. 'https://example.com/page' or a Confluence page)",
+              required = true)
+          String url,
+      @ToolArg(value = "The title of the link, shown on the issue", required = true) String title,
+      @ToolArg("(Optional) Description of the link") String summary,
+      @ToolArg("(Optional) Relationship description (e.g. 'causes', 'relates to', 'documentation')")
+          String relationship,
+      @ToolArg("(Optional) URL of a 16x16 icon for the link") String iconUrl) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public CreateRemoteIssueLinkTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -58,35 +51,26 @@ public class CreateRemoteIssueLinkTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, URL, TITLE, SUMMARY, RELATIONSHIP, ICON_URL);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String url = args.require(URL);
-    String title = args.require(TITLE);
-    String summary = args.get(SUMMARY);
-    String relationship = args.get(RELATIONSHIP);
-    String iconUrl = args.get(ICON_URL);
-
+  protected String run(Args args, McpContext context) throws McpToolException {
     // Everything describing the link target lives under "object"; only relationship sits at the
     // top level. Sent flat, Jira sees neither url nor title and rejects both as missing.
-    Map<String, Object> linkTarget = new HashMap<>();
-    linkTarget.put("url", url);
-    linkTarget.put("title", title);
-    if (summary != null) linkTarget.put("summary", summary);
-    if (iconUrl != null) linkTarget.put("icon", Map.of("url16x16", iconUrl));
+    Map<String, Object> linkTarget = new LinkedHashMap<>();
+    linkTarget.put("url", args.url());
+    linkTarget.put("title", args.title());
+    if (args.summary() != null) linkTarget.put("summary", args.summary());
+    if (args.iconUrl() != null) linkTarget.put("icon", Map.of("url16x16", args.iconUrl()));
 
-    Map<String, Object> requestBody = new HashMap<>();
+    Map<String, Object> requestBody = new LinkedHashMap<>();
     requestBody.put("object", linkTarget);
-    if (relationship != null) requestBody.put("relationship", relationship);
+    if (args.relationship() != null) requestBody.put("relationship", args.relationship());
+
+    String body;
     try {
-      String jsonBody = mapper.writeValueAsString(requestBody);
-      return client.post("/rest/api/2/issue/" + issueKey + "/remotelink", jsonBody, authHeader);
-    } catch (Exception e) {
+      body = mapper.writeValueAsString(requestBody);
+    } catch (JsonProcessingException e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
+    return client.post(
+        "/rest/api/2/issue/" + args.issueKey() + "/remotelink", body, context.authHeader());
   }
 }

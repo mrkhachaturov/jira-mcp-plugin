@@ -83,6 +83,16 @@ public class CreateRemoteIssueLinkToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    Map<String, Object> args = required();
+    args.put("global_id", "abc");
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("global_id"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
