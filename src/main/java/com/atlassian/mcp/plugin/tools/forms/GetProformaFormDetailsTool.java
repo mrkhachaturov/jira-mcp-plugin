@@ -2,11 +2,20 @@ package com.atlassian.mcp.plugin.tools.forms;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.util.List;
-import java.util.Map;
 
-public class GetProformaFormDetailsTool implements McpTool {
+public class GetProformaFormDetailsTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+  private static final ToolParam<String> FORM_ID =
+      ToolParam.string(
+              "form_id", "ProForma form UUID (e.g., '1946b8b7-8f03-4dc0-ac2d-5fac0d960c6a')")
+          .required();
+
   private final JiraRestClient client;
 
   public GetProformaFormDetailsTool(JiraRestClient client) {
@@ -24,23 +33,6 @@ public class GetProformaFormDetailsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                "form_id",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "ProForma form UUID (e.g., '1946b8b7-8f03-4dc0-ac2d-5fac0d960c6a')")),
-        "required", List.of("issue_key", "form_id"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
@@ -51,15 +43,14 @@ public class GetProformaFormDetailsTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String formId = (String) args.get("form_id");
-    if (formId == null || formId.isBlank()) {
-      throw new McpToolException("'form_id' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, FORM_ID);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    args.require(FORM_ID);
 
     return client.get("/rest/api/2/issue/" + issueKey + "/properties/proforma.forms", authHeader);
   }

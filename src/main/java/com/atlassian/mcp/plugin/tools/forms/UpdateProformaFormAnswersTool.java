@@ -2,13 +2,29 @@ package com.atlassian.mcp.plugin.tools.forms;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class UpdateProformaFormAnswersTool implements McpTool {
+public class UpdateProformaFormAnswersTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+  private static final ToolParam<String> FORM_ID =
+      ToolParam.string(
+              "form_id", "ProForma form UUID (e.g., '1946b8b7-8f03-4dc0-ac2d-5fac0d960c6a')")
+          .required();
+  private static final ToolParam<String> ANSWERS =
+      ToolParam.string(
+              "answers",
+              "List of answer objects. Each answer must have: questionId (string), type"
+                  + " (TEXT/NUMBER/SELECT/etc), value (any)")
+          .required();
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,29 +43,6 @@ public class UpdateProformaFormAnswersTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                "form_id",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "ProForma form UUID (e.g., '1946b8b7-8f03-4dc0-ac2d-5fac0d960c6a')"),
-                "answers",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "List of answer objects. Each answer must have: questionId (string), type (TEXT/NUMBER/SELECT/etc), value (any)")),
-        "required", List.of("issue_key", "form_id", "answers"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -60,21 +53,17 @@ public class UpdateProformaFormAnswersTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String formId = (String) args.get("form_id");
-    if (formId == null || formId.isBlank()) {
-      throw new McpToolException("'form_id' parameter is required");
-    }
-    String answers = (String) args.get("answers");
-    if (answers == null || answers.isBlank()) {
-      throw new McpToolException("'answers' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, FORM_ID, ANSWERS);
+  }
 
-    Map<String, Object> requestBody = new HashMap<>();
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String formId = args.require(FORM_ID);
+    String answers = args.require(ANSWERS);
+
+    Map<String, Object> requestBody = new LinkedHashMap<>();
     requestBody.put("form_id", formId);
     requestBody.put("answers", answers);
     try {

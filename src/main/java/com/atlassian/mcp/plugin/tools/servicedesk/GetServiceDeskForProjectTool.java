@@ -2,11 +2,16 @@ package com.atlassian.mcp.plugin.tools.servicedesk;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.util.List;
-import java.util.Map;
 
-public class GetServiceDeskForProjectTool implements McpTool {
+public class GetServiceDeskForProjectTool extends DeclarativeTool {
+
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "Jira project key (e.g., 'SUP')").required();
+
   private final JiraRestClient client;
 
   public GetServiceDeskForProjectTool(JiraRestClient client) {
@@ -24,17 +29,6 @@ public class GetServiceDeskForProjectTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "project_key",
-                Map.of("type", "string", "description", "Jira project key (e.g., 'SUP')")),
-        "required", List.of("project_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
@@ -45,11 +39,13 @@ public class GetServiceDeskForProjectTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String projectKey = (String) args.get("project_key");
-    if (projectKey == null || projectKey.isBlank()) {
-      throw new McpToolException("'project_key' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(PROJECT_KEY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    args.require(PROJECT_KEY);
 
     return client.get("/rest/servicedeskapi/servicedesk", authHeader);
   }

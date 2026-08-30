@@ -2,7 +2,9 @@ package com.atlassian.mcp.plugin.tools.fields;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -12,9 +14,37 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
-public class GetFieldOptionsTool implements McpTool {
+public class GetFieldOptionsTool extends DeclarativeTool {
+
+  private static final ToolParam<String> FIELD_ID =
+      ToolParam.string(
+              "field_id",
+              "Field ID (e.g., 'customfield_10001', 'priority', 'components'). Use"
+                  + " jira_search_fields to find custom field IDs.")
+          .required();
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "Project key. Example: 'PROJ'").required();
+  private static final ToolParam<String> ISSUE_TYPE =
+      ToolParam.string("issue_type", "Issue type name as shown in the project. Example: 'Bug'")
+          .required();
+  private static final ToolParam<String> CONTAINS =
+      ToolParam.string(
+          "contains",
+          "(Optional) Case-insensitive substring filter on option values. Also matches child values"
+              + " in cascading selects.");
+  private static final ToolParam<Integer> RETURN_LIMIT =
+      ToolParam.integer(
+              "return_limit",
+              "(Optional) Maximum number of options to return, applied after filtering. 0 or"
+                  + " omitted returns all.")
+          .withDefault(0);
+  private static final ToolParam<Boolean> VALUES_ONLY =
+      ToolParam.bool(
+              "values_only",
+              "If true, return only the option value strings instead of full option objects.")
+          .withDefault(false);
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final JiraRestClient client;
@@ -34,61 +64,23 @@ public class GetFieldOptionsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "field_id",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Field ID (e.g., 'customfield_10001', 'priority', 'components'). Use jira_search_fields to find custom field IDs."),
-                "project_key",
-                    Map.of("type", "string", "description", "Project key. Example: 'PROJ'"),
-                "issue_type",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Issue type name as shown in the project. Example: 'Bug'"),
-                "contains",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Case-insensitive substring filter on option values. Also matches child values in cascading selects."),
-                "return_limit",
-                    Map.of(
-                        "type",
-                        "integer",
-                        "description",
-                        "(Optional) Maximum number of options to return, applied after filtering. 0 or omitted returns all."),
-                "values_only",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "If true, return only the option value strings instead of full option objects.",
-                        "default",
-                        false)),
-        "required", List.of("field_id", "project_key", "issue_type"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String fieldId = required(args, "field_id");
-    String projectKey = required(args, "project_key");
-    String issueType = required(args, "issue_type");
-    String contains = (String) args.get("contains");
-    int returnLimit = getInt(args, "return_limit", 0);
-    boolean valuesOnly = getBoolean(args, "values_only", false);
+  public List<ToolParam<?>> params() {
+    return List.of(FIELD_ID, PROJECT_KEY, ISSUE_TYPE, CONTAINS, RETURN_LIMIT, VALUES_ONLY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String fieldId = args.require(FIELD_ID);
+    String projectKey = args.require(PROJECT_KEY);
+    String issueType = args.require(ISSUE_TYPE);
+    String contains = args.get(CONTAINS);
+    int returnLimit = args.get(RETURN_LIMIT);
+    boolean valuesOnly = args.get(VALUES_ONLY);
 
     String issueTypeId = resolveIssueTypeId(projectKey, issueType, authHeader);
     ArrayNode options = readAllowedValues(projectKey, issueTypeId, fieldId, authHeader);
@@ -230,35 +222,7 @@ public class GetFieldOptionsTool implements McpTool {
     }
   }
 
-  private static String required(Map<String, Object> args, String key) throws McpToolException {
-    Object value = args.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new McpToolException("'" + key + "' parameter is required");
-    }
-    return s;
-  }
-
   private static String encode(String s) {
     return URLEncoder.encode(s, StandardCharsets.UTF_8);
-  }
-
-  private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Number n) return n.intValue();
-    if (val instanceof String s) {
-      try {
-        return Integer.parseInt(s);
-      } catch (NumberFormatException e) {
-        return defaultVal;
-      }
-    }
-    return defaultVal;
-  }
-
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
   }
 }
