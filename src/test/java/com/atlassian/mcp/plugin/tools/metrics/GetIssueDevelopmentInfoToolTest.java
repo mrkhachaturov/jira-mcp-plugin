@@ -108,14 +108,40 @@ public class GetIssueDevelopmentInfoToolTest {
   }
 
   @Test
+  public void aDataTypeOutsideTheEnumIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-1", "data_type", "commit"), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("data_type"));
+    assertTrue(e.getMessage(), e.getMessage().contains("pullrequest"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-1", "repository_id", "5"), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("repository_id"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(
-        Set.of("issue_key", "application_type", "data_type"),
-        ((Map<String, Object>) schema.get("properties")).keySet());
+    assertEquals(Set.of("issue_key", "application_type", "data_type"), props.keySet());
     assertEquals(List.of("issue_key"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
+    assertEquals(
+        List.of("pullrequest", "branch", "repository"),
+        ((Map<String, Object>) props.get("data_type")).get("enum"));
   }
 
   @Test
@@ -126,5 +152,26 @@ public class GetIssueDevelopmentInfoToolTest {
     JsonNode result = MAPPER.readTree(tool.execute(Map.of("issue_key", "PROJ-1"), "B"));
 
     assertEquals(3, result.path("detail").size());
+  }
+
+  @Test
+  public void theMergedResultCarriesNothingBeyondTheIssueKeyAndTheDetail() throws Exception {
+    JsonNode result = MAPPER.readTree(tool.execute(Map.of("issue_key", "PROJ-1"), "B"));
+
+    List<String> names = new ArrayList<>();
+    result.fieldNames().forEachRemaining(names::add);
+    assertEquals(List.of("issue_key", "detail"), names);
+  }
+
+  @Test
+  public void aJiraFailureResolvingTheIssueIsReportedAsItself() throws Exception {
+    when(client.get(contains("fields=id"), any()))
+        .thenThrow(new McpToolException("Jira API error 403: Forbidden"));
+
+    McpToolException e =
+        assertThrows(
+            McpToolException.class, () -> tool.execute(Map.of("issue_key", "PROJ-1"), "B"));
+
+    assertEquals("Jira API error 403: Forbidden", e.getMessage());
   }
 }

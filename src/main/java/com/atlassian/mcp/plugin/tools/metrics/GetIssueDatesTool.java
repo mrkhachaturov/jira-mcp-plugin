@@ -2,9 +2,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
@@ -20,23 +20,23 @@ import java.util.Map;
  * Computes date information and status transition history for a Jira issue: fetches the issue with
  * its changelog, then derives per-transition durations and aggregated time-in-status summaries.
  */
-public class GetIssueDatesTool extends DeclarativeTool {
+public class GetIssueDatesTool extends TypedTool<GetIssueDatesTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
-  private static final ToolParam<Boolean> INCLUDE_STATUS_CHANGES =
-      ToolParam.bool(
-              "include_status_changes",
-              "Include status change history with timestamps and durations")
-          .withDefault(true);
-  private static final ToolParam<Boolean> INCLUDE_STATUS_SUMMARY =
-      ToolParam.bool("include_status_summary", "Include aggregated time spent in each status")
-          .withDefault(true);
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(
+              value = "Include status change history with timestamps and durations",
+              defaultValue = "true")
+          boolean includeStatusChanges,
+      @ToolArg(value = "Include aggregated time spent in each status", defaultValue = "true")
+          boolean includeStatusSummary) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssueDatesTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -56,52 +56,41 @@ public class GetIssueDatesTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, INCLUDE_STATUS_CHANGES, INCLUDE_STATUS_SUMMARY);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    boolean wantsHistory = args.includeStatusChanges() || args.includeStatusSummary();
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    boolean includeStatusChanges = args.get(INCLUDE_STATUS_CHANGES);
-    boolean includeStatusSummary = args.get(INCLUDE_STATUS_SUMMARY);
+    // The changelog is only expanded when something in the response needs it — it is by far the
+    // heaviest part of the issue payload.
+    String issueJson =
+        client.get(
+            "/rest/api/2/issue/"
+                + args.issueKey()
+                + "?fields=status,created,updated,duedate,resolutiondate"
+                + (wantsHistory ? "&expand=changelog" : ""),
+            context.authHeader());
 
     try {
-      // The changelog is only expanded when something in the response needs it — it is by far the
-      // heaviest part of the issue payload.
-      String expand = (includeStatusChanges || includeStatusSummary) ? "&expand=changelog" : "";
-      String issueJson =
-          client.get(
-              "/rest/api/2/issue/"
-                  + issueKey
-                  + "?fields=status,created,updated,duedate,resolutiondate"
-                  + expand,
-              authHeader);
-
       JsonNode issue = mapper.readTree(issueJson);
       JsonNode fields = issue.path("fields");
 
       Map<String, Object> result = new LinkedHashMap<>();
-      result.put("issue_key", issueKey);
+      result.put("issue_key", args.issueKey());
       result.put("created", fields.path("created").asText(null));
       result.put("updated", fields.path("updated").asText(null));
       result.put("due_date", nullableText(fields, "duedate"));
       result.put("resolution_date", nullableText(fields, "resolutiondate"));
+      result.put("current_status", fields.path("status").path("name").asText(null));
 
-      String currentStatus = fields.path("status").path("name").asText(null);
-      result.put("current_status", currentStatus);
-
-      // Parse changelog for status transitions
-      if (includeStatusChanges || includeStatusSummary) {
+      if (wantsHistory) {
         String createdStr = fields.path("created").asText(null);
         OffsetDateTime createdDate = createdStr != null ? parseDate(createdStr) : null;
 
         List<Map<String, Object>> statusChanges = parseStatusChanges(issue, createdDate);
 
-        if (includeStatusChanges) {
+        if (args.includeStatusChanges()) {
           result.put("status_changes", statusChanges);
         }
-        if (includeStatusSummary) {
+        if (args.includeStatusSummary()) {
           result.put("status_summary", aggregateStatusTimes(statusChanges));
         }
       }
@@ -109,9 +98,6 @@ public class GetIssueDatesTool extends DeclarativeTool {
       result.values().removeIf(v -> v == null);
 
       return mapper.writeValueAsString(result);
-
-    } catch (McpToolException e) {
-      throw e;
     } catch (Exception e) {
       throw new McpToolException("Failed to compute issue dates: " + e.getMessage());
     }

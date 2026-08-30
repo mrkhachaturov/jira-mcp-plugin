@@ -2,55 +2,60 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Computes SLA metrics for a Jira issue from its changelog. Deliberately does not call the Service
  * Desk SLA API: these metrics are derived from status history so they are available on every issue,
  * not just the ones covered by a JSM SLA configuration.
  */
-public class GetIssueSlaTool extends DeclarativeTool {
+public class GetIssueSlaTool extends TypedTool<GetIssueSlaTool.Args> {
 
-  private static final Set<String> AVAILABLE_METRICS =
-      Set.of(
-          "cycle_time",
-          "lead_time",
-          "time_in_status",
-          "due_date_compliance",
-          "resolution_time",
-          "first_response_time");
+  private static final String CYCLE_TIME = "cycle_time";
+  private static final String LEAD_TIME = "lead_time";
+  private static final String TIME_IN_STATUS = "time_in_status";
+  private static final String DUE_DATE_COMPLIANCE = "due_date_compliance";
+  private static final String RESOLUTION_TIME = "resolution_time";
+  private static final String FIRST_RESPONSE_TIME = "first_response_time";
 
-  private static final List<String> DEFAULT_METRICS = List.of("cycle_time", "time_in_status");
+  private static final List<String> AVAILABLE_METRICS =
+      List.of(
+          CYCLE_TIME,
+          LEAD_TIME,
+          TIME_IN_STATUS,
+          DUE_DATE_COMPLIANCE,
+          RESOLUTION_TIME,
+          FIRST_RESPONSE_TIME);
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
-  private static final ToolParam<String> METRICS =
-      ToolParam.string(
-          "metrics",
-          "Comma-separated list of SLA metrics to calculate. Available: cycle_time, lead_time,"
-              + " time_in_status, due_date_compliance, resolution_time, first_response_time."
-              + " Defaults to 'cycle_time,time_in_status'.");
-  private static final ToolParam<Boolean> INCLUDE_RAW_DATES =
-      ToolParam.bool("include_raw_dates", "Include raw date values in the response")
-          .withDefault(false);
+  private static final List<String> DEFAULT_METRICS = List.of(CYCLE_TIME, TIME_IN_STATUS);
+
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(
+              "SLA metrics to calculate. One or more of cycle_time, lead_time, time_in_status,"
+                  + " due_date_compliance, resolution_time, first_response_time. Defaults to"
+                  + " cycle_time and time_in_status.")
+          List<String> metrics,
+      @ToolArg(value = "Include raw date values in the response", defaultValue = "false")
+          boolean includeRawDates) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssueSlaTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -70,35 +75,17 @@ public class GetIssueSlaTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, METRICS, INCLUDE_RAW_DATES);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    List<String> requestedMetrics = requestedMetrics(args.metrics());
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String metricsStr = args.get(METRICS);
-    boolean includeRawDates = args.get(INCLUDE_RAW_DATES);
-
-    List<String> requestedMetrics;
-    if (metricsStr != null) {
-      requestedMetrics =
-          Arrays.stream(metricsStr.split(","))
-              .map(String::trim)
-              .filter(AVAILABLE_METRICS::contains)
-              .toList();
-    } else {
-      requestedMetrics = DEFAULT_METRICS;
-    }
+    String issueJson =
+        client.get(
+            "/rest/api/2/issue/"
+                + args.issueKey()
+                + "?fields=status,created,updated,duedate,resolutiondate&expand=changelog",
+            context.authHeader());
 
     try {
-      String issueJson =
-          client.get(
-              "/rest/api/2/issue/"
-                  + issueKey
-                  + "?fields=status,created,updated,duedate,resolutiondate&expand=changelog",
-              authHeader);
-
       JsonNode issue = mapper.readTree(issueJson);
       JsonNode fields = issue.path("fields");
 
@@ -116,34 +103,34 @@ public class GetIssueSlaTool extends DeclarativeTool {
       List<StatusTransition> transitions = parseStatusTransitions(issue);
 
       Map<String, Object> result = new LinkedHashMap<>();
-      result.put("issue_key", issueKey);
+      result.put("issue_key", args.issueKey());
       result.put("current_status", currentStatus);
 
       Map<String, Object> metricsResult = new LinkedHashMap<>();
 
-      if (requestedMetrics.contains("cycle_time")) {
-        metricsResult.put("cycle_time", computeCycleTime(transitions, resolutionDate, now));
+      if (requestedMetrics.contains(CYCLE_TIME)) {
+        metricsResult.put(CYCLE_TIME, computeCycleTime(transitions, resolutionDate, now));
       }
-      if (requestedMetrics.contains("lead_time")) {
-        metricsResult.put("lead_time", computeLeadTime(created, resolutionDate, now));
+      if (requestedMetrics.contains(LEAD_TIME)) {
+        metricsResult.put(LEAD_TIME, computeLeadTime(created, resolutionDate, now));
       }
-      if (requestedMetrics.contains("time_in_status")) {
-        metricsResult.put("time_in_status", computeTimeInStatus(transitions, created, now));
+      if (requestedMetrics.contains(TIME_IN_STATUS)) {
+        metricsResult.put(TIME_IN_STATUS, computeTimeInStatus(transitions, created, now));
       }
-      if (requestedMetrics.contains("due_date_compliance")) {
+      if (requestedMetrics.contains(DUE_DATE_COMPLIANCE)) {
         metricsResult.put(
-            "due_date_compliance", computeDueDateCompliance(dueDateStr, resolutionDate, now));
+            DUE_DATE_COMPLIANCE, computeDueDateCompliance(dueDateStr, resolutionDate, now));
       }
-      if (requestedMetrics.contains("resolution_time")) {
-        metricsResult.put("resolution_time", computeResolutionTime(created, resolutionDate));
+      if (requestedMetrics.contains(RESOLUTION_TIME)) {
+        metricsResult.put(RESOLUTION_TIME, computeResolutionTime(created, resolutionDate));
       }
-      if (requestedMetrics.contains("first_response_time")) {
-        metricsResult.put("first_response_time", computeFirstResponseTime(created, transitions));
+      if (requestedMetrics.contains(FIRST_RESPONSE_TIME)) {
+        metricsResult.put(FIRST_RESPONSE_TIME, computeFirstResponseTime(created, transitions));
       }
 
       result.put("metrics", metricsResult);
 
-      if (includeRawDates) {
+      if (args.includeRawDates()) {
         Map<String, Object> rawDates = new LinkedHashMap<>();
         rawDates.put("created", createdStr);
         rawDates.put("updated", updatedStr);
@@ -154,11 +141,27 @@ public class GetIssueSlaTool extends DeclarativeTool {
 
       return mapper.writeValueAsString(result);
 
-    } catch (McpToolException e) {
-      throw e;
     } catch (Exception e) {
       throw new McpToolException("Failed to compute SLA metrics: " + e.getMessage());
     }
+  }
+
+  /**
+   * The metrics to compute, defaulted when the caller names none. The schema layer cannot advertise
+   * a multi-valued default, so the default is named in the parameter description and applied here.
+   */
+  private static List<String> requestedMetrics(List<String> requested) throws McpToolException {
+    if (requested == null || requested.isEmpty()) return DEFAULT_METRICS;
+    for (String metric : requested) {
+      if (!AVAILABLE_METRICS.contains(metric)) {
+        throw new McpToolException(
+            "'metrics' contains unknown value '"
+                + metric
+                + "'; available metrics are "
+                + String.join(", ", AVAILABLE_METRICS));
+      }
+    }
+    return requested;
   }
 
   /** Simple record for a status transition. */

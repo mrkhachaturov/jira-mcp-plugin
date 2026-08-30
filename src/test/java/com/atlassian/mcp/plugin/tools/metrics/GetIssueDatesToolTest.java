@@ -122,6 +122,17 @@ public class GetIssueDatesToolTest {
   }
 
   @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-1", "expand", "changelog"), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("expand"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
@@ -130,9 +141,12 @@ public class GetIssueDatesToolTest {
     assertEquals(
         Set.of("issue_key", "include_status_changes", "include_status_summary"), props.keySet());
     assertEquals(List.of("issue_key"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
     assertEquals(
         Boolean.TRUE, ((Map<String, Object>) props.get("include_status_changes")).get("default"));
     assertEquals(
         Boolean.TRUE, ((Map<String, Object>) props.get("include_status_summary")).get("default"));
+    assertEquals(
+        "boolean", ((Map<String, Object>) props.get("include_status_changes")).get("type"));
   }
 }

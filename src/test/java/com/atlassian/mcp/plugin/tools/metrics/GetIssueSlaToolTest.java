@@ -82,7 +82,11 @@ public class GetIssueSlaToolTest {
   @Test
   public void metricsParamSelectsWhatIsComputed() throws Exception {
     JsonNode metrics =
-        run(Map.of("issue_key", "PROJ-123", "metrics", "first_response_time,resolution_time"))
+        run(Map.of(
+                "issue_key",
+                "PROJ-123",
+                "metrics",
+                List.of("first_response_time", "resolution_time")))
             .path("metrics");
 
     assertEquals(Set.of("first_response_time", "resolution_time"), keysOf(metrics));
@@ -92,10 +96,50 @@ public class GetIssueSlaToolTest {
   }
 
   @Test
-  public void unknownMetricNamesAreDroppedRatherThanComputed() throws Exception {
-    JsonNode metrics = run(Map.of("issue_key", "PROJ-123", "metrics", "bogus")).path("metrics");
+  public void everyAvailableMetricCanBeRequestedTogether() throws Exception {
+    List<String> all =
+        List.of(
+            "cycle_time",
+            "lead_time",
+            "time_in_status",
+            "due_date_compliance",
+            "resolution_time",
+            "first_response_time");
 
-    assertEquals(new ArrayList<>(), new ArrayList<>(keysOf(metrics)));
+    JsonNode metrics = run(Map.of("issue_key", "PROJ-123", "metrics", all)).path("metrics");
+
+    assertEquals(Set.copyOf(all), keysOf(metrics));
+  }
+
+  @Test
+  public void anUnknownMetricNameIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-123", "metrics", List.of("bogus")), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("bogus"));
+    assertTrue(e.getMessage(), e.getMessage().contains("cycle_time"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anEmptyMetricsListFallsBackToTheDefaults() throws Exception {
+    JsonNode metrics =
+        run(Map.of("issue_key", "PROJ-123", "metrics", new ArrayList<String>())).path("metrics");
+
+    assertEquals(Set.of("cycle_time", "time_in_status"), keysOf(metrics));
+  }
+
+  @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-1", "sla_id", 42), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("sla_id"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -127,7 +171,18 @@ public class GetIssueSlaToolTest {
 
     assertEquals(Set.of("issue_key", "metrics", "include_raw_dates"), props.keySet());
     assertEquals(List.of("issue_key"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
     assertEquals(
         Boolean.FALSE, ((Map<String, Object>) props.get("include_raw_dates")).get("default"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void metricsIsAdvertisedAsAnArrayOfStrings() {
+    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+    Map<String, Object> metrics = (Map<String, Object>) props.get("metrics");
+
+    assertEquals("array", metrics.get("type"));
+    assertEquals("string", ((Map<String, Object>) metrics.get("items")).get("type"));
   }
 }
