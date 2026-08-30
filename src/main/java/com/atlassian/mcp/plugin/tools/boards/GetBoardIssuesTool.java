@@ -1,17 +1,13 @@
 package com.atlassian.mcp.plugin.tools.boards;
 
-import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpContext;
 import com.atlassian.mcp.plugin.tools.ToolArg;
 import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.atlassian.mcp.plugin.tools.UiBinding;
-import com.atlassian.mcp.plugin.tools.UiToolDefaults;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 
 public class GetBoardIssuesTool extends TypedTool<GetBoardIssuesTool.Args> {
 
@@ -40,38 +36,14 @@ public class GetBoardIssuesTool extends TypedTool<GetBoardIssuesTool.Args> {
           String expand) {}
 
   private final JiraRestClient client;
-  private final UiBinding ui;
 
   public GetBoardIssuesTool(JiraRestClient client) {
     this(client, null);
   }
 
   public GetBoardIssuesTool(JiraRestClient client, UiBinding ui) {
-    super(Args.class);
+    super(Args.class, ui);
     this.client = client;
-    this.ui = ui;
-  }
-
-  @Override
-  public String uiResourceUri() {
-    return ui == null ? null : ui.resourceUri();
-  }
-
-  @Override
-  public String iconUri() {
-    return ui == null ? null : IconConstants.JIRA_LOGO_DATA_URI;
-  }
-
-  @Override
-  public Map<String, Object> outputSchema() {
-    return ui == null ? null : UiToolDefaults.ISSUE_LIST_OUTPUT_SCHEMA;
-  }
-
-  @Override
-  public ObjectNode structuredContent(
-      Map<String, Object> args, String executeResult, String jiraUsername, String jiraUserDisplay) {
-    if (ui == null || ui.contextBuilder == null || executeResult == null) return null;
-    return ui.contextBuilder.build(name(), executeResult, jiraUsername, jiraUserDisplay);
   }
 
   @Override

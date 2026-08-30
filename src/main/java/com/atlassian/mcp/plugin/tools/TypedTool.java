@@ -1,6 +1,8 @@
 package com.atlassian.mcp.plugin.tools;
 
+import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import java.util.Map;
 
@@ -18,13 +20,42 @@ public abstract class TypedTool<A> implements McpTool {
 
   private final Class<A> argsType;
   private final Map<String, Object> inputSchema;
+  private final UiBinding ui;
 
   protected TypedTool(Class<A> argsType) {
+    this(argsType, null);
+  }
+
+  /** A tool bound to the Issue Card widget passes its binding here and declares nothing further. */
+  protected TypedTool(Class<A> argsType, UiBinding ui) {
     this.argsType = argsType;
     this.inputSchema = ToolSchema.of(argsType);
+    this.ui = ui;
   }
 
   protected abstract String run(A args, McpContext context) throws McpToolException;
+
+  @Override
+  public String uiResourceUri() {
+    return ui == null ? null : ui.resourceUri();
+  }
+
+  @Override
+  public String iconUri() {
+    return ui == null ? null : IconConstants.JIRA_LOGO_DATA_URI;
+  }
+
+  @Override
+  public Map<String, Object> outputSchema() {
+    return ui == null ? null : UiToolDefaults.ISSUE_LIST_OUTPUT_SCHEMA;
+  }
+
+  @Override
+  public ObjectNode structuredContent(
+      Map<String, Object> args, String executeResult, String jiraUsername, String jiraUserDisplay) {
+    if (ui == null || ui.contextBuilder == null || executeResult == null) return null;
+    return ui.contextBuilder.build(name(), executeResult, jiraUsername, jiraUserDisplay);
+  }
 
   @Override
   public final Map<String, Object> inputSchema() {
