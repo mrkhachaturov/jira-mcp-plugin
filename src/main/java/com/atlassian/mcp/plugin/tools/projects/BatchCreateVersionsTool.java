@@ -3,13 +3,32 @@ package com.atlassian.mcp.plugin.tools.projects;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
-public class BatchCreateVersionsTool implements McpTool {
+public class BatchCreateVersionsTool extends DeclarativeTool {
+
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "Jira project key (e.g., 'PROJ', 'ACV2')").required();
+  private static final ToolParam<String> VERSIONS =
+      ToolParam.string(
+              "versions",
+              "JSON array of version objects. Each object should contain: - name (required): Name"
+                  + " of the version - startDate (optional): Start date (YYYY-MM-DD) - releaseDate"
+                  + " (optional): Release date (YYYY-MM-DD) - description (optional): Description"
+                  + " of the version Example: [ {\"name\": \"v1.0\", \"startDate\": \"2025-01-01\","
+                  + " \"releaseDate\": \"2025-02-01\", \"description\": \"First release\"},"
+                  + " {\"name\": \"v2.0\"} ]")
+          .required();
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,24 +47,6 @@ public class BatchCreateVersionsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "project_key",
-                    Map.of(
-                        "type", "string", "description", "Jira project key (e.g., 'PROJ', 'ACV2')"),
-                "versions",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "JSON array of version objects. Each object should contain: - name (required): Name of the version - startDate (optional): Start date (YYYY-MM-DD) - releaseDate (optional): Release date (YYYY-MM-DD) - description (optional): Description of the version Example: [ {\"name\": \"v1.0\", \"startDate\": \"2025-01-01\", \"releaseDate\": \"2025-02-01\", \"description\": \"First release\"}, {\"name\": \"v2.0\"} ]")),
-        "required", List.of("project_key", "versions"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -56,8 +57,13 @@ public class BatchCreateVersionsTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    return executeWithProgress(args, authHeader, (current, total, message) -> {});
+  public List<ToolParam<?>> params() {
+    return List.of(PROJECT_KEY, VERSIONS);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    return run(args, authHeader, (current, total, message) -> {});
   }
 
   @Override
@@ -67,22 +73,23 @@ public class BatchCreateVersionsTool implements McpTool {
       McpSyncServerExchange exchange,
       Object progressToken)
       throws McpToolException {
-    return executeWithProgress(
-        args, authHeader, BatchProgressBridge.bridge(exchange, progressToken));
+    return run(
+        new ToolArgs(params(), args),
+        authHeader,
+        BatchProgressBridge.bridge(exchange, progressToken));
   }
 
   @Override
   public String executeWithProgress(
       Map<String, Object> args, String authHeader, ProgressCallback progress)
       throws McpToolException {
-    String projectKey = (String) args.get("project_key");
-    if (projectKey == null || projectKey.isBlank()) {
-      throw new McpToolException("'project_key' parameter is required");
-    }
-    String versionsJson = (String) args.get("versions");
-    if (versionsJson == null || versionsJson.isBlank()) {
-      throw new McpToolException("'versions' parameter is required");
-    }
+    return run(new ToolArgs(params(), args), authHeader, progress);
+  }
+
+  private String run(ToolArgs args, String authHeader, ProgressCallback progress)
+      throws McpToolException {
+    String projectKey = args.require(PROJECT_KEY);
+    String versionsJson = args.require(VERSIONS);
 
     List<Map<String, Object>> versions;
     try {
@@ -102,13 +109,14 @@ public class BatchCreateVersionsTool implements McpTool {
       progress.report(i, total, "Creating version " + (i + 1) + " of " + total + ": " + name);
 
       try {
-        Map<String, Object> body = new HashMap<>(version);
+        // Jira's version resource names the owning project "project" and takes its key there.
+        Map<String, Object> body = new LinkedHashMap<>(version);
         body.put("project", projectKey);
         String jsonBody = mapper.writeValueAsString(body);
         String result = client.post("/rest/api/2/version", jsonBody, authHeader);
-        created.add(mapper.readValue(result, new TypeReference<>() {}));
+        created.add(mapper.readValue(result, new TypeReference<Map<String, Object>>() {}));
       } catch (Exception e) {
-        errors.add(Map.of("index", i, "name", name, "error", e.getMessage()));
+        errors.add(Map.of("index", i, "name", name, "error", String.valueOf(e.getMessage())));
       }
     }
 

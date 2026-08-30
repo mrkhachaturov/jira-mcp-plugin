@@ -2,13 +2,27 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class CreateVersionTool implements McpTool {
+public class CreateVersionTool extends DeclarativeTool {
+
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "Jira project key (e.g., 'PROJ', 'ACV2')").required();
+  private static final ToolParam<String> NAME =
+      ToolParam.string("name", "Name of the version").required();
+  private static final ToolParam<String> START_DATE =
+      ToolParam.string("start_date", "Start date (YYYY-MM-DD)");
+  private static final ToolParam<String> RELEASE_DATE =
+      ToolParam.string("release_date", "Release date (YYYY-MM-DD)");
+  private static final ToolParam<String> DESCRIPTION =
+      ToolParam.string("description", "Description of the version");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,47 +41,30 @@ public class CreateVersionTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "project_key",
-                    Map.of(
-                        "type", "string", "description", "Jira project key (e.g., 'PROJ', 'ACV2')"),
-                "name", Map.of("type", "string", "description", "Name of the version"),
-                "start_date", Map.of("type", "string", "description", "Start date (YYYY-MM-DD)"),
-                "release_date",
-                    Map.of("type", "string", "description", "Release date (YYYY-MM-DD)"),
-                "description",
-                    Map.of("type", "string", "description", "Description of the version")),
-        "required", List.of("project_key", "name"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String projectKey = (String) args.get("project_key");
-    if (projectKey == null || projectKey.isBlank()) {
-      throw new McpToolException("'project_key' parameter is required");
-    }
-    String name = (String) args.get("name");
-    if (name == null || name.isBlank()) {
-      throw new McpToolException("'name' parameter is required");
-    }
-    String startDate = (String) args.get("start_date");
-    String releaseDate = (String) args.get("release_date");
-    String description = (String) args.get("description");
+  public List<ToolParam<?>> params() {
+    return List.of(PROJECT_KEY, NAME, START_DATE, RELEASE_DATE, DESCRIPTION);
+  }
 
-    Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("project_key", projectKey);
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String projectKey = args.require(PROJECT_KEY);
+    String name = args.require(NAME);
+    String startDate = args.get(START_DATE);
+    String releaseDate = args.get(RELEASE_DATE);
+    String description = args.get(DESCRIPTION);
+
+    // Jira's version resource names the owning project "project" and takes its key there; the
+    // camelCase date fields are the only ones it recognises.
+    Map<String, Object> requestBody = new LinkedHashMap<>();
+    requestBody.put("project", projectKey);
     requestBody.put("name", name);
-    if (startDate != null) requestBody.put("start_date", startDate);
-    if (releaseDate != null) requestBody.put("release_date", releaseDate);
+    if (startDate != null) requestBody.put("startDate", startDate);
+    if (releaseDate != null) requestBody.put("releaseDate", releaseDate);
     if (description != null) requestBody.put("description", description);
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
