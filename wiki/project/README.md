@@ -14,7 +14,8 @@ Claude when you ask).
 
 - [architecture.md](architecture.md) — layer-by-layer breakdown (endpoint, OAuth proxy, tools, resources, auth)
 - [mcp-transport.md](mcp-transport.md) — Streamable HTTP transport: methods, SSE rules, session management, security
-- [tools.md](tools.md) — 49-tool inventory, `McpTool` interface, `execute()` patterns
+- [tool-authoring.md](tool-authoring.md) — the tool contract: `TypedTool`, `@ToolArg` records, and what to ask before converting a tool
+- [tools.md](tools.md) — tool inventory, `McpTool` interface, `execute()` patterns
 - [response-trimming.md](response-trimming.md) — what `ResponseTrimmer` strips/renames and why
 - [admin-config.md](admin-config.md) — `PluginSettings` keys with defaults
 - [e2e-tests.md](e2e-tests.md) — e2e test categories and prerequisites

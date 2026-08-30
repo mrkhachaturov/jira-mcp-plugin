@@ -1,9 +1,9 @@
 # jira-mcp-plugin
 
 Native Jira Data Center plugin that embeds an MCP (Model Context Protocol)
-server. AI agents connect via OAuth 2.0 or PATs. 49 tools cover issues,
-projects, boards, sprints, comments, worklogs, links, fields, attachments,
-service desk, forms, and metrics.
+server. AI agents connect via OAuth 2.0 or PATs. Tools cover issues, projects,
+boards, sprints, comments, worklogs, links, fields, attachments, service desk,
+forms, and metrics.
 
 For deeper reference (architecture, transport details, full tool table,
 response-trimming rules, admin keys, e2e test catalog, source-tree map),
@@ -42,17 +42,17 @@ via GitHub Actions).
 | OAuth endpoints   | `/plugins/servlet/mcp-oauth/{metadata,register,authorize,callback,token}` |
 | Admin REST        | `GET/PUT /rest/mcp-admin/1.0/`                                            |
 | Admin page        | `/plugins/servlet/mcp-admin`                                              |
-| Target Jira       | Data Center 11.x                                                          |
+| Target Jira       | Data Center — exact version in `jira.version` (pom.xml)                   |
 
 ## Hard-Won Lessons
 
 ### jakarta, NOT javax
 
-Jira 11.x runs on Tomcat 10.1 + Spring 6.2.15 + Jakarta EE 10. API JARs are
-published under `jakarta.servlet`, `jakarta.ws.rs`, `jakarta.inject`,
-`jakarta.annotation`. Always use `jakarta.*` imports — never `javax.*`. The
-platform BOM at `com.atlassian.platform.dependencies:platform-public-api:8.1.13`
-pins all jakarta + Spring + Jackson + Atlassian REST v2 + SAL versions transitively.
+Jira 11 runs on Tomcat 10 + Spring 6 + Jakarta EE 10. API JARs are published
+under `jakarta.servlet`, `jakarta.ws.rs`, `jakarta.inject`, `jakarta.annotation`.
+Always use `jakarta.*` imports — never `javax.*`. Jakarta, Spring, Jackson,
+Atlassian REST and SAL versions all arrive transitively from the platform BOM,
+which `jira.version` selects; never pin them by hand.
 
 ### Spring Scanner requires scan-indexes XML
 
@@ -79,8 +79,8 @@ atlassian-annotations.
 ### REST package scan must be specific
 
 Use `<package>com.atlassian.mcp.plugin.rest</package>` — never the parent
-package. (Verify post-merge — Spring 6 / atlassian-spring-scanner 6.0.2 may
-have relaxed this; left in place defensively.)
+package. (Newer Spring Scanner releases may have relaxed this; left in place
+defensively.)
 
 ### Version bumps bust JS/CSS cache
 
@@ -118,6 +118,23 @@ modules — there is no XML knob, and `<async-supported>` in
 must be registered as a `<servlet-filter>` that owns its URL pattern and
 short-circuits the chain (never calls `chain.doFilter()`); the JVM flag
 above is the only effective control for the surrounding wrapper.
+
+## Writing a tool
+
+A tool extends `TypedTool<A>` and declares its parameters as a record whose
+components carry `@ToolArg`. The advertised JSON Schema is derived from that
+record and the bound record is what `run(A args, McpContext context)` receives;
+`inputSchema()` and every `execute` overload are final.
+
+- **Declare the type the parameter is.** A list of values is `List<String>`, a
+  structured object is `Map<String, Object>`, a repeated structured object is
+  `List<SomeRecord>`. `String` is for text and for expressions Jira parses.
+- **Never write a wire name as a string literal** — `projectKey` is advertised
+  as `project_key`.
+- **Take auth and progress from `McpContext`**, never as a parameter.
+- **Converting an existing tool starts from what the tool is for**, not from the
+  parameters it happens to have. The questions to answer first, and the full
+  contract, are in [wiki/project/tool-authoring.md](wiki/project/tool-authoring.md).
 
 ## Critical Rules
 
