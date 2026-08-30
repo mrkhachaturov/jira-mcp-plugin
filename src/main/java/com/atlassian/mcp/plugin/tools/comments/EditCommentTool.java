@@ -3,13 +3,28 @@ package com.atlassian.mcp.plugin.tools.comments;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class EditCommentTool implements McpTool {
+public class EditCommentTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> COMMENT_ID =
+      ToolParam.string("comment_id", "The ID of the comment to edit").required();
+  private static final ToolParam<String> BODY =
+      ToolParam.string("body", "Updated comment text in Markdown format").required();
+  private static final ToolParam<String> VISIBILITY =
+      ToolParam.string(
+          "visibility",
+          "(Optional) Comment visibility as JSON string (e.g."
+              + " '{\"type\":\"group\",\"value\":\"jira-users\"}')");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,51 +43,21 @@ public class EditCommentTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "comment_id",
-                    Map.of("type", "string", "description", "The ID of the comment to edit"),
-                "body",
-                    Map.of(
-                        "type", "string", "description", "Updated comment text in Markdown format"),
-                "visibility",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Comment visibility as JSON string (e.g. '{\"type\":\"group\",\"value\":\"jira-users\"}')")),
-        "required", List.of("issue_key", "comment_id", "body"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String commentId = (String) args.get("comment_id");
-    if (commentId == null || commentId.isBlank()) {
-      throw new McpToolException("'comment_id' parameter is required");
-    }
-    String body = (String) args.get("body");
-    if (body == null || body.isBlank()) {
-      throw new McpToolException("'body' parameter is required");
-    }
-    String visibility = (String) args.get("visibility");
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, COMMENT_ID, BODY, VISIBILITY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String commentId = args.require(COMMENT_ID);
+    String body = args.require(BODY);
+    String visibility = args.get(VISIBILITY);
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("body", JiraMarkupConverter.markdownToJira(body));

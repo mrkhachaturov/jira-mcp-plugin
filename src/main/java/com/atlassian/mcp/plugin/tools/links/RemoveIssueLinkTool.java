@@ -2,11 +2,16 @@ package com.atlassian.mcp.plugin.tools.links;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.util.List;
-import java.util.Map;
 
-public class RemoveIssueLinkTool implements McpTool {
+public class RemoveIssueLinkTool extends DeclarativeTool {
+
+  private static final ToolParam<String> LINK_ID =
+      ToolParam.string("link_id", "The ID of the link to remove").required();
+
   private final JiraRestClient client;
 
   public RemoveIssueLinkTool(JiraRestClient client) {
@@ -24,16 +29,6 @@ public class RemoveIssueLinkTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "link_id", Map.of("type", "string", "description", "The ID of the link to remove")),
-        "required", List.of("link_id"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -44,12 +39,12 @@ public class RemoveIssueLinkTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String linkId = (String) args.get("link_id");
-    if (linkId == null || linkId.isBlank()) {
-      throw new McpToolException("'link_id' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(LINK_ID);
+  }
 
-    return client.delete("/rest/api/2/issueLink/" + linkId, authHeader);
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    return client.delete("/rest/api/2/issueLink/" + args.require(LINK_ID), authHeader);
   }
 }
