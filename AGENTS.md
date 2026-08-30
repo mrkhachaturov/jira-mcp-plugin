@@ -12,18 +12,19 @@ auto-loaded — look it up on demand.
 
 ## Build & Deploy
 
-All commands via `just`. Env vars auto-loaded by mise from
-`.credentials/jira.env`.
+All commands are mise tasks, defined as scripts under `.mise/tasks/`. Env vars
+auto-loaded by mise from `.credentials/jira.env`. Run `mise tasks` to list them.
 
 ```bash
-just build            # build widget + atlas-package (compile + JAR)
-just build-app        # build MCP App widget only (React → single HTML)
-just deploy           # clean + build + upload JAR to Jira UPM + verify enabled
-just test             # unit tests (excludes e2e)
-just e2e              # 14 e2e tests against live Jira instance
-just deploy-and-test  # build + deploy + e2e in one shot
-just dev-app          # widget dev server (Vite hot reload)
-just clean            # atlas-clean
+mise run build      # widget + atlas-package (compile + JAR)
+mise run build:app  # MCP App widget only (React → single HTML)
+mise run deploy      # clean + build + upload JAR to Jira UPM + verify enabled
+mise run test        # unit tests (excludes e2e)
+mise run test:e2e    # e2e tests against the live Jira instance
+mise run lint        # every linter, via flint
+mise run lint:fix    # apply what the linters can fix
+mise run dev:app     # widget dev server (Vite hot reload)
+mise run clean       # atlas-clean
 ```
 
 **Local builds must use `atlas-mvn`** (not plain `mvn`). The Atlassian SDK
@@ -123,9 +124,9 @@ above is the only effective control for the surrounding wrapper.
 - **Always use `jakarta.*`** imports, never `javax.*`.
 - **Plugin key is `com.atlassian.mcp.jira-mcp-plugin`** everywhere.
 - **Use `atlas-mvn`** for local builds, never plain `mvn`.
-- **Use `just`** for all workflows — build, deploy, test.
+- **Use `mise run`** for all workflows — build, deploy, test, lint.
 - **Bump version** in pom.xml when changing JS/CSS (cache busting).
-- **Run `just e2e`** after any tool changes to verify against live Jira.
+- **Run `mise run test:e2e`** after any tool changes to verify against live Jira.
 
 ## Linting
 

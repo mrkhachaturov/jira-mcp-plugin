@@ -53,7 +53,10 @@ hooks {
 
   ["commit-msg"] {
     steps {
-      ["conventional-commit"] = Builtins.check_conventional_commit
+      // git writes its own "Merge branch ..." subject, which no convention covers.
+      ["conventional-commit"] = new Step {
+        check = "test -f .git/MERGE_HEAD || hk util check-conventional-commit .git/COMMIT_EDITMSG"
+      }
     }
   }
 
