@@ -2,23 +2,23 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
-public class RemoveWatcherTool extends DeclarativeTool {
+public class RemoveWatcherTool extends TypedTool<RemoveWatcherTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
-  private static final ToolParam<String> USERNAME =
-      ToolParam.string("username", "Username of the watcher to remove.").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123')", required = true) String issueKey,
+      @ToolArg(value = "Jira username of the watcher to remove", required = true)
+          String userIdentifier) {}
 
   private final JiraRestClient client;
 
   public RemoveWatcherTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -43,17 +43,13 @@ public class RemoveWatcherTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, USERNAME);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String username = args.require(USERNAME);
-
+  protected String run(Args args, McpContext context) throws McpToolException {
     return client.delete(
-        "/rest/api/2/issue/" + issueKey + "/watchers?username=" + encode(username), authHeader);
+        "/rest/api/2/issue/"
+            + args.issueKey()
+            + "/watchers?username="
+            + encode(args.userIdentifier()),
+        context.authHeader());
   }
 
   private static String encode(String s) {

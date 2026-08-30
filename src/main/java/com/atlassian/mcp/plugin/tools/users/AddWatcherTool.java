@@ -2,24 +2,24 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
 
-public class AddWatcherTool extends DeclarativeTool {
+public class AddWatcherTool extends TypedTool<AddWatcherTool.Args> {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
-
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
-  private static final ToolParam<String> USER_IDENTIFIER =
-      ToolParam.string("user_identifier", "Username of the person to add as a watcher.").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123')", required = true) String issueKey,
+      @ToolArg(value = "Jira username of the person to add as a watcher", required = true)
+          String userIdentifier) {}
 
   private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
   public AddWatcherTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -39,24 +39,16 @@ public class AddWatcherTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, USER_IDENTIFIER);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String userIdentifier = args.require(USER_IDENTIFIER);
-
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String body;
     try {
       // The watchers endpoint takes the bare user name as a JSON string, not an object; any
       // wrapper property is rejected as an unrecognized field.
-      String body = MAPPER.writeValueAsString(userIdentifier);
-      return client.post("/rest/api/2/issue/" + issueKey + "/watchers", body, authHeader);
-    } catch (McpToolException e) {
-      throw e;
-    } catch (Exception e) {
+      body = mapper.writeValueAsString(args.userIdentifier());
+    } catch (JsonProcessingException e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
+    return client.post(
+        "/rest/api/2/issue/" + args.issueKey() + "/watchers", body, context.authHeader());
   }
 }

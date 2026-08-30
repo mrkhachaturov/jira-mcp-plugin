@@ -40,11 +40,23 @@ public class GetIssueWatchersToolTest {
   }
 
   @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-1", "expand", "watchers"), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("expand"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
 
     assertEquals(Set.of("issue_key"), ((Map<String, Object>) schema.get("properties")).keySet());
     assertEquals(List.of("issue_key"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
   }
 }
