@@ -3,13 +3,40 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-public class UpdateIssueTool implements McpTool {
+public class UpdateIssueTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> FIELDS =
+      ToolParam.string(
+              "fields",
+              "JSON string of fields to update. For 'assignee', provide a string identifier (email,"
+                  + " name, or accountId). For 'description', provide text in Markdown format."
+                  + " Example: '{\"assignee\": \"user@example.com\", \"summary\": \"New Summary\","
+                  + " \"description\": \"## Updated\\nMarkdown text\"}'")
+          .required();
+  private static final ToolParam<String> ADDITIONAL_FIELDS =
+      ToolParam.string(
+          "additional_fields",
+          "(Optional) JSON string of additional fields to update. Use this for custom fields or"
+              + " more complex updates. Link to epic: {\"epicKey\": \"EPIC-123\"} or"
+              + " {\"epic_link\": \"EPIC-123\"}.");
+  private static final ToolParam<String> COMPONENTS =
+      ToolParam.string(
+          "components",
+          "(Optional) Comma-separated list of component names (e.g., 'Frontend,API')");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,57 +55,22 @@ public class UpdateIssueTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "fields",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "JSON string of fields to update. For 'assignee', provide a string identifier (email, name, or accountId). For 'description', provide text in Markdown format. Example: '{\"assignee\": \"user@example.com\", \"summary\": \"New Summary\", \"description\": \"## Updated\\nMarkdown text\"}'"),
-                "additional_fields",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) JSON string of additional fields to update. Use this for custom fields or more complex updates. Link to epic: {\"epicKey\": \"EPIC-123\"} or {\"epic_link\": \"EPIC-123\"}."),
-                "components",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Comma-separated list of component names (e.g., 'Frontend,API')")),
-        "required", List.of("issue_key", "fields"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String fields = (String) args.get("fields");
-    if (fields == null || fields.isBlank()) {
-      throw new McpToolException("'fields' parameter is required");
-    }
-    String additionalFields = (String) args.get("additional_fields");
-    String components = (String) args.get("components");
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, FIELDS, ADDITIONAL_FIELDS, COMPONENTS);
+  }
 
-    // Parse fields JSON string into a map
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String fields = args.require(FIELDS);
+    String additionalFields = args.get(ADDITIONAL_FIELDS);
+    String components = args.get(COMPONENTS);
+
     Map<String, Object> updateFields;
     try {
       @SuppressWarnings("unchecked")
@@ -88,7 +80,6 @@ public class UpdateIssueTool implements McpTool {
       throw new McpToolException("Invalid fields JSON: " + e.getMessage());
     }
 
-    // Merge additional_fields
     if (additionalFields != null && !additionalFields.isBlank()) {
       try {
         @SuppressWarnings("unchecked")
@@ -99,29 +90,27 @@ public class UpdateIssueTool implements McpTool {
       }
     }
 
-    // Convert description from Markdown to Jira wiki markup
     if (updateFields.containsKey("description")
         && updateFields.get("description") instanceof String desc) {
       updateFields.put("description", JiraMarkupConverter.markdownToJira(desc));
     }
 
-    // Parse components
     if (components != null && !components.isBlank()) {
       updateFields.put(
           "components",
-          java.util.Arrays.stream(components.split(","))
+          Arrays.stream(components.split(","))
               .map(String::trim)
               .filter(s -> !s.isEmpty())
               .map(c -> Map.of("name", c))
-              .collect(java.util.stream.Collectors.toList()));
+              .collect(Collectors.toList()));
     }
 
     try {
       String jsonBody = mapper.writeValueAsString(Map.of("fields", updateFields));
       client.put("/rest/api/2/issue/" + issueKey, jsonBody, authHeader);
-      // Return the updated issue (matches upstream: {"success": true, "issue": {...}})
+      // Jira's PUT returns 204 with no body, so the updated issue has to be re-read.
       String updatedIssue = client.get("/rest/api/2/issue/" + issueKey, authHeader);
-      Map<String, Object> result = new java.util.LinkedHashMap<>();
+      Map<String, Object> result = new LinkedHashMap<>();
       result.put("success", true);
       result.put("issue", mapper.readTree(updatedIssue));
       return mapper.writeValueAsString(result);
