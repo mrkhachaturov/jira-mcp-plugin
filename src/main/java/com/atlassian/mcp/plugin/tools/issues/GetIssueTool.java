@@ -3,7 +3,9 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.atlassian.mcp.plugin.tools.UiBinding;
 import com.atlassian.mcp.plugin.tools.UiToolDefaults;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -16,8 +18,41 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
-public class GetIssueTool implements McpTool {
+public class GetIssueTool extends DeclarativeTool {
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private static final String DEFAULT_FIELDS =
+      "summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,"
+          + "labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent";
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> FIELDS =
+      ToolParam.string(
+              "fields",
+              "(Optional) Comma-separated list of fields to return (e.g.,"
+                  + " 'summary,status,customfield_10010'). You may also provide a single field as a"
+                  + " string (e.g., 'duedate'). Use '*all' for all fields (including custom"
+                  + " fields), or omit for essential fields only.")
+          .withDefault(DEFAULT_FIELDS);
+  private static final ToolParam<String> EXPAND =
+      ToolParam.string(
+          "expand",
+          "(Optional) Fields to expand. Examples: 'renderedFields' (for rendered content),"
+              + " 'transitions' (for available status transitions), 'changelog' (for history)");
+  private static final ToolParam<Integer> COMMENT_LIMIT =
+      ToolParam.integer(
+              "comment_limit", "Maximum number of comments to include (0 or null for no comments)")
+          .withDefault(10);
+  private static final ToolParam<String> PROPERTIES =
+      ToolParam.string(
+          "properties", "(Optional) A comma-separated list of issue properties to return");
+  private static final ToolParam<Boolean> UPDATE_HISTORY =
+      ToolParam.bool(
+              "update_history", "Whether to update the issue view history for the requesting user")
+          .withDefault(true);
+
+  private static final int MAX_COMMENTS = 100;
 
   private final JiraRestClient client;
   private final UiBinding ui;
@@ -64,76 +99,23 @@ public class GetIssueTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "fields",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Comma-separated list of fields to return (e.g., 'summary,status,customfield_10010'). You may also provide a single field as a string (e.g., 'duedate'). Use '*all' for all fields (including custom fields), or omit for essential fields only.",
-                        "default",
-                        "summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent"),
-                "expand",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Fields to expand. Examples: 'renderedFields' (for rendered content), 'transitions' (for available status transitions), 'changelog' (for history)"),
-                "comment_limit",
-                    Map.of(
-                        "type",
-                        "integer",
-                        "description",
-                        "Maximum number of comments to include (0 or null for no comments)",
-                        "default",
-                        10),
-                "properties",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) A comma-separated list of issue properties to return"),
-                "update_history",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "Whether to update the issue view history for the requesting user",
-                        "default",
-                        true)),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String fields =
-        (String)
-            args.getOrDefault(
-                "fields",
-                "summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent");
-    String expand = (String) args.get("expand");
-    int commentLimit = Math.min(getInt(args, "comment_limit", 10), 100);
-    String properties = (String) args.get("properties");
-    boolean updateHistory = getBoolean(args, "update_history", true);
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, FIELDS, EXPAND, COMMENT_LIMIT, PROPERTIES, UPDATE_HISTORY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String fields = args.get(FIELDS);
+    String expand = args.get(EXPAND);
+    int commentLimit = Math.min(args.get(COMMENT_LIMIT), MAX_COMMENTS);
+    String properties = args.get(PROPERTIES);
+    boolean updateHistory = args.get(UPDATE_HISTORY);
 
     StringBuilder query = new StringBuilder();
     String sep = "?";
@@ -150,7 +132,6 @@ public class GetIssueTool implements McpTool {
       sep = "&";
     }
     query.append(sep).append("updateHistory=").append(updateHistory);
-    sep = "&";
 
     String response = client.get("/rest/api/2/issue/" + issueKey + query, authHeader);
     return trimComments(response, commentLimit);
@@ -194,25 +175,5 @@ public class GetIssueTool implements McpTool {
 
   private static String encode(String s) {
     return URLEncoder.encode(s, StandardCharsets.UTF_8);
-  }
-
-  private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Number n) return n.intValue();
-    if (val instanceof String s) {
-      try {
-        return Integer.parseInt(s);
-      } catch (NumberFormatException e) {
-        return defaultVal;
-      }
-    }
-    return defaultVal;
-  }
-
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
   }
 }

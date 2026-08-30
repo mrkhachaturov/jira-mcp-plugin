@@ -3,7 +3,9 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.atlassian.mcp.plugin.tools.UiBinding;
 import com.atlassian.mcp.plugin.tools.UiToolDefaults;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -12,7 +14,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
-public class GetProjectIssuesTool implements McpTool {
+public class GetProjectIssuesTool extends DeclarativeTool {
+
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "Jira project key (e.g., 'PROJ', 'ACV2')").required();
+  private static final ToolParam<Integer> LIMIT =
+      ToolParam.integer("limit", "Maximum number of results (1-50)").withDefault(10);
+  private static final ToolParam<Integer> START_AT =
+      ToolParam.integer("start_at", "Starting index for pagination (0-based)").withDefault(0);
+
+  private static final int MAX_LIMIT = 50;
+
   private final JiraRestClient client;
   private final UiBinding ui;
 
@@ -58,46 +70,20 @@ public class GetProjectIssuesTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "project_key",
-                    Map.of(
-                        "type", "string", "description", "Jira project key (e.g., 'PROJ', 'ACV2')"),
-                "limit",
-                    Map.of(
-                        "type",
-                        "integer",
-                        "description",
-                        "Maximum number of results (1-50)",
-                        "default",
-                        10),
-                "start_at",
-                    Map.of(
-                        "type",
-                        "integer",
-                        "description",
-                        "Starting index for pagination (0-based)",
-                        "default",
-                        0)),
-        "required", List.of("project_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String projectKey = (String) args.get("project_key");
-    if (projectKey == null || projectKey.isBlank()) {
-      throw new McpToolException("'project_key' parameter is required");
-    }
-    int limit = Math.min(getInt(args, "limit", 10), 50);
-    int startAt = getInt(args, "start_at", 0);
+  public List<ToolParam<?>> params() {
+    return List.of(PROJECT_KEY, LIMIT, START_AT);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String projectKey = args.require(PROJECT_KEY);
+    int limit = Math.min(args.get(LIMIT), MAX_LIMIT);
+    int startAt = args.get(START_AT);
 
     String jql = "project=" + encode(projectKey) + " ORDER BY created DESC";
     String query = "?jql=" + encode(jql) + "&maxResults=" + limit + "&startAt=" + startAt;
@@ -106,18 +92,5 @@ public class GetProjectIssuesTool implements McpTool {
 
   private static String encode(String s) {
     return URLEncoder.encode(s, StandardCharsets.UTF_8);
-  }
-
-  private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Number n) return n.intValue();
-    if (val instanceof String s) {
-      try {
-        return Integer.parseInt(s);
-      } catch (NumberFormatException e) {
-        return defaultVal;
-      }
-    }
-    return defaultVal;
   }
 }
