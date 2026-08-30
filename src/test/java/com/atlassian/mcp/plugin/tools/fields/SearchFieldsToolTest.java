@@ -5,10 +5,13 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
+import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -40,7 +43,7 @@ public class SearchFieldsToolTest {
   }
 
   private static List<String> names(JsonNode result) {
-    List<String> names = new java.util.ArrayList<>();
+    List<String> names = new ArrayList<>();
     for (JsonNode field : result) names.add(field.path("name").asText());
     return names;
   }
@@ -66,15 +69,24 @@ public class SearchFieldsToolTest {
     assertEquals(4, result(Map.of()).size());
   }
 
+  @Test
+  public void anUnreadableFieldListIsReportedAsSuch() throws Exception {
+    when(client.get(anyString(), any())).thenReturn("<html>gateway timeout</html>");
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(Map.of(), "t"));
+    assertTrue(e.getMessage(), e.getMessage().startsWith("Jira returned an unreadable field list"));
+  }
+
   /**
-   * The field list is fetched from Jira on every call, so 'refresh' has nothing cached to
-   * invalidate — it is advertised but cannot change the result.
+   * The field list is read from Jira on every call and nothing is held between them, so there was
+   * never a cached copy for a 'refresh' parameter to invalidate.
    */
   @Test
-  public void refreshDoesNotChangeTheResult() throws Exception {
-    assertEquals(
-        result(Map.of("keyword", "story", "refresh", false)),
-        result(Map.of("keyword", "story", "refresh", true)));
+  public void refreshIsNoLongerAdvertised() {
+    McpToolException e =
+        assertThrows(McpToolException.class, () -> tool.execute(Map.of("refresh", true), "t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("Unknown parameter 'refresh'"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -83,7 +95,7 @@ public class SearchFieldsToolTest {
     Map<String, Object> schema = tool.inputSchema();
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(java.util.Set.of("keyword", "limit", "refresh"), props.keySet());
+    assertEquals(Set.of("keyword", "limit"), props.keySet());
     assertEquals(List.of(), schema.get("required"));
     assertEquals(10, ((Map<String, Object>) props.get("limit")).get("default"));
   }

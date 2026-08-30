@@ -8,8 +8,10 @@ import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -43,7 +45,7 @@ public class GetFieldOptionsToolTest {
   }
 
   private static Map<String, Object> args(Object... keyValues) {
-    Map<String, Object> args = new java.util.LinkedHashMap<>();
+    Map<String, Object> args = new LinkedHashMap<>();
     args.put("field_id", "priority");
     args.put("project_key", "PROJ");
     args.put("issue_type", "Bug");
@@ -62,7 +64,7 @@ public class GetFieldOptionsToolTest {
     tool.execute(args(), "Bearer t");
 
     ArgumentCaptor<String> urls = ArgumentCaptor.forClass(String.class);
-    verify(client, times(2)).get(urls.capture(), any());
+    verify(client, times(2)).get(urls.capture(), eq("Bearer t"));
 
     assertEquals("/rest/api/2/issue/createmeta/PROJ/issuetypes", urls.getAllValues().get(0));
     // The issue type is resolved to its id, which is what the field endpoint takes.
@@ -84,6 +86,14 @@ public class GetFieldOptionsToolTest {
     McpToolException e =
         assertThrows(McpToolException.class, () -> tool.execute(args("field_id", "nosuch"), "t"));
     assertTrue(e.getMessage(), e.getMessage().contains("'nosuch' is not on the create screen"));
+  }
+
+  @Test
+  public void anUnknownIssueTypeIsRejectedWithTheOnesThatExist() {
+    McpToolException e =
+        assertThrows(McpToolException.class, () -> tool.execute(args("issue_type", "Epic"), "t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("'Epic' not found in project 'PROJ'"));
+    assertTrue(e.getMessage(), e.getMessage().contains("Bug, Task"));
   }
 
   @Test
@@ -133,6 +143,15 @@ public class GetFieldOptionsToolTest {
           assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
       assertEquals("'" + param + "' parameter is required", e.getMessage());
     }
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anUnknownParameterIsRefused() {
+    McpToolException e =
+        assertThrows(McpToolException.class, () -> tool.execute(args("start_at", 5), "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("Unknown parameter 'start_at'"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -142,9 +161,10 @@ public class GetFieldOptionsToolTest {
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
     assertEquals(
-        java.util.Set.of(
-            "field_id", "project_key", "issue_type", "contains", "return_limit", "values_only"),
+        Set.of("field_id", "project_key", "issue_type", "contains", "return_limit", "values_only"),
         props.keySet());
     assertEquals(List.of("field_id", "project_key", "issue_type"), schema.get("required"));
+    assertEquals(0, ((Map<String, Object>) props.get("return_limit")).get("default"));
+    assertEquals(Boolean.FALSE, ((Map<String, Object>) props.get("values_only")).get("default"));
   }
 }
