@@ -7,7 +7,9 @@ import static org.mockito.Mockito.*;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,7 +36,7 @@ public class GetBoardIssuesToolTest {
   @Test
   public void everyDeclaredParamReachesTheRequest() throws Exception {
     Map<String, Object> args = new HashMap<>();
-    args.put("board_id", "1001");
+    args.put("board_id", 1001);
     args.put("jql", "status = Done");
     args.put("fields", "summary,status");
     args.put("start_at", 20);
@@ -53,19 +55,22 @@ public class GetBoardIssuesToolTest {
 
   @Test
   public void defaultsApplyWhenOptionalsAreAbsent() throws Exception {
-    String url = urlFor(Map.of("board_id", "1001", "jql", "project = PROJ"));
+    String url = urlFor(Map.of("board_id", 1001, "jql", "project = PROJ"));
 
     assertTrue(url, url.contains("startAt=0"));
     assertTrue(url, url.contains("maxResults=10"));
-    assertTrue(url, url.contains("expand=version"));
     assertTrue(url, url.contains("fields=summary%2Cstatus%2Cassignee"));
     assertTrue(url, url.contains("%2Cparent"));
   }
 
   @Test
+  public void expandIsOmittedWhenTheCallerAsksForNothing() throws Exception {
+    assertFalse(urlFor(Map.of("board_id", 1001, "jql", "project = PROJ")).contains("expand="));
+  }
+
+  @Test
   public void limitIsClampedToJiraPageSize() throws Exception {
-    assertTrue(
-        urlFor(Map.of("board_id", "1", "jql", "x", "limit", 5000)).contains("maxResults=50"));
+    assertTrue(urlFor(Map.of("board_id", 1, "jql", "x", "limit", 5000)).contains("maxResults=50"));
   }
 
   @Test
@@ -75,9 +80,20 @@ public class GetBoardIssuesToolTest {
     assertTrue(noBoard.getMessage(), noBoard.getMessage().contains("board_id"));
 
     McpToolException noJql =
-        assertThrows(
-            McpToolException.class, () -> tool.execute(Map.of("board_id", "1"), "Bearer t"));
+        assertThrows(McpToolException.class, () -> tool.execute(Map.of("board_id", 1), "Bearer t"));
     assertTrue(noJql.getMessage(), noJql.getMessage().contains("jql"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParameterIsRejectedRatherThanIgnored() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("board_id", 1001, "jql", "x", "boardId", 1001), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("boardId"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -87,10 +103,15 @@ public class GetBoardIssuesToolTest {
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
     assertEquals(
-        java.util.Set.of("board_id", "jql", "fields", "start_at", "limit", "expand"),
-        props.keySet());
-    assertEquals(
-        java.util.Set.of("board_id", "jql"),
-        java.util.Set.copyOf((java.util.List<String>) schema.get("required")));
+        Set.of("board_id", "jql", "fields", "start_at", "limit", "expand"), props.keySet());
+    assertEquals(Set.of("board_id", "jql"), Set.copyOf((List<String>) schema.get("required")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void expandCarriesNoDefault() {
+    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+
+    assertFalse(((Map<String, Object>) props.get("expand")).containsKey("default"));
   }
 }

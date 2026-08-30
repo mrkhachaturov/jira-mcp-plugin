@@ -2,33 +2,32 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class UpdateSprintTool extends DeclarativeTool {
+public class UpdateSprintTool extends TypedTool<UpdateSprintTool.Args> {
 
-  private static final ToolParam<String> SPRINT_ID =
-      ToolParam.string("sprint_id", "The id of sprint (e.g., '10001')").required();
-  private static final ToolParam<String> NAME =
-      ToolParam.string("name", "(Optional) New name for the sprint");
-  private static final ToolParam<String> STATE =
-      ToolParam.string("state", "(Optional) New state for the sprint (future|active|closed)");
-  private static final ToolParam<String> START_DATE =
-      ToolParam.string("start_date", "(Optional) New start date for the sprint");
-  private static final ToolParam<String> END_DATE =
-      ToolParam.string("end_date", "(Optional) New end date for the sprint");
-  private static final ToolParam<String> GOAL =
-      ToolParam.string("goal", "(Optional) New goal for the sprint");
+  public record Args(
+      @ToolArg(value = "The id of the sprint (e.g. 10001)", required = true) long sprintId,
+      @ToolArg("(Optional) New name for the sprint") String name,
+      @ToolArg(
+              value = "(Optional) New state for the sprint",
+              allowed = {"future", "active", "closed"})
+          String state,
+      @ToolArg("(Optional) New start date for the sprint (ISO 8601 format)") String startDate,
+      @ToolArg("(Optional) New end date for the sprint (ISO 8601 format)") String endDate,
+      @ToolArg("(Optional) New goal for the sprint") String goal) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public UpdateSprintTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -53,30 +52,20 @@ public class UpdateSprintTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(SPRINT_ID, NAME, STATE, START_DATE, END_DATE, GOAL);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    Map<String, Object> requestBody = new LinkedHashMap<>();
+    if (args.name() != null) requestBody.put("name", args.name());
+    if (args.state() != null) requestBody.put("state", args.state());
+    if (args.startDate() != null) requestBody.put("startDate", args.startDate());
+    if (args.endDate() != null) requestBody.put("endDate", args.endDate());
+    if (args.goal() != null) requestBody.put("goal", args.goal());
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String sprintId = args.require(SPRINT_ID);
-    String name = args.get(NAME);
-    String state = args.get(STATE);
-    String startDate = args.get(START_DATE);
-    String endDate = args.get(END_DATE);
-    String goal = args.get(GOAL);
-
-    Map<String, Object> requestBody = new HashMap<>();
-    if (name != null) requestBody.put("name", name);
-    if (state != null) requestBody.put("state", state);
-    if (startDate != null) requestBody.put("startDate", startDate);
-    if (endDate != null) requestBody.put("endDate", endDate);
-    if (goal != null) requestBody.put("goal", goal);
+    String body;
     try {
-      String jsonBody = mapper.writeValueAsString(requestBody);
-      return client.put("/rest/agile/1.0/sprint/" + sprintId, jsonBody, authHeader);
-    } catch (Exception e) {
+      body = mapper.writeValueAsString(requestBody);
+    } catch (JsonProcessingException e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
+    return client.put("/rest/agile/1.0/sprint/" + args.sprintId(), body, context.authHeader());
   }
 }

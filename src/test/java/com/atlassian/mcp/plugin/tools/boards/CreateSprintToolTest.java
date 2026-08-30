@@ -7,7 +7,9 @@ import static org.mockito.Mockito.*;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -26,7 +28,7 @@ public class CreateSprintToolTest {
 
   private static Map<String, Object> validArgs() {
     Map<String, Object> args = new HashMap<>();
-    args.put("board_id", "1000");
+    args.put("board_id", 1000);
     args.put("name", "Sprint 1");
     args.put("start_date", "2026-01-01T00:00:00.000+0000");
     args.put("end_date", "2026-01-14T00:00:00.000+0000");
@@ -68,6 +70,18 @@ public class CreateSprintToolTest {
           assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
       assertTrue(e.getMessage(), e.getMessage().contains(missing));
     }
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParameterIsRejectedRatherThanIgnored() {
+    Map<String, Object> args = validArgs();
+    args.put("origin_board_id", 1000);
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("origin_board_id"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -76,10 +90,18 @@ public class CreateSprintToolTest {
     Map<String, Object> schema = tool.inputSchema();
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
+    assertEquals(Set.of("board_id", "name", "start_date", "end_date", "goal"), props.keySet());
     assertEquals(
-        java.util.Set.of("board_id", "name", "start_date", "end_date", "goal"), props.keySet());
-    assertEquals(
-        java.util.Set.of("board_id", "name", "start_date", "end_date"),
-        java.util.Set.copyOf((java.util.List<String>) schema.get("required")));
+        Set.of("board_id", "name", "start_date", "end_date"),
+        Set.copyOf((List<String>) schema.get("required")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void boardIdIsAdvertisedAsAnInteger() {
+    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+    Map<String, Object> boardId = (Map<String, Object>) props.get("board_id");
+
+    assertEquals("integer", boardId.get("type"));
   }
 }
