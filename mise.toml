@@ -1,0 +1,42 @@
+min_version = "2026.5.15"
+
+[settings]
+lockfile = true
+
+[env]
+HK_MISE = 1
+FLINT_CONFIG_DIR = ".github/config"
+
+[hooks]
+postinstall = "hk install --mise"
+
+[tools]
+hivemind = "latest"
+hk = "1.56.0"
+java = "temurin-21"
+maven = "3.9"
+node = "22"
+
+# Linters
+actionlint = "1.7.12"
+"aqua:grafana/flint" = "0.22.11"
+"aqua:jonwiggins/xmloxide" = "0.5.0"
+"aqua:owenlamont/ryl" = "0.21.0"
+biome = "2.5.11"
+checkstyle = "14.0.0"
+editorconfig-checker = "3.11.2"
+google-java-format = "1.36.1"
+rumdl = "0.2.62"
+shellcheck = "0.11.0"
+shfmt = "3.14.0"
+taplo = "0.10.0"
+typos = "1.50.0"
+zizmor = "1.29.0"
+
+[tasks.lint]
+description = "Run all lints"
+run = "flint run"
+
+[tasks."lint:fix"]
+description = "Auto-fix lint issues"
+run = "flint run --fix"

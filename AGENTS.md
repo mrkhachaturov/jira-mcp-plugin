@@ -33,19 +33,20 @@ via GitHub Actions).
 
 ## Key Identifiers
 
-| What | Value |
-|------|-------|
-| Plugin key | `com.atlassian.mcp.jira-mcp-plugin` |
-| Maven coordinates | `com.atlassian.mcp:jira-mcp-plugin` |
-| MCP endpoint | `POST /plugins/servlet/mcp` |
-| OAuth endpoints | `/plugins/servlet/mcp-oauth/{metadata,register,authorize,callback,token}` |
-| Admin REST | `GET/PUT /rest/mcp-admin/1.0/` |
-| Admin page | `/plugins/servlet/mcp-admin` |
-| Target Jira | Data Center 11.x |
+| What              | Value                                                                     |
+| ----------------- | ------------------------------------------------------------------------- |
+| Plugin key        | `com.atlassian.mcp.jira-mcp-plugin`                                       |
+| Maven coordinates | `com.atlassian.mcp:jira-mcp-plugin`                                       |
+| MCP endpoint      | `POST /plugins/servlet/mcp`                                               |
+| OAuth endpoints   | `/plugins/servlet/mcp-oauth/{metadata,register,authorize,callback,token}` |
+| Admin REST        | `GET/PUT /rest/mcp-admin/1.0/`                                            |
+| Admin page        | `/plugins/servlet/mcp-admin`                                              |
+| Target Jira       | Data Center 11.x                                                          |
 
 ## Hard-Won Lessons
 
 ### jakarta, NOT javax
+
 Jira 11.x runs on Tomcat 10.1 + Spring 6.2.15 + Jakarta EE 10. API JARs are
 published under `jakarta.servlet`, `jakarta.ws.rs`, `jakarta.inject`,
 `jakarta.annotation`. Always use `jakarta.*` imports — never `javax.*`. The
@@ -53,42 +54,51 @@ platform BOM at `com.atlassian.platform.dependencies:platform-public-api:8.1.13`
 pins all jakarta + Spring + Jackson + Atlassian REST v2 + SAL versions transitively.
 
 ### Spring Scanner requires scan-indexes XML
+
 `@ComponentImport` requires `src/main/resources/META-INF/spring/plugin-context.xml`
 with `<atlassian-scanner:scan-indexes/>`.
 
 ### Plugin key must match Bundle-SymbolicName
+
 `atlassian-plugin.xml` key must be `${atlassian.plugin.key}` =
 `com.atlassian.mcp.jira-mcp-plugin`.
 
 ### DynamicImport-Package is required
+
 Without `<DynamicImport-Package>*</DynamicImport-Package>` in pom.xml,
 runtime class resolution fails.
 
 ### Anonymous REST access in Jira 11
+
 Use `@UnrestrictedAccess` from `com.atlassian.annotations.security` (NOT the
 old `@AnonymousAllowed`). Combined with a `before-login` servlet filter for
 full anonymous access. Still present and required in Jira 11 /
 atlassian-annotations.
 
 ### REST package scan must be specific
+
 Use `<package>com.atlassian.mcp.plugin.rest</package>` — never the parent
 package. (Verify post-merge — Spring 6 / atlassian-spring-scanner 6.0.2 may
 have relaxed this; left in place defensively.)
 
 ### Version bumps bust JS/CSS cache
+
 Jira CDN caches web resources by plugin version. Bump version in pom.xml to
 force browsers to load new JS/CSS.
 
 ### Plugin enable timeout
+
 Jira's internal `jira-migration` plugin can cause timeout during enable.
 Disable it temporarily, or click "Enable" manually in UPM.
 
 ### Write tools must structure Jira payloads correctly
+
 POST/PUT tool bodies often need nested structures like
 `{"fields": {"project": {"key": "..."}, "issuetype": {"name": "..."}}}` —
 verify against Jira REST API docs before flattening.
 
 ### `atlassian.plugins.filter.async.default=true` JVM flag is required
+
 The official MCP Java SDK's Streamable HTTP transport calls `req.startAsync()`
 for every non-`initialize` request (it streams the JSON-RPC response back as
 a single-event SSE envelope). Atlassian's plugin framework wraps every plugin
@@ -99,6 +109,7 @@ of the current chain does not support asynchronous operations`. Set
 `setenv.sh`, `JVM_SUPPORT_RECOMMENDED_ARGS`, or container env). Deployment requirement.
 
 ### `<servlet>` modules cannot be async-supported in Atlassian plugin framework
+
 `com.atlassian.plugin.servlet.descriptors.BaseServletModuleDescriptor.init()`
 hardcodes the filter wrapper's `isAsyncSupported` to `false` for `<servlet>`
 modules — there is no XML knob, and `<async-supported>` in
@@ -115,3 +126,13 @@ above is the only effective control for the surrounding wrapper.
 - **Use `just`** for all workflows — build, deploy, test.
 - **Bump version** in pom.xml when changing JS/CSS (cache busting).
 - **Run `just e2e`** after any tool changes to verify against live Jira.
+
+## Linting
+
+Run `mise run lint:fix` before committing changes.
+If output includes `fixed`, keep those changes.
+If output includes `partial` or `review`, address the remaining issues and
+run `mise run lint:fix` again.
+
+Example output:
+flint: fixed: gofmt — commit before pushing | partial: cargo-clippy

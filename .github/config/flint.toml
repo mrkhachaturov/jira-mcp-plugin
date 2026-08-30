@@ -1,0 +1,5 @@
+[settings]
+exclude = [".upstream/**", "target/**", "**/node_modules/**", "**/dist/**"]
+
+[checks.google-java-format]
+patterns = ["src/**/*.java"]
