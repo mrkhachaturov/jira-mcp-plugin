@@ -7,13 +7,13 @@ official MCP Java SDK (`io.modelcontextprotocol.sdk:mcp-core` 2.0.0-M2 +
 `SyncToolSpecification` / `SyncResourceSpecification` and provides a
 `JiraAuthContextExtractor` that surfaces the calling Jira user to tool bodies.
 
-| Method | Action |
-|--------|--------|
-| `initialize` | Return server info + capabilities + `MCP-Session-Id` header |
-| `notifications/initialized` | Return 202 |
-| `tools/list` | Return filtered tool list |
-| `tools/call` | Dispatch to tool, return result |
-| `ping` | Keep-alive |
+| Method                      | Action                                                      |
+| --------------------------- | ----------------------------------------------------------- |
+| `initialize`                | Return server info + capabilities + `MCP-Session-Id` header |
+| `notifications/initialized` | Return 202                                                  |
+| `tools/list`                | Return filtered tool list                                   |
+| `tools/call`                | Dispatch to tool, return result                             |
+| `ping`                      | Keep-alive                                                  |
 
 ## Transport behavior
 
@@ -36,12 +36,12 @@ wrapping big responses.
 
 ## Streaming-capable tools
 
-| Tool | What it streams |
-|------|----------------|
-| `batch_create_issues` | Progress per issue created |
-| `batch_create_versions` | Progress per version created |
-| `batch_get_changelogs` | Progress per issue's changelog fetched |
-| `get_issues_development_info` | Progress per issue's dev info fetched |
+| Tool                          | What it streams                        |
+| ----------------------------- | -------------------------------------- |
+| `batch_create_issues`         | Progress per issue created             |
+| `batch_create_versions`       | Progress per version created           |
+| `batch_get_changelogs`        | Progress per issue's changelog fetched |
+| `get_issues_development_info` | Progress per issue's dev info fetched  |
 
 ## Session management
 
@@ -62,8 +62,12 @@ wrapping big responses.
 - **Request body size limits**: 1 MB for MCP POST, 64 KB for DCR register, 8 KB for token exchange.
 - **Session-user binding**: sessions cannot be used by a different user than the one who created them.
 - **PKCE S256 mandatory**: `code_challenge` required on `/authorize`, only `S256` method accepted.
-- **Redirect URI validation**: `/authorize` validates `redirect_uri` against registered client URIs
-  (prevents open redirect / token theft).
+- **Redirect URI validation**: `/authorize` validates `redirect_uri` against the client's declared
+  URIs — CIMD `redirect_uris` or the DCR-registered set — via `RedirectUriMatcher` (prevents open
+  redirect / token theft). Exact match, except that loopback URIs ignore the port per RFC 8252 §7.3
+  (a native client on an ephemeral port declares `http://localhost/callback`, sends
+  `http://localhost:62127/callback`); scheme, host, path and query still match exactly, and
+  `localhost` is not `127.0.0.1`. `/token` re-checks the value stored at `/authorize`, exactly.
 - **Security event logging**: all rejections logged with `[MCP-SEC]` prefix and client IP.
 - **Security headers**: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`,
   `X-Frame-Options: DENY`.

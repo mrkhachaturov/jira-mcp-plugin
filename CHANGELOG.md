@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **OAuth `/authorize` rejected loopback clients with an ephemeral port.** Claude Code identifies itself with a CIMD `client_id` whose document declares portless loopback callbacks (`http://localhost/callback`, `http://127.0.0.1/callback`) and then sends `redirect_uri=http://localhost:<random>/callback` — a fresh port per launch. The check was a plain string `contains()`, so every connection attempt died on `400 invalid_request — redirect_uri does not match registered URIs`. New [RedirectUriMatcher](src/main/java/com/atlassian/mcp/plugin/rest/oauth/RedirectUriMatcher.java) ignores the port for loopback redirect URIs per RFC 8252 §7.3 (safe: a loopback address is only reachable from the user's own machine) while keeping scheme, host, path and query exact — `localhost` and `127.0.0.1` stay distinct URIs, `http://localhost.evil.example`, embedded credentials and fragments are rejected, and non-loopback hosts get no port relaxation. Applies to both the CIMD and DCR paths; `/token` still exact-matches the value captured at `/authorize`.
+
 ## [1.4.3] - 2026-05-31
 
 ### Added

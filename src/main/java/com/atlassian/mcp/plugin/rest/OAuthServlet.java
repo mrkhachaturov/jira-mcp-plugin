@@ -4,6 +4,7 @@ import com.atlassian.annotations.security.UnrestrictedAccess;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.config.OAuthStateStore;
 import com.atlassian.mcp.plugin.rest.oauth.CimdValidator;
+import com.atlassian.mcp.plugin.rest.oauth.RedirectUriMatcher;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,639 +22,696 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * OAuth 2.0 proxy servlet. Served at /plugins/servlet/mcp-oauth/*.
- * Uses @UnrestrictedAccess (Jira 10 secure endpoint defaults) to allow anonymous access.
- * Combined with before-login filter to prevent login redirect.
+ * OAuth 2.0 proxy servlet. Served at /plugins/servlet/mcp-oauth/*. Uses @UnrestrictedAccess (Jira
+ * 10 secure endpoint defaults) to allow anonymous access. Combined with before-login filter to
+ * prevent login redirect.
  */
 @UnrestrictedAccess
 public class OAuthServlet extends HttpServlet {
 
-    private static final Logger log = LoggerFactory.getLogger(OAuthServlet.class);
+  private static final Logger log = LoggerFactory.getLogger(OAuthServlet.class);
 
-    private static final int MAX_REGISTER_BODY = 65_536; // 64 KB
-    private static final int MAX_TOKEN_BODY = 8_192; // 8 KB
+  private static final int MAX_REGISTER_BODY = 65_536; // 64 KB
+  private static final int MAX_TOKEN_BODY = 8_192; // 8 KB
 
-    // Rate limits per minute per IP
-    private static final int RATE_REGISTER = 5;
-    private static final int RATE_TOKEN = 20;
-    private static final int RATE_AUTHORIZE = 10;
-    private static final int RATE_METADATA = 60;
+  // Rate limits per minute per IP
+  private static final int RATE_REGISTER = 5;
+  private static final int RATE_TOKEN = 20;
+  private static final int RATE_AUTHORIZE = 10;
+  private static final int RATE_METADATA = 60;
 
-    private final McpPluginConfig config;
-    private final OAuthStateStore stateStore;
-    private final RateLimiter rateLimiter;
-    private final ApplicationProperties applicationProperties;
-    private final CimdValidator cimdValidator;
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .connectTimeout(Duration.ofSeconds(5))
+  private final McpPluginConfig config;
+  private final OAuthStateStore stateStore;
+  private final RateLimiter rateLimiter;
+  private final ApplicationProperties applicationProperties;
+  private final CimdValidator cimdValidator;
+  private final ObjectMapper mapper = new ObjectMapper();
+  private final HttpClient httpClient =
+      HttpClient.newBuilder()
+          .followRedirects(HttpClient.Redirect.NEVER)
+          .connectTimeout(Duration.ofSeconds(5))
+          .build();
+
+  @Inject
+  public OAuthServlet(
+      McpPluginConfig config,
+      OAuthStateStore stateStore,
+      RateLimiter rateLimiter,
+      @ComponentImport ApplicationProperties applicationProperties) {
+    this(config, stateStore, rateLimiter, applicationProperties, new CimdValidator());
+  }
+
+  /** Constructor used by tests to inject a stub {@link CimdValidator}. */
+  public OAuthServlet(
+      McpPluginConfig config,
+      OAuthStateStore stateStore,
+      RateLimiter rateLimiter,
+      ApplicationProperties applicationProperties,
+      CimdValidator cimdValidator) {
+    this.config = config;
+    this.stateStore = stateStore;
+    this.rateLimiter = rateLimiter;
+    this.applicationProperties = applicationProperties;
+    this.cimdValidator = cimdValidator;
+  }
+
+  private String getBaseUrl() {
+    String override = config.getJiraBaseUrlOverride();
+    if (override != null && !override.isEmpty()) return override;
+    return applicationProperties.getBaseUrl().toString();
+  }
+
+  private String getOAuthBase() {
+    return getBaseUrl() + "/plugins/servlet/mcp-oauth";
+  }
+
+  @Override
+  protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    String path = req.getPathInfo();
+    if (path == null) path = "";
+    String ip = getClientIp(req);
+
+    if (path.equals("/protected-resource") || path.equals("/protected-resource/")) {
+      if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
+      addSecurityHeaders(resp);
+      resp.setContentType("application/json");
+      Map<String, Object> meta = new LinkedHashMap<>();
+      meta.put("resource", getBaseUrl() + "/plugins/servlet/mcp");
+      meta.put("authorization_servers", List.of(getOAuthBase()));
+      mapper.writeValue(resp.getWriter(), meta);
+
+    } else if (path.equals("/metadata") || path.equals("/metadata/")) {
+      if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
+      addSecurityHeaders(resp);
+      resp.setContentType("application/json");
+      if (!config.isOAuthEnabled()) {
+        resp.setStatus(404);
+        resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
+        return;
+      }
+      mapper.writeValue(resp.getWriter(), buildAuthServerMetadata());
+
+    } else if (path.equals("/openid-configuration") || path.equals("/openid-configuration/")) {
+      // F-13: OpenID Connect Discovery 1.0. Alias of /metadata with the OIDC-required
+      // fields layered on top so MCP clients that look for /.well-known/openid-configuration
+      // (new in MCP 2025-11-25 per PR #797) can discover the same authorisation server.
+      //
+      // Note: this plugin does NOT issue ID tokens — it proxies Jira's OAuth 2.0 only.
+      // jwks_uri is intentionally omitted because Jira's AS does not currently expose a
+      // JWKS endpoint we can mirror; id_token_signing_alg_values_supported lists RS256 as
+      // a placeholder for spec-compliance. Real OIDC ID-token issuance is out of scope
+      // for this plugin — clients that need ID tokens should use Jira's native OIDC if
+      // available, not the MCP plugin's OAuth proxy.
+      if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
+      addSecurityHeaders(resp);
+      resp.setContentType("application/json");
+      if (!config.isOAuthEnabled()) {
+        resp.setStatus(404);
+        resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
+        return;
+      }
+      mapper.writeValue(resp.getWriter(), buildOpenIdConfiguration());
+
+    } else if (path.startsWith("/authorize")) {
+      if (!enforceRate(resp, ip, "oauth-authorize", RATE_AUTHORIZE)) return;
+      handleAuthorize(req, resp);
+
+    } else if (path.startsWith("/callback")) {
+      handleCallback(req, resp);
+
+    } else {
+      resp.setStatus(404);
+      resp.setContentType("application/json");
+      resp.getWriter().write("{\"error\":\"Not found\"}");
+    }
+  }
+
+  /** Builds the RFC 8414 OAuth 2.0 Authorization Server Metadata document. */
+  private Map<String, Object> buildAuthServerMetadata() {
+    String base = getOAuthBase();
+    Map<String, Object> meta = new LinkedHashMap<>();
+    meta.put("issuer", base);
+    meta.put("authorization_endpoint", base + "/authorize");
+    meta.put("token_endpoint", base + "/token");
+    meta.put("registration_endpoint", base + "/register");
+    meta.put("response_types_supported", List.of("code"));
+    meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+    meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+    meta.put("code_challenge_methods_supported", List.of("S256"));
+    // Advertise only the scope registered on the Jira "MCP" Application Link (WRITE — which
+    // already grants read). The OAuth provider validates the requested scope against the
+    // registered set, so advertising an unregistered "READ" leads clients to request a scope
+    // that gets rejected.
+    meta.put("scopes_supported", List.of("WRITE"));
+    // SEP-991: advertise CIMD support so clients prefer it over DCR.
+    meta.put("client_id_metadata_document_supported", true);
+    return meta;
+  }
+
+  /**
+   * Builds the OpenID Connect Discovery 1.0 document. Per the OIDC spec the issuer MUST be the Jira
+   * base URL (the canonical authority for the user), and the endpoints point at this plugin's OAuth
+   * proxy. {@code jwks_uri} is omitted — Jira's authorisation server does not expose one we can
+   * proxy.
+   */
+  private Map<String, Object> buildOpenIdConfiguration() {
+    String base = getOAuthBase();
+    Map<String, Object> meta = new LinkedHashMap<>();
+    meta.put("issuer", getBaseUrl());
+    meta.put("authorization_endpoint", base + "/authorize");
+    meta.put("token_endpoint", base + "/token");
+    meta.put("registration_endpoint", base + "/register");
+    meta.put("response_types_supported", List.of("code"));
+    meta.put("subject_types_supported", List.of("public"));
+    meta.put("id_token_signing_alg_values_supported", List.of("RS256"));
+    meta.put("code_challenge_methods_supported", List.of("S256"));
+    meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
+    meta.put("token_endpoint_auth_methods_supported", List.of("none"));
+    meta.put("scopes_supported", List.of("WRITE"));
+    // SEP-991: advertise CIMD support (forward-compat hint — OIDC has no standard key yet,
+    // we mirror the OAuth Authorization Server Metadata field).
+    meta.put("client_id_metadata_document_supported", true);
+    return meta;
+  }
+
+  @Override
+  protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    String path = req.getPathInfo();
+    if (path == null) path = "";
+    String ip = getClientIp(req);
+    resp.setContentType("application/json");
+
+    if (path.equals("/register") || path.equals("/register/")) {
+      if (!enforceRate(resp, ip, "oauth-register", RATE_REGISTER)) {
+        log.warn("[MCP-SEC] Rate limit on /register from {}", ip);
+        return;
+      }
+      handleRegister(req, resp);
+    } else if (path.equals("/token") || path.equals("/token/")) {
+      if (!enforceRate(resp, ip, "oauth-token", RATE_TOKEN)) {
+        log.warn("[MCP-SEC] Rate limit on /token from {}", ip);
+        return;
+      }
+      handleToken(req, resp);
+    } else {
+      resp.setStatus(404);
+      resp.getWriter().write("{\"error\":\"Not found\"}");
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    if (!config.isOAuthEnabled()) {
+      resp.setStatus(404);
+      resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
+      return;
+    }
+
+    // Body size limit
+    byte[] bodyBytes = readLimited(req.getInputStream(), MAX_REGISTER_BODY);
+    if (bodyBytes == null) {
+      resp.setStatus(413);
+      resp.getWriter().write("{\"error\":\"Request body too large\"}");
+      return;
+    }
+
+    Map<String, Object> body = mapper.readValue(bodyBytes, Map.class);
+    String clientName = (String) body.getOrDefault("client_name", "MCP Client");
+    List<String> redirectUris = (List<String>) body.getOrDefault("redirect_uris", List.of());
+
+    OAuthStateStore.RegisteredClient client = stateStore.registerClient(clientName, redirectUris);
+    if (client == null) {
+      resp.setStatus(503);
+      resp.getWriter().write("{\"error\":\"Registration capacity reached\"}");
+      return;
+    }
+
+    log.info(
+        "[MCP-SEC] Client registered: id={} name='{}' from {}",
+        client.clientId.substring(0, 8),
+        sanitizeLog(clientName),
+        getClientIp(req));
+
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("client_id", client.clientId);
+    result.put("client_name", client.clientName);
+    result.put("redirect_uris", client.redirectUris);
+    result.put("grant_types", List.of("authorization_code"));
+    result.put("response_types", List.of("code"));
+    result.put("token_endpoint_auth_method", "none");
+    resp.setStatus(201);
+    mapper.writeValue(resp.getWriter(), result);
+  }
+
+  private void handleAuthorize(HttpServletRequest req, HttpServletResponse resp)
+      throws IOException {
+    if (!config.isOAuthEnabled()) {
+      resp.setStatus(400);
+      resp.getWriter().write("OAuth not configured");
+      return;
+    }
+
+    String clientId = req.getParameter("client_id");
+    String redirectUri = req.getParameter("redirect_uri");
+    String state = req.getParameter("state");
+    String codeChallenge = req.getParameter("code_challenge");
+    String codeChallengeMethod = req.getParameter("code_challenge_method");
+    String scope = req.getParameter("scope");
+
+    // PKCE is mandatory — reject if missing
+    if (codeChallenge == null || codeChallenge.isEmpty()) {
+      log.warn("[MCP-SEC] Authorize without code_challenge from {}", getClientIp(req));
+      resp.setStatus(400);
+      resp.setContentType("application/json");
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_request\",\"error_description\":\"code_challenge is required\"}");
+      return;
+    }
+    if (!"S256".equals(codeChallengeMethod)) {
+      resp.setStatus(400);
+      resp.setContentType("application/json");
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_request\",\"error_description\":\"Only S256 code_challenge_method is supported\"}");
+      return;
+    }
+
+    // Resolve the client either via CIMD (SEP-991) or DCR fallback. CIMD is preferred per
+    // the 2025-11-25 spec; DCR remains for backwards compatibility with older clients.
+    List<String> allowedRedirectUris;
+    if (CimdValidator.isCimdClientId(clientId)) {
+      try {
+        CimdValidator.CimdMetadata metadata = cimdValidator.resolve(clientId);
+        allowedRedirectUris = metadata.redirectUris;
+      } catch (CimdValidator.CimdException e) {
+        log.warn(
+            "[MCP-SEC] CIMD resolve failed for client {} from {}: {}",
+            sanitizeLog(clientId),
+            getClientIp(req),
+            e.getMessage());
+        resp.setStatus(400);
+        resp.setContentType("application/json");
+        resp.getWriter()
+            .write(
+                "{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+        return;
+      }
+    } else {
+      OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
+      if (client == null) {
+        resp.setStatus(400);
+        resp.getWriter().write("Unknown client_id");
+        return;
+      }
+      allowedRedirectUris = client.redirectUris;
+    }
+
+    // Validate redirect_uri against allowed URIs (prevents open redirect / token theft).
+    // For CIMD this is the metadata document's redirect_uris; for DCR it's the registered set.
+    if (!RedirectUriMatcher.matches(redirectUri, allowedRedirectUris)) {
+      log.warn(
+          "[MCP-SEC] redirect_uri mismatch for client {} from {}",
+          sanitizeLog(clientId),
+          getClientIp(req));
+      resp.setStatus(400);
+      resp.setContentType("application/json");
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri does not match registered URIs\"}");
+      return;
+    }
+
+    String internalState =
+        stateStore.createPendingAuth(
+            redirectUri, state, codeChallenge, codeChallengeMethod, clientId);
+    if (internalState == null) {
+      resp.setStatus(503);
+      resp.getWriter().write("Server at capacity");
+      return;
+    }
+
+    String jiraAuthorize = getBaseUrl() + "/rest/oauth2/latest/authorize";
+    String callbackUri = getOAuthBase() + "/callback";
+
+    String url =
+        jiraAuthorize
+            + "?client_id="
+            + enc(config.getOAuthClientId())
+            + "&redirect_uri="
+            + enc(callbackUri)
+            + "&response_type=code"
+            + "&scope="
+            + enc(scope != null ? scope : "WRITE")
+            + "&state="
+            + enc(internalState);
+
+    resp.sendRedirect(url);
+  }
+
+  private void handleCallback(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    String error = req.getParameter("error");
+    if (error != null) {
+      addSecurityHeaders(resp);
+      resp.setContentType("text/html");
+      resp.setHeader("Content-Security-Policy", "default-src 'none'");
+      resp.setStatus(400);
+      resp.getWriter().write("<h1>OAuth Error</h1><p>" + htmlEncode(error) + "</p>");
+      return;
+    }
+
+    String jiraCode = req.getParameter("code");
+    String internalState = req.getParameter("state");
+
+    OAuthStateStore.PendingAuth pending = stateStore.consumePendingAuth(internalState);
+    if (pending == null) {
+      addSecurityHeaders(resp);
+      resp.setContentType("text/html");
+      resp.setHeader("Content-Security-Policy", "default-src 'none'");
+      resp.setStatus(400);
+      resp.getWriter().write("<h1>Error</h1><p>Invalid or expired state</p>");
+      return;
+    }
+
+    JiraTokenResponse jiraTokens;
+    try {
+      jiraTokens = exchangeCodeForToken(jiraCode);
+    } catch (Exception e) {
+      log.warn("[MCP-SEC] Token exchange failed: {}", e.getMessage());
+      addSecurityHeaders(resp);
+      resp.setContentType("text/html");
+      resp.setHeader("Content-Security-Policy", "default-src 'none'");
+      resp.setStatus(500);
+      resp.getWriter().write("<h1>Error</h1><p>Token exchange failed</p>");
+      return;
+    }
+
+    String proxyCode =
+        stateStore.createProxyCode(
+            jiraTokens.accessToken,
+            jiraTokens.refreshToken,
+            jiraTokens.expiresIn,
+            pending.clientId,
+            pending.clientRedirectUri,
+            pending.codeChallenge,
+            pending.codeChallengeMethod);
+    if (proxyCode == null) {
+      resp.setStatus(503);
+      resp.setContentType("text/html");
+      resp.getWriter().write("<h1>Error</h1><p>Server at capacity</p>");
+      return;
+    }
+
+    String clientCallback =
+        pending.clientRedirectUri
+            + (pending.clientRedirectUri.contains("?") ? "&" : "?")
+            + "code="
+            + enc(proxyCode)
+            + "&state="
+            + enc(pending.clientState);
+
+    resp.sendRedirect(clientCallback);
+  }
+
+  private void handleToken(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    // Body size check via content length
+    if (req.getContentLength() > MAX_TOKEN_BODY) {
+      resp.setStatus(413);
+      resp.getWriter().write("{\"error\":\"Request body too large\"}");
+      return;
+    }
+
+    String grantType = req.getParameter("grant_type");
+    String clientId = req.getParameter("client_id");
+
+    // If the caller asserts a CIMD-style client_id, re-validate the metadata document.
+    // This catches revoked / mutated CIMDs between /authorize and /token. For DCR clients
+    // and unidentified callers this is a no-op (CIMD discriminator is `https://` prefix).
+    if (CimdValidator.isCimdClientId(clientId)) {
+      try {
+        cimdValidator.resolve(clientId);
+      } catch (CimdValidator.CimdException e) {
+        log.warn(
+            "[MCP-SEC] CIMD resolve failed on /token for client {} from {}: {}",
+            sanitizeLog(clientId),
+            getClientIp(req),
+            e.getMessage());
+        resp.setStatus(400);
+        resp.getWriter()
+            .write(
+                "{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
+        return;
+      }
+    }
+
+    if ("authorization_code".equals(grantType)) {
+      handleAuthorizationCodeGrant(req, resp, clientId);
+    } else if ("refresh_token".equals(grantType)) {
+      handleRefreshTokenGrant(req, resp, clientId);
+    } else {
+      resp.setStatus(400);
+      resp.getWriter().write("{\"error\":\"unsupported_grant_type\"}");
+    }
+  }
+
+  private void handleAuthorizationCodeGrant(
+      HttpServletRequest req, HttpServletResponse resp, String clientId) throws IOException {
+    String code = req.getParameter("code");
+    String redirectUri = req.getParameter("redirect_uri");
+    String codeVerifier = req.getParameter("code_verifier");
+
+    OAuthStateStore.ProxyCode proxyCode = stateStore.consumeProxyCode(code);
+    if (proxyCode == null) {
+      log.warn("[MCP-SEC] Invalid/expired proxy code from {}", getClientIp(req));
+      resp.setStatus(400);
+      resp.getWriter()
+          .write("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired code\"}");
+      return;
+    }
+
+    if (!proxyCode.clientId.equals(clientId)) {
+      log.warn("[MCP-SEC] client_id mismatch on token exchange from {}", getClientIp(req));
+      resp.setStatus(400);
+      resp.getWriter()
+          .write("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}");
+      return;
+    }
+
+    // redirect_uri is mandatory per RFC 6749 Section 4.1.3
+    if (redirectUri == null || !redirectUri.equals(proxyCode.redirectUri)) {
+      resp.setStatus(400);
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_grant\",\"error_description\":\"redirect_uri mismatch or missing\"}");
+      return;
+    }
+
+    if (!OAuthStateStore.verifyPkce(
+        codeVerifier, proxyCode.codeChallenge, proxyCode.codeChallengeMethod)) {
+      log.warn("[MCP-SEC] PKCE verification failed from {}", getClientIp(req));
+      resp.setStatus(400);
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
+      return;
+    }
+
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("access_token", proxyCode.accessToken);
+    result.put("token_type", "bearer");
+    result.put("expires_in", proxyCode.expiresIn);
+
+    // Pass through Jira's refresh token directly — Jira's DB manages lifecycle
+    if (proxyCode.refreshToken != null) {
+      result.put("refresh_token", proxyCode.refreshToken);
+    }
+
+    addSecurityHeaders(resp);
+    mapper.writeValue(resp.getWriter(), result);
+  }
+
+  private void handleRefreshTokenGrant(
+      HttpServletRequest req, HttpServletResponse resp, String clientId) throws IOException {
+    String refreshToken = req.getParameter("refresh_token");
+
+    if (refreshToken == null || refreshToken.isEmpty()) {
+      resp.setStatus(400);
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_request\",\"error_description\":\"refresh_token is required\"}");
+      return;
+    }
+
+    // Forward Jira's refresh token directly — Jira validates and rotates in its DB
+    JiraTokenResponse jiraTokens;
+    try {
+      jiraTokens = refreshJiraToken(refreshToken);
+    } catch (Exception e) {
+      log.warn("[MCP-SEC] Jira refresh token exchange failed: {}", e.getMessage());
+      resp.setStatus(400);
+      resp.getWriter()
+          .write(
+              "{\"error\":\"invalid_grant\",\"error_description\":\"Refresh token invalid or expired\"}");
+      return;
+    }
+
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("access_token", jiraTokens.accessToken);
+    result.put("token_type", "bearer");
+    result.put("expires_in", jiraTokens.expiresIn);
+
+    // Pass through Jira's rotated refresh token
+    if (jiraTokens.refreshToken != null) {
+      result.put("refresh_token", jiraTokens.refreshToken);
+    }
+
+    addSecurityHeaders(resp);
+    mapper.writeValue(resp.getWriter(), result);
+  }
+
+  private static class JiraTokenResponse {
+    final String accessToken;
+    final String refreshToken; // may be null
+    final int expiresIn;
+
+    JiraTokenResponse(String accessToken, String refreshToken, int expiresIn) {
+      this.accessToken = accessToken;
+      this.refreshToken = refreshToken;
+      this.expiresIn = expiresIn;
+    }
+  }
+
+  private JiraTokenResponse exchangeCodeForToken(String code)
+      throws IOException, InterruptedException {
+    String callbackUri = getOAuthBase() + "/callback";
+
+    String body =
+        "grant_type=authorization_code"
+            + "&client_id="
+            + enc(config.getOAuthClientId())
+            + "&client_secret="
+            + enc(config.getOAuthClientSecret())
+            + "&code="
+            + enc(code)
+            + "&redirect_uri="
+            + enc(callbackUri);
+
+    return callJiraTokenEndpoint(body);
+  }
+
+  private JiraTokenResponse refreshJiraToken(String jiraRefreshToken)
+      throws IOException, InterruptedException {
+    String body =
+        "grant_type=refresh_token"
+            + "&client_id="
+            + enc(config.getOAuthClientId())
+            + "&client_secret="
+            + enc(config.getOAuthClientSecret())
+            + "&refresh_token="
+            + enc(jiraRefreshToken);
+
+    return callJiraTokenEndpoint(body);
+  }
+
+  private JiraTokenResponse callJiraTokenEndpoint(String body)
+      throws IOException, InterruptedException {
+    String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
+
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(java.net.URI.create(tokenUrl))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .timeout(Duration.ofSeconds(10))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
 
-    @Inject
-    public OAuthServlet(
-            McpPluginConfig config,
-            OAuthStateStore stateStore,
-            RateLimiter rateLimiter,
-            @ComponentImport ApplicationProperties applicationProperties) {
-        this(config, stateStore, rateLimiter, applicationProperties, new CimdValidator());
+    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+    if (response.statusCode() != 200) {
+      throw new IOException("HTTP " + response.statusCode());
     }
 
-    /** Constructor used by tests to inject a stub {@link CimdValidator}. */
-    public OAuthServlet(
-            McpPluginConfig config,
-            OAuthStateStore stateStore,
-            RateLimiter rateLimiter,
-            ApplicationProperties applicationProperties,
-            CimdValidator cimdValidator) {
-        this.config = config;
-        this.stateStore = stateStore;
-        this.rateLimiter = rateLimiter;
-        this.applicationProperties = applicationProperties;
-        this.cimdValidator = cimdValidator;
+    JsonNode json = mapper.readTree(response.body());
+    JsonNode tokenNode = json.get("access_token");
+    if (tokenNode == null) {
+      throw new IOException("No access_token in response");
     }
 
-    private String getBaseUrl() {
-        String override = config.getJiraBaseUrlOverride();
-        if (override != null && !override.isEmpty()) return override;
-        return applicationProperties.getBaseUrl().toString();
+    String refreshToken = json.has("refresh_token") ? json.get("refresh_token").asText() : null;
+    int expiresIn = json.has("expires_in") ? json.get("expires_in").asInt() : 3600;
+
+    return new JiraTokenResponse(tokenNode.asText(), refreshToken, expiresIn);
+  }
+
+  // ── Security helpers ─────────────────────────────────────────────
+
+  private static String enc(String s) {
+    return s == null ? "" : URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
+
+  private static String htmlEncode(String s) {
+    if (s == null) return "";
+    return s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#x27;");
+  }
+
+  private static String sanitizeLog(String input) {
+    if (input == null) return "null";
+    return input.replaceAll("[\\r\\n\\t]", "_");
+  }
+
+  private static String getClientIp(HttpServletRequest request) {
+    String xff = request.getHeader("X-Forwarded-For");
+    if (xff != null && !xff.isEmpty()) {
+      return xff.split(",")[0].trim();
     }
+    return request.getRemoteAddr();
+  }
 
-    private String getOAuthBase() {
-        return getBaseUrl() + "/plugins/servlet/mcp-oauth";
+  private static void addSecurityHeaders(HttpServletResponse resp) {
+    resp.setHeader("X-Content-Type-Options", "nosniff");
+    resp.setHeader("X-Frame-Options", "DENY");
+    resp.setHeader("Cache-Control", "no-store");
+  }
+
+  /**
+   * Per-IP rate-limit gate that also emits the F-09 RateLimit-* response headers per
+   * draft-ietf-httpapi-ratelimit-headers-09. Sets {@code Retry-After} on 429 per RFC 9110. Returns
+   * {@code true} if the request may proceed.
+   */
+  private boolean enforceRate(HttpServletResponse resp, String ip, String endpoint, int maxPerMin)
+      throws IOException {
+    boolean allowed = rateLimiter.isAllowed(ip, endpoint, maxPerMin);
+    RateLimiter.Snapshot snap = rateLimiter.snapshot(ip, endpoint, maxPerMin);
+    resp.setHeader("RateLimit-Limit", Integer.toString(snap.limit));
+    resp.setHeader("RateLimit-Remaining", Integer.toString(snap.remaining));
+    resp.setHeader("RateLimit-Reset", Long.toString(snap.resetSeconds));
+    if (!allowed) {
+      resp.setStatus(429);
+      resp.setContentType("application/json");
+      resp.setHeader("Retry-After", Long.toString(Math.max(1L, snap.resetSeconds)));
+      resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
+      return false;
     }
+    return true;
+  }
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String path = req.getPathInfo();
-        if (path == null) path = "";
-        String ip = getClientIp(req);
-
-        if (path.equals("/protected-resource") || path.equals("/protected-resource/")) {
-            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
-            addSecurityHeaders(resp);
-            resp.setContentType("application/json");
-            Map<String, Object> meta = new LinkedHashMap<>();
-            meta.put("resource", getBaseUrl() + "/plugins/servlet/mcp");
-            meta.put("authorization_servers", List.of(getOAuthBase()));
-            mapper.writeValue(resp.getWriter(), meta);
-
-        } else if (path.equals("/metadata") || path.equals("/metadata/")) {
-            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
-            addSecurityHeaders(resp);
-            resp.setContentType("application/json");
-            if (!config.isOAuthEnabled()) {
-                resp.setStatus(404);
-                resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
-                return;
-            }
-            mapper.writeValue(resp.getWriter(), buildAuthServerMetadata());
-
-        } else if (path.equals("/openid-configuration") || path.equals("/openid-configuration/")) {
-            // F-13: OpenID Connect Discovery 1.0. Alias of /metadata with the OIDC-required
-            // fields layered on top so MCP clients that look for /.well-known/openid-configuration
-            // (new in MCP 2025-11-25 per PR #797) can discover the same authorisation server.
-            //
-            // Note: this plugin does NOT issue ID tokens — it proxies Jira's OAuth 2.0 only.
-            // jwks_uri is intentionally omitted because Jira's AS does not currently expose a
-            // JWKS endpoint we can mirror; id_token_signing_alg_values_supported lists RS256 as
-            // a placeholder for spec-compliance. Real OIDC ID-token issuance is out of scope
-            // for this plugin — clients that need ID tokens should use Jira's native OIDC if
-            // available, not the MCP plugin's OAuth proxy.
-            if (!enforceRate(resp, ip, "oauth-metadata", RATE_METADATA)) return;
-            addSecurityHeaders(resp);
-            resp.setContentType("application/json");
-            if (!config.isOAuthEnabled()) {
-                resp.setStatus(404);
-                resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
-                return;
-            }
-            mapper.writeValue(resp.getWriter(), buildOpenIdConfiguration());
-
-        } else if (path.startsWith("/authorize")) {
-            if (!enforceRate(resp, ip, "oauth-authorize", RATE_AUTHORIZE)) return;
-            handleAuthorize(req, resp);
-
-        } else if (path.startsWith("/callback")) {
-            handleCallback(req, resp);
-
-        } else {
-            resp.setStatus(404);
-            resp.setContentType("application/json");
-            resp.getWriter().write("{\"error\":\"Not found\"}");
-        }
+  /** Read up to maxBytes from stream. Returns null if exceeded. */
+  private static byte[] readLimited(InputStream in, int maxBytes) throws IOException {
+    byte[] buf = new byte[Math.min(maxBytes + 1, 65537)];
+    int total = 0;
+    int read;
+    while ((read = in.read(buf, total, buf.length - total)) > 0) {
+      total += read;
+      if (total > maxBytes) return null;
     }
-
-    /** Builds the RFC 8414 OAuth 2.0 Authorization Server Metadata document. */
-    private Map<String, Object> buildAuthServerMetadata() {
-        String base = getOAuthBase();
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("issuer", base);
-        meta.put("authorization_endpoint", base + "/authorize");
-        meta.put("token_endpoint", base + "/token");
-        meta.put("registration_endpoint", base + "/register");
-        meta.put("response_types_supported", List.of("code"));
-        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
-        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
-        meta.put("code_challenge_methods_supported", List.of("S256"));
-        // Advertise only the scope registered on the Jira "MCP" Application Link (WRITE — which
-        // already grants read). The OAuth provider validates the requested scope against the
-        // registered set, so advertising an unregistered "READ" leads clients to request a scope
-        // that gets rejected.
-        meta.put("scopes_supported", List.of("WRITE"));
-        // SEP-991: advertise CIMD support so clients prefer it over DCR.
-        meta.put("client_id_metadata_document_supported", true);
-        return meta;
-    }
-
-    /**
-     * Builds the OpenID Connect Discovery 1.0 document. Per the OIDC spec the issuer MUST be
-     * the Jira base URL (the canonical authority for the user), and the endpoints point at
-     * this plugin's OAuth proxy. {@code jwks_uri} is omitted — Jira's authorisation server
-     * does not expose one we can proxy.
-     */
-    private Map<String, Object> buildOpenIdConfiguration() {
-        String base = getOAuthBase();
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("issuer", getBaseUrl());
-        meta.put("authorization_endpoint", base + "/authorize");
-        meta.put("token_endpoint", base + "/token");
-        meta.put("registration_endpoint", base + "/register");
-        meta.put("response_types_supported", List.of("code"));
-        meta.put("subject_types_supported", List.of("public"));
-        meta.put("id_token_signing_alg_values_supported", List.of("RS256"));
-        meta.put("code_challenge_methods_supported", List.of("S256"));
-        meta.put("grant_types_supported", List.of("authorization_code", "refresh_token"));
-        meta.put("token_endpoint_auth_methods_supported", List.of("none"));
-        meta.put("scopes_supported", List.of("WRITE"));
-        // SEP-991: advertise CIMD support (forward-compat hint — OIDC has no standard key yet,
-        // we mirror the OAuth Authorization Server Metadata field).
-        meta.put("client_id_metadata_document_supported", true);
-        return meta;
-    }
-
-    @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String path = req.getPathInfo();
-        if (path == null) path = "";
-        String ip = getClientIp(req);
-        resp.setContentType("application/json");
-
-        if (path.equals("/register") || path.equals("/register/")) {
-            if (!enforceRate(resp, ip, "oauth-register", RATE_REGISTER)) {
-                log.warn("[MCP-SEC] Rate limit on /register from {}", ip);
-                return;
-            }
-            handleRegister(req, resp);
-        } else if (path.equals("/token") || path.equals("/token/")) {
-            if (!enforceRate(resp, ip, "oauth-token", RATE_TOKEN)) {
-                log.warn("[MCP-SEC] Rate limit on /token from {}", ip);
-                return;
-            }
-            handleToken(req, resp);
-        } else {
-            resp.setStatus(404);
-            resp.getWriter().write("{\"error\":\"Not found\"}");
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!config.isOAuthEnabled()) {
-            resp.setStatus(404);
-            resp.getWriter().write("{\"error\":\"OAuth not configured\"}");
-            return;
-        }
-
-        // Body size limit
-        byte[] bodyBytes = readLimited(req.getInputStream(), MAX_REGISTER_BODY);
-        if (bodyBytes == null) {
-            resp.setStatus(413);
-            resp.getWriter().write("{\"error\":\"Request body too large\"}");
-            return;
-        }
-
-        Map<String, Object> body = mapper.readValue(bodyBytes, Map.class);
-        String clientName = (String) body.getOrDefault("client_name", "MCP Client");
-        List<String> redirectUris = (List<String>) body.getOrDefault("redirect_uris", List.of());
-
-        OAuthStateStore.RegisteredClient client = stateStore.registerClient(clientName, redirectUris);
-        if (client == null) {
-            resp.setStatus(503);
-            resp.getWriter().write("{\"error\":\"Registration capacity reached\"}");
-            return;
-        }
-
-        log.info("[MCP-SEC] Client registered: id={} name='{}' from {}",
-                client.clientId.substring(0, 8), sanitizeLog(clientName), getClientIp(req));
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("client_id", client.clientId);
-        result.put("client_name", client.clientName);
-        result.put("redirect_uris", client.redirectUris);
-        result.put("grant_types", List.of("authorization_code"));
-        result.put("response_types", List.of("code"));
-        result.put("token_endpoint_auth_method", "none");
-        resp.setStatus(201);
-        mapper.writeValue(resp.getWriter(), result);
-    }
-
-    private void handleAuthorize(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!config.isOAuthEnabled()) {
-            resp.setStatus(400);
-            resp.getWriter().write("OAuth not configured");
-            return;
-        }
-
-        String clientId = req.getParameter("client_id");
-        String redirectUri = req.getParameter("redirect_uri");
-        String state = req.getParameter("state");
-        String codeChallenge = req.getParameter("code_challenge");
-        String codeChallengeMethod = req.getParameter("code_challenge_method");
-        String scope = req.getParameter("scope");
-
-        // PKCE is mandatory — reject if missing
-        if (codeChallenge == null || codeChallenge.isEmpty()) {
-            log.warn("[MCP-SEC] Authorize without code_challenge from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.setContentType("application/json");
-            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"code_challenge is required\"}");
-            return;
-        }
-        if (!"S256".equals(codeChallengeMethod)) {
-            resp.setStatus(400);
-            resp.setContentType("application/json");
-            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"Only S256 code_challenge_method is supported\"}");
-            return;
-        }
-
-        // Resolve the client either via CIMD (SEP-991) or DCR fallback. CIMD is preferred per
-        // the 2025-11-25 spec; DCR remains for backwards compatibility with older clients.
-        List<String> allowedRedirectUris;
-        if (CimdValidator.isCimdClientId(clientId)) {
-            try {
-                CimdValidator.CimdMetadata metadata = cimdValidator.resolve(clientId);
-                allowedRedirectUris = metadata.redirectUris;
-            } catch (CimdValidator.CimdException e) {
-                log.warn("[MCP-SEC] CIMD resolve failed for client {} from {}: {}",
-                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
-                resp.setStatus(400);
-                resp.setContentType("application/json");
-                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
-                return;
-            }
-        } else {
-            OAuthStateStore.RegisteredClient client = stateStore.getClient(clientId);
-            if (client == null) {
-                resp.setStatus(400);
-                resp.getWriter().write("Unknown client_id");
-                return;
-            }
-            allowedRedirectUris = client.redirectUris;
-        }
-
-        // Validate redirect_uri against allowed URIs (prevents open redirect / token theft).
-        // For CIMD this is the metadata document's redirect_uris; for DCR it's the registered set.
-        if (redirectUri == null || redirectUri.isEmpty()
-                || allowedRedirectUris == null || allowedRedirectUris.isEmpty()
-                || !allowedRedirectUris.contains(redirectUri)) {
-            log.warn("[MCP-SEC] redirect_uri mismatch for client {} from {}",
-                    sanitizeLog(clientId), getClientIp(req));
-            resp.setStatus(400);
-            resp.setContentType("application/json");
-            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"redirect_uri does not match registered URIs\"}");
-            return;
-        }
-
-        String internalState = stateStore.createPendingAuth(
-                redirectUri, state, codeChallenge, codeChallengeMethod, clientId);
-        if (internalState == null) {
-            resp.setStatus(503);
-            resp.getWriter().write("Server at capacity");
-            return;
-        }
-
-        String jiraAuthorize = getBaseUrl() + "/rest/oauth2/latest/authorize";
-        String callbackUri = getOAuthBase() + "/callback";
-
-        String url = jiraAuthorize
-                + "?client_id=" + enc(config.getOAuthClientId())
-                + "&redirect_uri=" + enc(callbackUri)
-                + "&response_type=code"
-                + "&scope=" + enc(scope != null ? scope : "WRITE")
-                + "&state=" + enc(internalState);
-
-        resp.sendRedirect(url);
-    }
-
-    private void handleCallback(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String error = req.getParameter("error");
-        if (error != null) {
-            addSecurityHeaders(resp);
-            resp.setContentType("text/html");
-            resp.setHeader("Content-Security-Policy", "default-src 'none'");
-            resp.setStatus(400);
-            resp.getWriter().write("<h1>OAuth Error</h1><p>" + htmlEncode(error) + "</p>");
-            return;
-        }
-
-        String jiraCode = req.getParameter("code");
-        String internalState = req.getParameter("state");
-
-        OAuthStateStore.PendingAuth pending = stateStore.consumePendingAuth(internalState);
-        if (pending == null) {
-            addSecurityHeaders(resp);
-            resp.setContentType("text/html");
-            resp.setHeader("Content-Security-Policy", "default-src 'none'");
-            resp.setStatus(400);
-            resp.getWriter().write("<h1>Error</h1><p>Invalid or expired state</p>");
-            return;
-        }
-
-        JiraTokenResponse jiraTokens;
-        try {
-            jiraTokens = exchangeCodeForToken(jiraCode);
-        } catch (Exception e) {
-            log.warn("[MCP-SEC] Token exchange failed: {}", e.getMessage());
-            addSecurityHeaders(resp);
-            resp.setContentType("text/html");
-            resp.setHeader("Content-Security-Policy", "default-src 'none'");
-            resp.setStatus(500);
-            resp.getWriter().write("<h1>Error</h1><p>Token exchange failed</p>");
-            return;
-        }
-
-        String proxyCode = stateStore.createProxyCode(jiraTokens.accessToken,
-                jiraTokens.refreshToken, jiraTokens.expiresIn,
-                pending.clientId, pending.clientRedirectUri,
-                pending.codeChallenge, pending.codeChallengeMethod);
-        if (proxyCode == null) {
-            resp.setStatus(503);
-            resp.setContentType("text/html");
-            resp.getWriter().write("<h1>Error</h1><p>Server at capacity</p>");
-            return;
-        }
-
-        String clientCallback = pending.clientRedirectUri
-                + (pending.clientRedirectUri.contains("?") ? "&" : "?")
-                + "code=" + enc(proxyCode)
-                + "&state=" + enc(pending.clientState);
-
-        resp.sendRedirect(clientCallback);
-    }
-
-    private void handleToken(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        // Body size check via content length
-        if (req.getContentLength() > MAX_TOKEN_BODY) {
-            resp.setStatus(413);
-            resp.getWriter().write("{\"error\":\"Request body too large\"}");
-            return;
-        }
-
-        String grantType = req.getParameter("grant_type");
-        String clientId = req.getParameter("client_id");
-
-        // If the caller asserts a CIMD-style client_id, re-validate the metadata document.
-        // This catches revoked / mutated CIMDs between /authorize and /token. For DCR clients
-        // and unidentified callers this is a no-op (CIMD discriminator is `https://` prefix).
-        if (CimdValidator.isCimdClientId(clientId)) {
-            try {
-                cimdValidator.resolve(clientId);
-            } catch (CimdValidator.CimdException e) {
-                log.warn("[MCP-SEC] CIMD resolve failed on /token for client {} from {}: {}",
-                        sanitizeLog(clientId), getClientIp(req), e.getMessage());
-                resp.setStatus(400);
-                resp.getWriter().write("{\"error\":\"invalid_client\",\"error_description\":\"Client ID Metadata Document could not be resolved\"}");
-                return;
-            }
-        }
-
-        if ("authorization_code".equals(grantType)) {
-            handleAuthorizationCodeGrant(req, resp, clientId);
-        } else if ("refresh_token".equals(grantType)) {
-            handleRefreshTokenGrant(req, resp, clientId);
-        } else {
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"unsupported_grant_type\"}");
-        }
-    }
-
-    private void handleAuthorizationCodeGrant(HttpServletRequest req, HttpServletResponse resp,
-                                               String clientId) throws IOException {
-        String code = req.getParameter("code");
-        String redirectUri = req.getParameter("redirect_uri");
-        String codeVerifier = req.getParameter("code_verifier");
-
-        OAuthStateStore.ProxyCode proxyCode = stateStore.consumeProxyCode(code);
-        if (proxyCode == null) {
-            log.warn("[MCP-SEC] Invalid/expired proxy code from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Invalid or expired code\"}");
-            return;
-        }
-
-        if (!proxyCode.clientId.equals(clientId)) {
-            log.warn("[MCP-SEC] client_id mismatch on token exchange from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"client_id mismatch\"}");
-            return;
-        }
-
-        // redirect_uri is mandatory per RFC 6749 Section 4.1.3
-        if (redirectUri == null || !redirectUri.equals(proxyCode.redirectUri)) {
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"redirect_uri mismatch or missing\"}");
-            return;
-        }
-
-        if (!OAuthStateStore.verifyPkce(codeVerifier, proxyCode.codeChallenge, proxyCode.codeChallengeMethod)) {
-            log.warn("[MCP-SEC] PKCE verification failed from {}", getClientIp(req));
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
-            return;
-        }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("access_token", proxyCode.accessToken);
-        result.put("token_type", "bearer");
-        result.put("expires_in", proxyCode.expiresIn);
-
-        // Pass through Jira's refresh token directly — Jira's DB manages lifecycle
-        if (proxyCode.refreshToken != null) {
-            result.put("refresh_token", proxyCode.refreshToken);
-        }
-
-        addSecurityHeaders(resp);
-        mapper.writeValue(resp.getWriter(), result);
-    }
-
-    private void handleRefreshTokenGrant(HttpServletRequest req, HttpServletResponse resp,
-                                          String clientId) throws IOException {
-        String refreshToken = req.getParameter("refresh_token");
-
-        if (refreshToken == null || refreshToken.isEmpty()) {
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_request\",\"error_description\":\"refresh_token is required\"}");
-            return;
-        }
-
-        // Forward Jira's refresh token directly — Jira validates and rotates in its DB
-        JiraTokenResponse jiraTokens;
-        try {
-            jiraTokens = refreshJiraToken(refreshToken);
-        } catch (Exception e) {
-            log.warn("[MCP-SEC] Jira refresh token exchange failed: {}", e.getMessage());
-            resp.setStatus(400);
-            resp.getWriter().write("{\"error\":\"invalid_grant\",\"error_description\":\"Refresh token invalid or expired\"}");
-            return;
-        }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("access_token", jiraTokens.accessToken);
-        result.put("token_type", "bearer");
-        result.put("expires_in", jiraTokens.expiresIn);
-
-        // Pass through Jira's rotated refresh token
-        if (jiraTokens.refreshToken != null) {
-            result.put("refresh_token", jiraTokens.refreshToken);
-        }
-
-        addSecurityHeaders(resp);
-        mapper.writeValue(resp.getWriter(), result);
-    }
-
-    private static class JiraTokenResponse {
-        final String accessToken;
-        final String refreshToken; // may be null
-        final int expiresIn;
-
-        JiraTokenResponse(String accessToken, String refreshToken, int expiresIn) {
-            this.accessToken = accessToken;
-            this.refreshToken = refreshToken;
-            this.expiresIn = expiresIn;
-        }
-    }
-
-    private JiraTokenResponse exchangeCodeForToken(String code) throws IOException, InterruptedException {
-        String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
-        String callbackUri = getOAuthBase() + "/callback";
-
-        String body = "grant_type=authorization_code"
-                + "&client_id=" + enc(config.getOAuthClientId())
-                + "&client_secret=" + enc(config.getOAuthClientSecret())
-                + "&code=" + enc(code)
-                + "&redirect_uri=" + enc(callbackUri);
-
-        return callJiraTokenEndpoint(body);
-    }
-
-    private JiraTokenResponse refreshJiraToken(String jiraRefreshToken) throws IOException, InterruptedException {
-        String body = "grant_type=refresh_token"
-                + "&client_id=" + enc(config.getOAuthClientId())
-                + "&client_secret=" + enc(config.getOAuthClientSecret())
-                + "&refresh_token=" + enc(jiraRefreshToken);
-
-        return callJiraTokenEndpoint(body);
-    }
-
-    private JiraTokenResponse callJiraTokenEndpoint(String body) throws IOException, InterruptedException {
-        String tokenUrl = getBaseUrl() + "/rest/oauth2/latest/token";
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(java.net.URI.create(tokenUrl))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .timeout(Duration.ofSeconds(10))
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200) {
-            throw new IOException("HTTP " + response.statusCode());
-        }
-
-        JsonNode json = mapper.readTree(response.body());
-        JsonNode tokenNode = json.get("access_token");
-        if (tokenNode == null) {
-            throw new IOException("No access_token in response");
-        }
-
-        String refreshToken = json.has("refresh_token") ? json.get("refresh_token").asText() : null;
-        int expiresIn = json.has("expires_in") ? json.get("expires_in").asInt() : 3600;
-
-        return new JiraTokenResponse(tokenNode.asText(), refreshToken, expiresIn);
-    }
-
-    // ── Security helpers ─────────────────────────────────────────────
-
-    private static String enc(String s) {
-        return s == null ? "" : URLEncoder.encode(s, StandardCharsets.UTF_8);
-    }
-
-    private static String htmlEncode(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#x27;");
-    }
-
-    private static String sanitizeLog(String input) {
-        if (input == null) return "null";
-        return input.replaceAll("[\\r\\n\\t]", "_");
-    }
-
-    private static String getClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isEmpty()) {
-            return xff.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
-
-    private static void addSecurityHeaders(HttpServletResponse resp) {
-        resp.setHeader("X-Content-Type-Options", "nosniff");
-        resp.setHeader("X-Frame-Options", "DENY");
-        resp.setHeader("Cache-Control", "no-store");
-    }
-
-    /**
-     * Per-IP rate-limit gate that also emits the F-09 RateLimit-* response headers per
-     * draft-ietf-httpapi-ratelimit-headers-09. Sets {@code Retry-After} on 429 per RFC 9110.
-     * Returns {@code true} if the request may proceed.
-     */
-    private boolean enforceRate(HttpServletResponse resp, String ip, String endpoint, int maxPerMin)
-            throws IOException {
-        boolean allowed = rateLimiter.isAllowed(ip, endpoint, maxPerMin);
-        RateLimiter.Snapshot snap = rateLimiter.snapshot(ip, endpoint, maxPerMin);
-        resp.setHeader("RateLimit-Limit", Integer.toString(snap.limit));
-        resp.setHeader("RateLimit-Remaining", Integer.toString(snap.remaining));
-        resp.setHeader("RateLimit-Reset", Long.toString(snap.resetSeconds));
-        if (!allowed) {
-            resp.setStatus(429);
-            resp.setContentType("application/json");
-            resp.setHeader("Retry-After", Long.toString(Math.max(1L, snap.resetSeconds)));
-            resp.getWriter().write("{\"error\":\"Rate limit exceeded\"}");
-            return false;
-        }
-        return true;
-    }
-
-    /** Read up to maxBytes from stream. Returns null if exceeded. */
-    private static byte[] readLimited(InputStream in, int maxBytes) throws IOException {
-        byte[] buf = new byte[Math.min(maxBytes + 1, 65537)];
-        int total = 0;
-        int read;
-        while ((read = in.read(buf, total, buf.length - total)) > 0) {
-            total += read;
-            if (total > maxBytes) return null;
-        }
-        return Arrays.copyOf(buf, total);
-    }
+    return Arrays.copyOf(buf, total);
+  }
 }
