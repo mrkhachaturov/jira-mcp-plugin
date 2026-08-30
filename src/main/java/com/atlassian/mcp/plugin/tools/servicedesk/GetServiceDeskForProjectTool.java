@@ -2,19 +2,26 @@ package com.atlassian.mcp.plugin.tools.servicedesk;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
-public class GetServiceDeskForProjectTool extends DeclarativeTool {
+public class GetServiceDeskForProjectTool extends TypedTool<GetServiceDeskForProjectTool.Args> {
 
-  private static final ToolParam<String> PROJECT_KEY =
-      ToolParam.string("project_key", "Jira project key (e.g., 'SUP')").required();
+  public record Args(
+      @ToolArg(value = "Jira project key, e.g. 'SUP'", required = true) String projectKey) {}
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final JiraRestClient client;
 
   public GetServiceDeskForProjectTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -25,7 +32,8 @@ public class GetServiceDeskForProjectTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Get the Jira Service Desk associated with a project key. Server/Data Center only. Not available on Jira Cloud.";
+    return "Get the Jira Service Desk that serves a project, selected by project key. Returns that"
+        + " one service desk, whose id the other service desk tools take. Server/Data Center only.";
   }
 
   @Override
@@ -39,14 +47,43 @@ public class GetServiceDeskForProjectTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(PROJECT_KEY);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    List<String> known = new ArrayList<>();
+    int page = GetServiceDeskQueuesTool.MAX_PAGE_SIZE;
+    int start = 0;
+    boolean more = true;
+
+    while (more) {
+      JsonNode listing =
+          read(
+              client.get(
+                  "/rest/servicedeskapi/servicedesk?start=" + start + "&limit=" + page,
+                  context.authHeader()));
+
+      JsonNode desks = listing.path("values");
+      for (JsonNode desk : desks) {
+        String key = desk.path("projectKey").asText("");
+        if (args.projectKey().equalsIgnoreCase(key)) return desk.toString();
+        known.add(key);
+      }
+
+      more = desks.isArray() && !desks.isEmpty() && !listing.path("isLastPage").asBoolean(true);
+      start += page;
+    }
+
+    throw new McpToolException(
+        "No service desk serves project '"
+            + args.projectKey()
+            + "'. Projects with a service desk: "
+            + String.join(", ", known));
   }
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    args.require(PROJECT_KEY);
-
-    return client.get("/rest/servicedeskapi/servicedesk", authHeader);
+  private static JsonNode read(String json) throws McpToolException {
+    try {
+      return MAPPER.readTree(json);
+    } catch (IOException e) {
+      throw new McpToolException(
+          "The service desk API returned an unreadable list: " + e.getMessage());
+    }
   }
 }

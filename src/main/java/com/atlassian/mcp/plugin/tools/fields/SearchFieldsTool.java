@@ -2,32 +2,32 @@ package com.atlassian.mcp.plugin.tools.fields;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.*;
+import java.io.IOException;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-/** search_fields: fuzzy keyword matching + limit. Uses substring + prefix scoring. */
-public class SearchFieldsTool extends DeclarativeTool {
+public class SearchFieldsTool extends TypedTool<SearchFieldsTool.Args> {
 
-  private static final ToolParam<String> KEYWORD =
-      ToolParam.string(
-              "keyword",
-              "Keyword for fuzzy search. If left empty, lists the first 'limit' available fields in"
-                  + " their default order.")
-          .withDefault("");
-  private static final ToolParam<Integer> LIMIT =
-      ToolParam.integer("limit", "Maximum number of results").withDefault(10);
-  private static final ToolParam<Boolean> REFRESH =
-      ToolParam.bool("refresh", "Whether to force refresh the field list").withDefault(false);
+  public record Args(
+      @ToolArg(
+              "(Optional) Keyword matched against a field's id, key, name and JQL clause names."
+                  + " Omitted, the first 'limit' fields are listed in Jira's own order.")
+          String keyword,
+      @ToolArg(value = "Maximum number of fields to return", defaultValue = "10") int limit) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public SearchFieldsTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -38,7 +38,7 @@ public class SearchFieldsTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Search Jira fields by keyword with fuzzy match.";
+    return "Search Jira fields by keyword, ranking an exact match above a prefix above a substring.";
   }
 
   @Override
@@ -47,45 +47,37 @@ public class SearchFieldsTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(KEYWORD, LIMIT, REFRESH);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    List<Map<String, Object>> fields =
+        readFields(client.get("/rest/api/2/field", context.authHeader()));
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String keyword = args.get(KEYWORD);
-    int limit = args.get(LIMIT);
-    // The field list is read from Jira on every call and nothing is held between calls, so there is
-    // no cached copy for 'refresh' to invalidate.
-    args.get(REFRESH);
-
-    String raw = client.get("/rest/api/2/field", authHeader);
+    List<Map<String, Object>> result;
+    if (args.keyword() == null) {
+      result = fields.stream().limit(args.limit()).collect(Collectors.toList());
+    } else {
+      String needle = args.keyword().toLowerCase(Locale.ROOT);
+      result =
+          fields.stream()
+              .map(field -> Map.entry(field, similarity(needle, field)))
+              .filter(scored -> scored.getValue() > 0)
+              .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+              .limit(args.limit())
+              .map(Map.Entry::getKey)
+              .collect(Collectors.toList());
+    }
 
     try {
-      List<Map<String, Object>> fields =
-          mapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {});
-
-      List<Map<String, Object>> result;
-
-      if (keyword == null || keyword.isBlank()) {
-        // No keyword — return first `limit` fields
-        result = fields.stream().limit(limit).collect(Collectors.toList());
-      } else {
-        // Fuzzy search: score each field by keyword relevance, sort descending
-        String needle = keyword.toLowerCase();
-        result =
-            fields.stream()
-                .map(f -> Map.entry(f, similarity(needle, f)))
-                .filter(e -> e.getValue() > 0)
-                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-                .limit(limit)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-      }
-
       return mapper.writeValueAsString(result);
-    } catch (Exception e) {
-      throw new McpToolException("Failed to process field search: " + e.getMessage());
+    } catch (JsonProcessingException e) {
+      throw new McpToolException("Failed to serialize the matching fields: " + e.getMessage());
+    }
+  }
+
+  private List<Map<String, Object>> readFields(String raw) throws McpToolException {
+    try {
+      return mapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {});
+    } catch (IOException e) {
+      throw new McpToolException("Jira returned an unreadable field list: " + e.getMessage());
     }
   }
 
@@ -100,36 +92,30 @@ public class SearchFieldsTool extends DeclarativeTool {
 
     Object clauses = field.get("clauseNames");
     if (clauses instanceof List<?> list) {
-      for (Object c : list) {
-        best = Math.max(best, score(needle, str(c)));
+      for (Object clause : list) {
+        best = Math.max(best, score(needle, str(clause)));
       }
     }
     return best;
   }
 
-  /** Simple fuzzy score: exact match > starts with > contains > no match. */
+  /** Simple fuzzy score: exact match > starts with > contains > every word present > no match. */
   private static int score(String needle, String candidate) {
     if (candidate.isEmpty()) return 0;
-    String lower = candidate.toLowerCase();
+    String lower = candidate.toLowerCase(Locale.ROOT);
     if (lower.equals(needle)) return 100;
     if (lower.startsWith(needle)) return 80;
     if (lower.contains(needle)) return 60;
-    // Check if needle words appear in candidate
     if (needle.length() > 2) {
-      String[] words = needle.split("[_\\s-]+");
-      boolean allFound = true;
-      for (String w : words) {
-        if (!lower.contains(w)) {
-          allFound = false;
-          break;
-        }
+      for (String word : needle.split("[_\\s-]+")) {
+        if (!lower.contains(word)) return 0;
       }
-      if (allFound) return 40;
+      return 40;
     }
     return 0;
   }
 
-  private static String str(Object o) {
-    return o != null ? o.toString() : "";
+  private static String str(Object value) {
+    return value != null ? value.toString() : "";
   }
 }

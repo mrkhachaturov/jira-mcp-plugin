@@ -48,12 +48,24 @@ public class DownloadAttachmentsToolTest {
   public void issueKeyIsRequired() {
     McpToolException e =
         assertThrows(McpToolException.class, () -> tool.execute(Map.of(), "Bearer t"));
-    assertTrue(e.getMessage(), e.getMessage().contains("issue_key"));
+    assertEquals("'issue_key' parameter is required", e.getMessage());
+    verifyNoInteractions(client);
   }
 
   @Test
   public void blankIssueKeyIsRejected() {
     assertThrows(McpToolException.class, () -> tool.execute(Map.of("issue_key", "  "), "Bearer t"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anUnknownParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-123", "target_dir", "/tmp"), "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("Unknown parameter 'target_dir'"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -63,5 +75,6 @@ public class DownloadAttachmentsToolTest {
 
     assertEquals(Set.of("issue_key"), ((Map<String, Object>) schema.get("properties")).keySet());
     assertEquals(List.of("issue_key"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
   }
 }

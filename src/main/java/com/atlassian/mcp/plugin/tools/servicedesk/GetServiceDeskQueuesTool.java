@@ -2,25 +2,35 @@ package com.atlassian.mcp.plugin.tools.servicedesk;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
-import java.util.List;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-public class GetServiceDeskQueuesTool extends DeclarativeTool {
+public class GetServiceDeskQueuesTool extends TypedTool<GetServiceDeskQueuesTool.Args> {
 
-  private static final ToolParam<String> SERVICE_DESK_ID =
-      ToolParam.string("service_desk_id", "Service desk ID (e.g., '4')").required();
-  private static final ToolParam<Integer> START_AT =
-      ToolParam.integer("start_at", "Starting index for pagination (0-based)").withDefault(0);
-  private static final ToolParam<Integer> LIMIT =
-      ToolParam.integer("limit", "Maximum number of results (1-50)").withDefault(50);
+  /** The service desk API serves at most this many rows per page, whatever limit is asked for. */
+  static final String PAGE_LIMIT = "50";
 
-  private static final int MAX_LIMIT = 50;
+  static final int MAX_PAGE_SIZE = Integer.parseInt(PAGE_LIMIT);
+
+  public record Args(
+      @ToolArg(
+              value =
+                  "The id of the service desk, e.g. 4. get_service_desk_for_project turns a"
+                      + " project key into one.",
+              required = true)
+          long serviceDeskId,
+      @ToolArg(value = "Index of the first queue to return, counting from 0", defaultValue = "0")
+          int startAt,
+      @ToolArg(
+              value = "Maximum number of queues to return, from 1 to " + PAGE_LIMIT,
+              defaultValue = PAGE_LIMIT)
+          int limit) {}
 
   private final JiraRestClient client;
 
   public GetServiceDeskQueuesTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -31,7 +41,7 @@ public class GetServiceDeskQueuesTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Get queues for a Jira Service Desk. Server/Data Center only. Not available on Jira Cloud.";
+    return "List the queues of a Jira Service Desk. Server/Data Center only.";
   }
 
   @Override
@@ -45,24 +55,19 @@ public class GetServiceDeskQueuesTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(SERVICE_DESK_ID, START_AT, LIMIT);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String serviceDeskId = args.require(SERVICE_DESK_ID);
-    int startAt = args.get(START_AT);
-    int limit = Math.min(args.get(LIMIT), MAX_LIMIT);
-
+  protected String run(Args args, McpContext context) throws McpToolException {
     // The ServiceDesk API pages with start/limit, not the platform API's startAt/maxResults.
     return client.get(
         "/rest/servicedeskapi/servicedesk/"
-            + serviceDeskId
+            + args.serviceDeskId()
             + "/queue?start="
-            + startAt
+            + args.startAt()
             + "&limit="
-            + limit,
-        authHeader);
+            + clampToPage(args.limit()),
+        context.authHeader());
+  }
+
+  static int clampToPage(int limit) {
+    return Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
   }
 }

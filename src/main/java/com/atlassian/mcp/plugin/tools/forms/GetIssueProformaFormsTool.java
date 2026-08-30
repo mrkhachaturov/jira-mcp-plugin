@@ -2,19 +2,19 @@ package com.atlassian.mcp.plugin.tools.forms;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
-import java.util.List;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-public class GetIssueProformaFormsTool extends DeclarativeTool {
+public class GetIssueProformaFormsTool extends TypedTool<GetIssueProformaFormsTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key, e.g. 'PROJ-123'", required = true) String issueKey) {}
 
   private final JiraRestClient client;
 
   public GetIssueProformaFormsTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -25,7 +25,8 @@ public class GetIssueProformaFormsTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Get all ProForma forms associated with a Jira issue. Uses the new Jira Forms REST API. Form IDs are returned as UUIDs.";
+    return "List the ProForma forms attached to a Jira issue. Each form carries the UUID that"
+        + " get_proforma_form_details and update_proforma_form_answers take.";
   }
 
   @Override
@@ -39,14 +40,9 @@ public class GetIssueProformaFormsTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-
-    return client.get("/rest/api/2/issue/" + issueKey + "/properties/proforma.forms", authHeader);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get(
+        "/rest/api/2/issue/" + args.issueKey() + "/properties/proforma.forms",
+        context.authHeader());
   }
 }
