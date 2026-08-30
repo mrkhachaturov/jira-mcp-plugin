@@ -2,31 +2,34 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
-public class CreateVersionTool extends DeclarativeTool {
+public class CreateVersionTool extends TypedTool<CreateVersionTool.Args> {
 
-  private static final ToolParam<String> PROJECT_KEY =
-      ToolParam.string("project_key", "Jira project key (e.g., 'PROJ', 'ACV2')").required();
-  private static final ToolParam<String> NAME =
-      ToolParam.string("name", "Name of the version").required();
-  private static final ToolParam<String> START_DATE =
-      ToolParam.string("start_date", "Start date (YYYY-MM-DD)");
-  private static final ToolParam<String> RELEASE_DATE =
-      ToolParam.string("release_date", "Release date (YYYY-MM-DD)");
-  private static final ToolParam<String> DESCRIPTION =
-      ToolParam.string("description", "Description of the version");
+  static final String PROJECT_KEY = "Jira project key (e.g. 'PROJ', 'ACV2')";
+  static final String NAME = "Name of the version, e.g. 'v1.0'";
+  static final String START_DATE = "(Optional) Start date, as YYYY-MM-DD";
+  static final String RELEASE_DATE = "(Optional) Release date, as YYYY-MM-DD";
+  static final String DESCRIPTION = "(Optional) Description of the version";
+
+  public record Args(
+      @ToolArg(value = PROJECT_KEY, required = true) String projectKey,
+      @ToolArg(value = NAME, required = true) String name,
+      @ToolArg(START_DATE) String startDate,
+      @ToolArg(RELEASE_DATE) String releaseDate,
+      @ToolArg(DESCRIPTION) String description) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public CreateVersionTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -45,32 +48,38 @@ public class CreateVersionTool extends DeclarativeTool {
     return true;
   }
 
-  @Override
-  public List<ToolParam<?>> params() {
-    return List.of(PROJECT_KEY, NAME, START_DATE, RELEASE_DATE, DESCRIPTION);
+  /**
+   * The body Jira's version resource accepts: it names the owning project "project" and takes its
+   * key there, and the camelCase date fields are the only ones it recognises. Shared with {@code
+   * batch_create_versions} so both tools describe a version to Jira the same way.
+   */
+  static Map<String, Object> versionBody(
+      String projectKey, String name, String startDate, String releaseDate, String description) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("project", projectKey);
+    body.put("name", name);
+    if (startDate != null) body.put("startDate", startDate);
+    if (releaseDate != null) body.put("releaseDate", releaseDate);
+    if (description != null) body.put("description", description);
+    return body;
   }
 
   @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String projectKey = args.require(PROJECT_KEY);
-    String name = args.require(NAME);
-    String startDate = args.get(START_DATE);
-    String releaseDate = args.get(RELEASE_DATE);
-    String description = args.get(DESCRIPTION);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    Map<String, Object> requestBody =
+        versionBody(
+            args.projectKey(),
+            args.name(),
+            args.startDate(),
+            args.releaseDate(),
+            args.description());
 
-    // Jira's version resource names the owning project "project" and takes its key there; the
-    // camelCase date fields are the only ones it recognises.
-    Map<String, Object> requestBody = new LinkedHashMap<>();
-    requestBody.put("project", projectKey);
-    requestBody.put("name", name);
-    if (startDate != null) requestBody.put("startDate", startDate);
-    if (releaseDate != null) requestBody.put("releaseDate", releaseDate);
-    if (description != null) requestBody.put("description", description);
+    String body;
     try {
-      String jsonBody = mapper.writeValueAsString(requestBody);
-      return client.post("/rest/api/2/version", jsonBody, authHeader);
-    } catch (Exception e) {
+      body = mapper.writeValueAsString(requestBody);
+    } catch (JsonProcessingException e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
+    return client.post("/rest/api/2/version", body, context.authHeader());
   }
 }

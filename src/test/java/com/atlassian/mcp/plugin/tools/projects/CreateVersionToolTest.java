@@ -95,6 +95,16 @@ public class CreateVersionToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    Map<String, Object> args = validArgs();
+    args.put("released", true);
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("released"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
