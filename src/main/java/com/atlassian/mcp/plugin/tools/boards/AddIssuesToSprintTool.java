@@ -2,27 +2,29 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AddIssuesToSprintTool extends DeclarativeTool {
+public class AddIssuesToSprintTool extends TypedTool<AddIssuesToSprintTool.Args> {
 
-  private static final ToolParam<String> SPRINT_ID =
-      ToolParam.string("sprint_id", "Sprint ID to add issues to").required();
-  private static final ToolParam<String> ISSUE_KEYS =
-      ToolParam.string("issue_keys", "Comma-separated issue keys (e.g., 'PROJ-1,PROJ-2')")
-          .required();
+  public record Args(
+      @ToolArg(value = "The id of the sprint to add issues to (e.g. 10001)", required = true)
+          long sprintId,
+      @ToolArg(
+              value = "Issue keys to move into the sprint, e.g. ['PROJ-1', 'PROJ-2']",
+              required = true)
+          List<String> issueKeys) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public AddIssuesToSprintTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -47,31 +49,18 @@ public class AddIssuesToSprintTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(SPRINT_ID, ISSUE_KEYS);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String sprintId = args.require(SPRINT_ID);
-    String issueKeys = args.require(ISSUE_KEYS);
-
-    List<String> keys = new ArrayList<>();
-    for (String key : issueKeys.split(",")) {
-      String trimmed = key.trim();
-      if (!trimmed.isEmpty()) keys.add(trimmed);
-    }
-    if (keys.isEmpty()) {
+  protected String run(Args args, McpContext context) throws McpToolException {
+    if (args.issueKeys().isEmpty()) {
       throw new McpToolException("'issue_keys' must name at least one issue");
     }
 
-    Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("issues", keys);
+    String body;
     try {
-      String jsonBody = mapper.writeValueAsString(requestBody);
-      return client.post("/rest/agile/1.0/sprint/" + sprintId + "/issue", jsonBody, authHeader);
-    } catch (Exception e) {
+      body = mapper.writeValueAsString(Map.of("issues", args.issueKeys()));
+    } catch (JsonProcessingException e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
+    return client.post(
+        "/rest/agile/1.0/sprint/" + args.sprintId() + "/issue", body, context.authHeader());
   }
 }
