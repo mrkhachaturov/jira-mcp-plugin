@@ -7,31 +7,22 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 
-/** Finds the concrete tools on the test classpath. */
+/** Finds every concrete tool on the test classpath. */
 final class ToolScan {
 
   private static final String PACKAGE = "com/atlassian/mcp/plugin/tools";
 
   private ToolScan() {}
 
-  static List<Class<?>> declarativeToolClasses() throws Exception {
-    return concreteSubtypesOf(DeclarativeTool.class);
-  }
-
-  /** Every tool, whichever base it extends, so a migration cannot drop one out of a check. */
   static List<Class<?>> mcpToolClasses() throws Exception {
-    return concreteSubtypesOf(McpTool.class);
-  }
-
-  private static List<Class<?>> concreteSubtypesOf(Class<?> base) throws Exception {
     List<Class<?>> tools = new ArrayList<>();
     for (Class<?> type : allClasses()) {
-      if (base.isAssignableFrom(type) && !Modifier.isAbstract(type.getModifiers())) {
+      if (McpTool.class.isAssignableFrom(type) && !Modifier.isAbstract(type.getModifiers())) {
         tools.add(type);
       }
     }
     if (tools.isEmpty()) {
-      throw new IllegalStateException("no " + base.getSimpleName() + " found on the classpath");
+      throw new IllegalStateException("no McpTool found on the classpath");
     }
     return tools;
   }

@@ -60,6 +60,18 @@ Jira parses them as one expression, and `search` and `get_issue` already declare
 them that way. A list of identifiers — issue keys, project keys, component names,
 sprint states — is an array.
 
+**Identifiers.** A Jira id that the REST API numbers is `long`: board, sprint,
+link, comment, transition, service desk, queue, version. An identifier that is
+not a number stays `String`: issue and project keys, custom field ids such as
+`customfield_10010`, usernames, and the UUIDs ProForma uses for forms. Jackson
+coerces a quoted `"10001"` either way, so `long` costs a caller nothing and makes
+the advertised type honest.
+
+**Values the schema cannot type.** A field whose JSON type depends on a sibling
+field — a ProForma answer, where `value` follows `type` — has no expressible
+record, because a component typed `Object` is refused. `List<Map<String, Object>>`
+is the honest declaration; note in the description what the entries must contain.
+
 **Nested records.** A repeated structured argument is a record, not prose
 describing the shape of a map. The nested schema is generated, its required
 fields are enforced, and a complaint names the offending path — for example
@@ -73,15 +85,27 @@ declaration that is neither fails when the tool is constructed.
 **Enums.** `allowed = {...}` both advertises the values and rejects anything
 else before the tool runs. It applies to a `String` component only: the binder
 compares whole values, so an enum over the elements of a list is not
-expressible, and declaring one fails when the tool is constructed. Name the
-values in the description and let Jira reject the rest.
+expressible, and declaring one fails when the tool is constructed. Check such a
+value in `run` and name the permitted ones in the description. Close an enum
+only where the endpoint defines a fixed set; leave it open where Jira accepts
+anything a deployment has registered.
 
 **Cardinality.** The schema layer has no `minItems`. A tool that needs a
 non-empty list checks it in `run` and throws `McpToolException`.
 
-**Constants.** `defaultValue` must be a compile-time constant, so a default
-shared between tools lives in whichever tool owns it and is referenced from the
-other. Do not copy the literal.
+**Constants and shared types.** Annotation members must be compile-time
+constants, so a description or `defaultValue` shared between tools lives in
+whichever tool owns it and is referenced from the other; the same goes for a
+nested argument record two tools accept. Do not copy the literal or the type.
+`defaultValue` is a single wire value, so a list can only default to one
+element — a longer default lives in `run` and is stated in the description,
+where a client reading the schema will not see it.
+
+**Renaming and removing.** Both are allowed and sometimes required — a name that
+means one thing in one tool and something else next door, or a parameter that is
+declared and never read. Both are breaking for a caller with the old name
+memorised: the parameter is now refused as unknown rather than ignored. Say so
+in the release notes.
 
 **Context.** Anything the caller did not declare as a parameter comes from
 `McpContext`: `context.authHeader()` for the Jira call, and
@@ -129,3 +153,7 @@ exactly the declared parameters.
 `outputSchema()` and `structuredContent()` are declared on `McpTool` and written
 by hand, so they can still drift from what a tool returns. Deriving them from a
 result record is the next piece of work on this layer.
+
+Three constraints can be enforced but not advertised, so a client reading the
+schema learns them only by being refused: a non-empty list, an enum over list
+elements, and a default of more than one value.

@@ -1,4 +1,4 @@
-# Tools — 49 Total
+# Tools
 
 | Package        | Count | Toolset                         | Plugin Requirement |
 | -------------- | ----- | ------------------------------- | ------------------ |

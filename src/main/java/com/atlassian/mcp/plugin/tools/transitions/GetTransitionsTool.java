@@ -2,9 +2,9 @@ package com.atlassian.mcp.plugin.tools.transitions;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -16,15 +16,17 @@ import java.util.Map;
  * Get available status transitions for a Jira issue, trimmed to {id, name, to_status} so an agent
  * choosing a transition id is not handed the full workflow payload.
  */
-public class GetTransitionsTool extends DeclarativeTool {
+public class GetTransitionsTool extends TypedTool<GetTransitionsTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public GetTransitionsTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -44,16 +46,11 @@ public class GetTransitionsTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String rawJson =
+        client.get("/rest/api/2/issue/" + args.issueKey() + "/transitions", context.authHeader());
 
     try {
-      String rawJson = client.get("/rest/api/2/issue/" + issueKey + "/transitions", authHeader);
       JsonNode root = mapper.readTree(rawJson);
       JsonNode transitions = root.path("transitions");
 
@@ -83,10 +80,8 @@ public class GetTransitionsTool extends DeclarativeTool {
       }
 
       return mapper.writeValueAsString(simplified);
-    } catch (McpToolException e) {
-      throw e;
     } catch (Exception e) {
-      throw new McpToolException("Failed to get transitions: " + e.getMessage());
+      throw new McpToolException("Failed to read the transitions Jira returned: " + e.getMessage());
     }
   }
 }

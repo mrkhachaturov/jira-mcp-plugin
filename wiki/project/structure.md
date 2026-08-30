@@ -32,7 +32,7 @@ src/main/java/com/atlassian/mcp/plugin/
 │   └── ConfigResource.java           # Admin REST API
 └── tools/
     ├── McpTool.java                   # Tool interface
-    ├── ToolRegistry.java              # 49 tools registered, filtered by capability/config
+    ├── ToolRegistry.java              # every tool registered, filtered by capability/config
     ├── issues/                        # 8 tools
     ├── comments/                      # 2 tools
     ├── transitions/                   # 2 tools

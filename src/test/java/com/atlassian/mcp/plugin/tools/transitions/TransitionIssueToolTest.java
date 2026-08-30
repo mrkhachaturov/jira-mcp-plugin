@@ -37,7 +37,7 @@ public class TransitionIssueToolTest {
     Map<String, Object> args = new HashMap<>();
     args.put("issue_key", "PROJ-123");
     args.put("transition_id", "31");
-    args.put("fields", "{\"resolution\": {\"name\": \"Fixed\"}}");
+    args.put("fields", Map.of("resolution", Map.of("name", "Fixed")));
     args.put("comment", "Closing this out");
 
     String body = postBodyFor(args);
@@ -56,7 +56,7 @@ public class TransitionIssueToolTest {
   }
 
   @Test
-  public void malformedFieldsJsonIsRejectedBeforeAnyWrite() {
+  public void aFieldsValueThatIsNotAnObjectIsRejectedBeforeAnyWrite() {
     McpToolException e =
         assertThrows(
             McpToolException.class,
@@ -65,7 +65,21 @@ public class TransitionIssueToolTest {
                     Map.of("issue_key", "PROJ-123", "transition_id", "11", "fields", "not json"),
                     "Bearer t"));
 
-    assertTrue(e.getMessage(), e.getMessage().contains("Invalid fields JSON"));
+    assertTrue(e.getMessage(), e.getMessage().contains("fields"));
+    verifyNoMoreInteractions(client);
+  }
+
+  @Test
+  public void anUnknownParameterIsRejectedBeforeAnyWrite() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-123", "transition_id", "11", "resolution", "Fixed"),
+                    "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("resolution"));
     verifyNoMoreInteractions(client);
   }
 
