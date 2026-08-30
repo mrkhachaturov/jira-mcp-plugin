@@ -58,6 +58,20 @@ public class LinkToEpicToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-9", "epic_key", "PROJ-1", "epic_link_field", "cf1"),
+                    "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("epic_link_field"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();

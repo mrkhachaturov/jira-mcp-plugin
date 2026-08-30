@@ -9,6 +9,7 @@ import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
@@ -46,7 +47,7 @@ public class CreateIssueLinkToolTest {
   public void everyDeclaredParamReachesTheRequestBody() throws Exception {
     Map<String, Object> args = required();
     args.put("comment", "linking these");
-    args.put("comment_visibility", "{\"type\":\"group\",\"value\":\"jira-users\"}");
+    args.put("comment_visibility", Map.of("type", "group", "value", "jira-users"));
 
     JsonNode body = bodyFor(args);
 
@@ -77,6 +78,26 @@ public class CreateIssueLinkToolTest {
   }
 
   @Test
+  public void anUndeclaredParamIsRejected() {
+    Map<String, Object> args = required();
+    args.put("link_id", "10042");
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("link_id"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void commentVisibilityThatIsNotAnObjectIsRejected() {
+    Map<String, Object> args = required();
+    args.put("comment", "linking these");
+    args.put("comment_visibility", "{\"type\":\"group\"}");
+
+    assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
@@ -88,6 +109,14 @@ public class CreateIssueLinkToolTest {
         props.keySet());
     assertEquals(
         Set.of("link_type", "inward_issue_key", "outward_issue_key"),
-        Set.copyOf((java.util.List<String>) schema.get("required")));
+        Set.copyOf((List<String>) schema.get("required")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void commentVisibilityIsAdvertisedAsAnObject() {
+    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+
+    assertEquals("object", ((Map<String, Object>) props.get("comment_visibility")).get("type"));
   }
 }
