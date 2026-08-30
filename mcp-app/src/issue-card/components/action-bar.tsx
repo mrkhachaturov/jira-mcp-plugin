@@ -31,7 +31,7 @@ export function ActionBar({
         name: "update_issue",
         arguments: {
           issue_key: issue.key,
-          fields: JSON.stringify({ assignee: currentUser.name }),
+          fields: { assignee: currentUser.name },
         },
       });
       onRefresh();

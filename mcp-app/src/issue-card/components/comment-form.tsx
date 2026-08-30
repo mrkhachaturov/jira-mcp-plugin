@@ -22,7 +22,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
     try {
       await app.callServerTool({
         name: "add_comment",
-        arguments: { issue_key: issue.key, comment: body.trim() },
+        arguments: { issue_key: issue.key, body: body.trim() },
       });
       setBody("");
       setOpen(false);

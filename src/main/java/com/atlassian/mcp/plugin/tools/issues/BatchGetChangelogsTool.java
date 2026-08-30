@@ -2,45 +2,41 @@ package com.atlassian.mcp.plugin.tools.issues;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.modelcontextprotocol.server.McpSyncServerExchange;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
-public class BatchGetChangelogsTool extends DeclarativeTool {
+public class BatchGetChangelogsTool extends TypedTool<BatchGetChangelogsTool.Args> {
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  private static final ToolParam<String> ISSUE_IDS_OR_KEYS =
-      ToolParam.string(
-              "issue_ids_or_keys",
-              "Comma-separated list of Jira issue IDs or keys (e.g. 'PROJ-123,PROJ-124')")
-          .required();
-  private static final ToolParam<String> FIELDS =
-      ToolParam.string(
-          "fields",
-          "(Optional) Comma-separated list of fields to filter changelogs by (e.g."
-              + " 'status,assignee'). Default to None for all fields.");
-  private static final ToolParam<Integer> LIMIT =
-      ToolParam.integer(
-              "limit",
-              "Maximum number of changelogs to return in result for each issue. Default to -1 for"
-                  + " all changelogs.")
-          .withDefault(-1);
+  public record Args(
+      @ToolArg(value = "Jira issue IDs or keys, e.g. ['PROJ-123', 'PROJ-124']", required = true)
+          List<String> issueIdsOrKeys,
+      @ToolArg(
+              "(Optional) Keep only history entries that changed one of these fields, e.g."
+                  + " ['status', 'assignee']. Omit to keep every change.")
+          List<String> changedFields,
+      @ToolArg(
+              value =
+                  "Maximum number of history entries to keep per issue, keeping the most recent."
+                      + " -1 keeps the whole history.",
+              defaultValue = "-1")
+          int limit) {}
 
   private final JiraRestClient client;
 
   public BatchGetChangelogsTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -51,7 +47,8 @@ public class BatchGetChangelogsTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Get changelogs for multiple Jira issues. Retrieves the change history for each issue showing field changes, status transitions, and who made each change.";
+    return "Get changelogs for multiple Jira issues. Retrieves the change history for each issue"
+        + " showing field changes, status transitions, and who made each change.";
   }
 
   @Override
@@ -65,87 +62,61 @@ public class BatchGetChangelogsTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_IDS_OR_KEYS, FIELDS, LIMIT);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    return run(args, authHeader, (current, total, message) -> {});
-  }
-
-  @Override
-  public String executeWithSdkProgress(
-      Map<String, Object> args,
-      String authHeader,
-      McpSyncServerExchange exchange,
-      Object progressToken)
-      throws McpToolException {
-    return run(
-        new ToolArgs(params(), args),
-        authHeader,
-        BatchProgressBridge.bridge(exchange, progressToken));
-  }
-
-  @Override
-  public String executeWithProgress(
-      Map<String, Object> args, String authHeader, ProgressCallback progress)
-      throws McpToolException {
-    return run(new ToolArgs(params(), args), authHeader, progress);
-  }
-
-  private String run(ToolArgs args, String authHeader, ProgressCallback progress)
-      throws McpToolException {
-    String issueIdsOrKeys = args.require(ISSUE_IDS_OR_KEYS);
-    Set<String> fieldFilter = parseFieldFilter(args.get(FIELDS));
-    int limit = args.get(LIMIT);
-
-    List<String> trimmedKeys = new ArrayList<>();
-    for (String k : issueIdsOrKeys.split(",")) {
-      String t = k.trim();
-      if (!t.isEmpty()) trimmedKeys.add(t);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    List<String> keys = trimmed(args.issueIdsOrKeys());
+    if (keys.isEmpty()) {
+      throw new McpToolException("'issue_ids_or_keys' must name at least one issue");
     }
+    Set<String> fieldFilter = lowercased(args.changedFields());
 
-    int total = trimmedKeys.size();
-    List<String> results = new ArrayList<>();
-    List<String> errors = new ArrayList<>();
+    ObjectNode changelogs = MAPPER.createObjectNode();
+    ObjectNode failed = MAPPER.createObjectNode();
+    int total = keys.size();
 
     for (int i = 0; i < total; i++) {
-      String key = trimmedKeys.get(i);
-      progress.report(
+      String key = keys.get(i);
+      context.reportProgress(
           i, total, "Fetching changelog for " + key + " (" + (i + 1) + "/" + total + ")");
 
       try {
         // expand=changelog works on both Cloud and DC; the /changelog sub-resource is Cloud-only.
-        String changelog =
+        String response =
             client.get(
-                "/rest/api/2/issue/" + key + "?expand=changelog&fields=key,summary", authHeader);
-        results.add("\"" + key + "\":" + narrowChangelog(changelog, fieldFilter, limit));
+                "/rest/api/2/issue/" + key + "?expand=changelog&fields=key,summary",
+                context.authHeader());
+        changelogs.set(key, narrowChangelog(MAPPER.readTree(response), fieldFilter, args.limit()));
       } catch (Exception e) {
-        errors.add("\"" + key + "\":{\"error\":\"" + e.getMessage().replace("\"", "\\\"") + "\"}");
+        failed.set(key, MAPPER.createObjectNode().put("error", String.valueOf(e.getMessage())));
       }
     }
 
-    progress.report(
-        total, total, "Completed: " + results.size() + " fetched, " + errors.size() + " errors");
+    context.reportProgress(
+        total, total, "Completed: " + changelogs.size() + " fetched, " + failed.size() + " errors");
 
-    StringBuilder sb = new StringBuilder("{\"changelogs\":{");
-    sb.append(String.join(",", results));
-    sb.append("},\"fetched\":").append(results.size());
-    sb.append(",\"errors\":").append(errors.size());
-    if (!errors.isEmpty()) {
-      sb.append(",\"failed\":{").append(String.join(",", errors)).append("}");
+    ObjectNode result = MAPPER.createObjectNode();
+    result.set("changelogs", changelogs);
+    result.put("fetched", changelogs.size());
+    result.put("errors", failed.size());
+    if (!failed.isEmpty()) {
+      result.set("failed", failed);
     }
-    sb.append("}");
-    return sb.toString();
+    return result.toString();
   }
 
-  private static Set<String> parseFieldFilter(String fields) {
-    if (fields == null || fields.isBlank()) return Set.of();
+  private static List<String> trimmed(List<String> values) {
+    List<String> kept = new ArrayList<>();
+    for (String value : values) {
+      String trimmed = value == null ? "" : value.trim();
+      if (!trimmed.isEmpty()) kept.add(trimmed);
+    }
+    return kept;
+  }
+
+  private static Set<String> lowercased(List<String> values) {
+    if (values == null) return Set.of();
     Set<String> names = new LinkedHashSet<>();
-    for (String field : fields.split(",")) {
-      String trimmed = field.trim();
-      if (!trimmed.isEmpty()) names.add(trimmed.toLowerCase(Locale.ROOT));
+    for (String value : trimmed(values)) {
+      names.add(value.toLowerCase(Locale.ROOT));
     }
     return names;
   }
@@ -156,21 +127,14 @@ public class BatchGetChangelogsTool extends DeclarativeTool {
    * expand=changelog} — it takes neither a field filter nor a page size on that expansion. The cap
    * keeps the most recent entries, since Jira orders histories oldest-first.
    */
-  private static String narrowChangelog(String response, Set<String> fieldFilter, int limit) {
-    if (fieldFilter.isEmpty() && limit < 0) return response;
+  private static JsonNode narrowChangelog(JsonNode issue, Set<String> fieldFilter, int limit) {
+    if (fieldFilter.isEmpty() && limit < 0) return issue;
 
-    JsonNode root;
-    try {
-      root = MAPPER.readTree(response);
-    } catch (Exception e) {
-      return response;
-    }
-    JsonNode changelog = root.path("changelog");
-    if (!changelog.isObject() || !changelog.path("histories").isArray()) return response;
+    JsonNode changelog = issue.path("changelog");
+    if (!changelog.isObject() || !changelog.path("histories").isArray()) return issue;
 
-    ArrayNode histories = (ArrayNode) changelog.get("histories");
     ArrayNode kept = MAPPER.createArrayNode();
-    for (JsonNode history : histories) {
+    for (JsonNode history : changelog.get("histories")) {
       JsonNode narrowed = fieldFilter.isEmpty() ? history : withOnlyFields(history, fieldFilter);
       if (narrowed != null) kept.add(narrowed);
     }
@@ -185,12 +149,7 @@ public class BatchGetChangelogsTool extends DeclarativeTool {
     ObjectNode changelogNode = (ObjectNode) changelog;
     changelogNode.set("histories", kept);
     changelogNode.put("returned", kept.size());
-
-    try {
-      return MAPPER.writeValueAsString(root);
-    } catch (Exception e) {
-      return response;
-    }
+    return issue;
   }
 
   /** Returns the history with only the matching items, or null when none of them match. */

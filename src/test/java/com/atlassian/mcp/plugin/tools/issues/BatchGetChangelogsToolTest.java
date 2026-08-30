@@ -48,7 +48,8 @@ public class BatchGetChangelogsToolTest {
 
   @Test
   public void everyKeyInTheListIsFetched() throws Exception {
-    String result = tool.execute(Map.of("issue_ids_or_keys", "PROJ-1, PROJ-2"), "Bearer t");
+    String result =
+        tool.execute(Map.of("issue_ids_or_keys", List.of("PROJ-1", " PROJ-2 ")), "Bearer t");
 
     ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
     verify(client, times(2)).get(url.capture(), eq("Bearer t"));
@@ -60,8 +61,10 @@ public class BatchGetChangelogsToolTest {
   }
 
   @Test
-  public void fieldsKeepsOnlyMatchingChangelogItems() throws Exception {
-    JsonNode histories = historiesFor(Map.of("issue_ids_or_keys", "PROJ-1", "fields", "status"));
+  public void changedFieldsKeepsOnlyMatchingChangelogItems() throws Exception {
+    JsonNode histories =
+        historiesFor(
+            Map.of("issue_ids_or_keys", List.of("PROJ-1"), "changed_fields", List.of("status")));
 
     assertEquals(2, histories.size());
     assertEquals("1", histories.get(0).path("id").asText());
@@ -71,17 +74,40 @@ public class BatchGetChangelogsToolTest {
   }
 
   @Test
+  public void changedFieldsAcceptsSeveralNames() throws Exception {
+    JsonNode histories =
+        historiesFor(
+            Map.of(
+                "issue_ids_or_keys",
+                List.of("PROJ-1"),
+                "changed_fields",
+                List.of("assignee", "summary")));
+
+    assertEquals(2, histories.size());
+    assertEquals("2", histories.get(0).path("id").asText());
+    assertEquals(1, histories.get(1).path("items").size());
+    assertEquals("summary", histories.get(1).path("items").get(0).path("field").asText());
+  }
+
+  @Test
   public void limitKeepsTheMostRecentHistories() throws Exception {
-    JsonNode histories = historiesFor(Map.of("issue_ids_or_keys", "PROJ-1", "limit", 1));
+    JsonNode histories = historiesFor(Map.of("issue_ids_or_keys", List.of("PROJ-1"), "limit", 1));
 
     assertEquals(1, histories.size());
     assertEquals("3", histories.get(0).path("id").asText());
   }
 
   @Test
-  public void fieldsAndLimitCombine() throws Exception {
+  public void changedFieldsAndLimitCombine() throws Exception {
     JsonNode histories =
-        historiesFor(Map.of("issue_ids_or_keys", "PROJ-1", "fields", "status", "limit", 1));
+        historiesFor(
+            Map.of(
+                "issue_ids_or_keys",
+                List.of("PROJ-1"),
+                "changed_fields",
+                List.of("status"),
+                "limit",
+                1));
 
     assertEquals(1, histories.size());
     assertEquals("3", histories.get(0).path("id").asText());
@@ -89,22 +115,67 @@ public class BatchGetChangelogsToolTest {
 
   @Test
   public void defaultsReturnTheWholeChangelogUntouched() throws Exception {
-    String result = tool.execute(Map.of("issue_ids_or_keys", "PROJ-1"), "Bearer t");
+    String result = tool.execute(Map.of("issue_ids_or_keys", List.of("PROJ-1")), "Bearer t");
 
-    assertTrue(result, result.contains(ISSUE_WITH_HISTORY));
-    assertEquals(3, historiesFor(Map.of("issue_ids_or_keys", "PROJ-1")).size());
+    assertEquals(
+        MAPPER.readTree(ISSUE_WITH_HISTORY),
+        MAPPER.readTree(result).path("changelogs").path("PROJ-1"));
   }
 
-  @Test(expected = McpToolException.class)
-  public void issueKeysAreRequired() throws Exception {
-    tool.execute(Map.of(), "Bearer t");
+  @Test
+  public void aFailedIssueIsReportedWithoutLosingTheOthers() throws Exception {
+    when(client.get(contains("PROJ-2"), any()))
+        .thenThrow(new McpToolException("Jira API error (404): issue does not exist"));
+
+    JsonNode result =
+        MAPPER.readTree(
+            tool.execute(Map.of("issue_ids_or_keys", List.of("PROJ-1", "PROJ-2")), "Bearer t"));
+
+    assertEquals(1, result.path("fetched").asInt());
+    assertEquals(1, result.path("errors").asInt());
+    assertTrue(result.path("changelogs").has("PROJ-1"));
+    assertTrue(
+        result.toString(),
+        result.path("failed").path("PROJ-2").path("error").asText().contains("404"));
+  }
+
+  @Test
+  public void issueKeysAreRequired() {
+    McpToolException e =
+        assertThrows(McpToolException.class, () -> tool.execute(Map.of(), "Bearer t"));
+    assertTrue(e.getMessage(), e.getMessage().contains("issue_ids_or_keys"));
+  }
+
+  @Test
+  public void anEmptyKeyListIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_ids_or_keys", List.of()), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("issue_ids_or_keys"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParametersAreRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_ids_or_keys", List.of("PROJ-1"), "fields", "status"),
+                    "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("fields"));
+    verifyNoInteractions(client);
   }
 
   @Test
   public void progressIsReportedForEveryKey() throws Exception {
     List<String> messages = new java.util.ArrayList<>();
     tool.executeWithProgress(
-        Map.of("issue_ids_or_keys", "PROJ-1,PROJ-2"),
+        Map.of("issue_ids_or_keys", List.of("PROJ-1", "PROJ-2")),
         "Bearer t",
         (current, total, message) -> messages.add(message));
 
@@ -115,9 +186,13 @@ public class BatchGetChangelogsToolTest {
   @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
-    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+    Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(Set.of("issue_ids_or_keys", "fields", "limit"), props.keySet());
-    assertEquals(List.of("issue_ids_or_keys"), tool.inputSchema().get("required"));
+    assertEquals(Set.of("issue_ids_or_keys", "changed_fields", "limit"), props.keySet());
+    assertEquals(List.of("issue_ids_or_keys"), schema.get("required"));
+    assertEquals("array", ((Map<String, Object>) props.get("issue_ids_or_keys")).get("type"));
+    assertEquals("array", ((Map<String, Object>) props.get("changed_fields")).get("type"));
+    assertEquals(-1, ((Map<String, Object>) props.get("limit")).get("default"));
   }
 }
