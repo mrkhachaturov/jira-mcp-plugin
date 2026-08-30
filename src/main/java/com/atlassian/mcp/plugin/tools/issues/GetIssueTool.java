@@ -3,9 +3,9 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.IconConstants;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.atlassian.mcp.plugin.tools.UiBinding;
 import com.atlassian.mcp.plugin.tools.UiToolDefaults;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,44 +15,37 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.Map;
 
-public class GetIssueTool extends DeclarativeTool {
+public class GetIssueTool extends TypedTool<GetIssueTool.Args> {
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
-
-  private static final String DEFAULT_FIELDS =
-      "summary,status,assignee,reporter,priority,issuetype,created,updated,description,comment,"
-          + "labels,components,fixVersions,resolution,subtasks,issuelinks,attachment,parent";
-
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
-  private static final ToolParam<String> FIELDS =
-      ToolParam.string(
-              "fields",
-              "(Optional) Comma-separated list of fields to return (e.g.,"
-                  + " 'summary,status,customfield_10010'). You may also provide a single field as a"
-                  + " string (e.g., 'duedate'). Use '*all' for all fields (including custom"
-                  + " fields), or omit for essential fields only.")
-          .withDefault(DEFAULT_FIELDS);
-  private static final ToolParam<String> EXPAND =
-      ToolParam.string(
-          "expand",
-          "(Optional) Fields to expand. Examples: 'renderedFields' (for rendered content),"
-              + " 'transitions' (for available status transitions), 'changelog' (for history)");
-  private static final ToolParam<Integer> COMMENT_LIMIT =
-      ToolParam.integer(
-              "comment_limit", "Maximum number of comments to include (0 or null for no comments)")
-          .withDefault(10);
-  private static final ToolParam<String> PROPERTIES =
-      ToolParam.string(
-          "properties", "(Optional) A comma-separated list of issue properties to return");
-  private static final ToolParam<Boolean> UPDATE_HISTORY =
-      ToolParam.bool(
-              "update_history", "Whether to update the issue view history for the requesting user")
-          .withDefault(true);
-
   private static final int MAX_COMMENTS = 100;
+
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(
+              value =
+                  "(Optional) Comma-separated list of fields to return (e.g."
+                      + " 'summary,status,customfield_10010'), a single field name (e.g."
+                      + " 'duedate'), or '*all' for every field including custom ones. Omit for"
+                      + " essential fields only.",
+              defaultValue = SearchTool.DEFAULT_FIELDS)
+          String fields,
+      @ToolArg(
+              "(Optional) Fields to expand: 'renderedFields' for rendered content, 'transitions'"
+                  + " for available status transitions, 'changelog' for history")
+          String expand,
+      @ToolArg(
+              value = "Maximum number of comments to include (0 for no comments)",
+              defaultValue = "10")
+          int commentLimit,
+      @ToolArg("(Optional) Comma-separated list of issue properties to return") String properties,
+      @ToolArg(
+              value = "Whether to update the issue view history for the requesting user",
+              defaultValue = "true")
+          boolean updateHistory) {}
 
   private final JiraRestClient client;
   private final UiBinding ui;
@@ -62,8 +55,25 @@ public class GetIssueTool extends DeclarativeTool {
   }
 
   public GetIssueTool(JiraRestClient client, UiBinding ui) {
+    super(Args.class);
     this.client = client;
     this.ui = ui;
+  }
+
+  @Override
+  public String name() {
+    return "get_issue";
+  }
+
+  @Override
+  public String description() {
+    return "Get details of a specific Jira issue including its Epic links and relationship"
+        + " information.";
+  }
+
+  @Override
+  public boolean isWriteTool() {
+    return false;
   }
 
   @Override
@@ -89,52 +99,26 @@ public class GetIssueTool extends DeclarativeTool {
   }
 
   @Override
-  public String name() {
-    return "get_issue";
-  }
-
-  @Override
-  public String description() {
-    return "Get details of a specific Jira issue including its Epic links and relationship information.";
-  }
-
-  @Override
-  public boolean isWriteTool() {
-    return false;
-  }
-
-  @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, FIELDS, EXPAND, COMMENT_LIMIT, PROPERTIES, UPDATE_HISTORY);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String fields = args.get(FIELDS);
-    String expand = args.get(EXPAND);
-    int commentLimit = Math.min(args.get(COMMENT_LIMIT), MAX_COMMENTS);
-    String properties = args.get(PROPERTIES);
-    boolean updateHistory = args.get(UPDATE_HISTORY);
-
+  protected String run(Args args, McpContext context) throws McpToolException {
     StringBuilder query = new StringBuilder();
     String sep = "?";
-    if (fields != null && !fields.isBlank()) {
-      query.append(sep).append("fields=").append(encode(fields));
+    if (args.fields() != null && !args.fields().isBlank()) {
+      query.append(sep).append("fields=").append(encode(args.fields()));
       sep = "&";
     }
-    if (expand != null && !expand.isBlank()) {
-      query.append(sep).append("expand=").append(encode(expand));
+    if (args.expand() != null && !args.expand().isBlank()) {
+      query.append(sep).append("expand=").append(encode(args.expand()));
       sep = "&";
     }
-    if (properties != null && !properties.isBlank()) {
-      query.append(sep).append("properties=").append(encode(properties));
+    if (args.properties() != null && !args.properties().isBlank()) {
+      query.append(sep).append("properties=").append(encode(args.properties()));
       sep = "&";
     }
-    query.append(sep).append("updateHistory=").append(updateHistory);
+    query.append(sep).append("updateHistory=").append(args.updateHistory());
 
-    String response = client.get("/rest/api/2/issue/" + issueKey + query, authHeader);
-    return trimComments(response, commentLimit);
+    String response =
+        client.get("/rest/api/2/issue/" + args.issueKey() + query, context.authHeader());
+    return trimComments(response, Math.min(args.commentLimit(), MAX_COMMENTS));
   }
 
   /**

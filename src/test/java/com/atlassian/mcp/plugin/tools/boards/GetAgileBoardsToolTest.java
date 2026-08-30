@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
+import com.atlassian.mcp.plugin.McpToolException;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
@@ -60,6 +61,26 @@ public class GetAgileBoardsToolTest {
   @Test
   public void limitIsClampedToJiraPageSize() throws Exception {
     assertTrue(urlFor(Map.of("limit", 5000)).contains("maxResults=50"));
+  }
+
+  @Test
+  public void boardTypeOutsideTheDeclaredEnumIsRejected() {
+    McpToolException thrown =
+        assertThrows(
+            McpToolException.class, () -> tool.execute(Map.of("board_type", "waterfall"), "t"));
+
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("board_type"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParameterIsRejectedRatherThanIgnored() {
+    McpToolException thrown =
+        assertThrows(
+            McpToolException.class, () -> tool.execute(Map.of("boardName", "Sprint"), "t"));
+
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("boardName"));
+    verifyNoInteractions(client);
   }
 
   @Test

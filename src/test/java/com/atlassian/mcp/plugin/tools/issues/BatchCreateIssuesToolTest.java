@@ -8,6 +8,7 @@ import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,10 +20,15 @@ public class BatchCreateIssuesToolTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  private static final String TWO_ISSUES =
-      "[{\"project_key\":\"PROJ\",\"summary\":\"One\",\"issue_type\":\"Task\"},"
-          + "{\"project_key\":\"PROJ\",\"summary\":\"Two\",\"issue_type\":\"Bug\","
-          + "\"description\":\"d\",\"assignee\":\"jdoe\"}]";
+  private static final List<Map<String, Object>> TWO_ISSUES =
+      List.of(
+          Map.of("project_key", "PROJ", "summary", "One", "issue_type", "Task"),
+          Map.of(
+              "project_key", "PROJ",
+              "summary", "Two",
+              "issue_type", "Bug",
+              "description", "d",
+              "assignee", "jdoe"));
 
   private JiraRestClient client;
   private BatchCreateIssuesTool tool;
@@ -52,6 +58,28 @@ public class BatchCreateIssuesToolTest {
   }
 
   @Test
+  public void componentsDeclaredOnAnIssueReachTheRequestBody() throws Exception {
+    tool.execute(
+        Map.of(
+            "issues",
+            List.of(
+                Map.of(
+                    "project_key", "PROJ",
+                    "summary", "One",
+                    "issue_type", "Task",
+                    "components", List.of("Frontend", "API")))),
+        "Bearer t");
+
+    ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+    verify(client).post(anyString(), body.capture(), any());
+
+    JsonNode components = MAPPER.readTree(body.getValue()).path("fields").path("components");
+    assertEquals(2, components.size());
+    assertEquals("Frontend", components.get(0).path("name").asText());
+    assertEquals("API", components.get(1).path("name").asText());
+  }
+
+  @Test
   public void validateOnlySkipsEveryWrite() throws Exception {
     String result = tool.execute(Map.of("issues", TWO_ISSUES, "validate_only", true), "Bearer t");
 
@@ -65,27 +93,45 @@ public class BatchCreateIssuesToolTest {
   }
 
   @Test
-  public void validateOnlyReportsEntriesMissingARequiredField() throws Exception {
-    String result =
-        tool.execute(
-            Map.of(
-                "issues",
-                "[{\"project_key\":\"PROJ\",\"summary\":\"No type\"}]",
-                "validate_only",
-                true),
-            "Bearer t");
-
-    JsonNode parsed = MAPPER.readTree(result);
-    assertEquals(0, parsed.path("valid").asInt());
-    assertEquals(1, parsed.path("errors").asInt());
-    assertTrue(result, parsed.path("failed").get(0).path("error").asText().contains("issue_type"));
-  }
-
-  @Test
   public void validateOnlyDefaultsToCreating() throws Exception {
     tool.execute(Map.of("issues", TWO_ISSUES), "Bearer t");
 
     verify(client, times(2)).post(anyString(), anyString(), any());
+  }
+
+  @Test
+  public void anIssueMissingARequiredFieldIsRejectedByIndex() {
+    McpToolException thrown =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issues", List.of(Map.of("project_key", "PROJ", "summary", "No type"))),
+                    "Bearer t"));
+
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("issues[0].issue_type"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void anIssueCarryingAnUndeclaredFieldIsRejected() {
+    McpToolException thrown =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of(
+                        "issues",
+                        List.of(
+                            Map.of(
+                                "project_key", "PROJ",
+                                "summary", "One",
+                                "issue_type", "Task",
+                                "priority", "High"))),
+                    "Bearer t"));
+
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("priority"));
+    verifyNoInteractions(client);
   }
 
   @Test(expected = McpToolException.class)
@@ -94,13 +140,13 @@ public class BatchCreateIssuesToolTest {
   }
 
   @Test(expected = McpToolException.class)
-  public void invalidIssuesJsonIsRejected() throws Exception {
+  public void anIssuesValueThatIsNotAnObjectListIsRejected() throws Exception {
     tool.execute(Map.of("issues", "not json"), "Bearer t");
   }
 
   @Test
   public void progressIsReportedForEveryIssue() throws Exception {
-    List<String> messages = new java.util.ArrayList<>();
+    List<String> messages = new ArrayList<>();
     tool.executeWithProgress(
         Map.of("issues", TWO_ISSUES),
         "Bearer t",
@@ -113,7 +159,7 @@ public class BatchCreateIssuesToolTest {
 
   @Test
   public void progressWordingFollowsValidateOnly() throws Exception {
-    List<String> messages = new java.util.ArrayList<>();
+    List<String> messages = new ArrayList<>();
     tool.executeWithProgress(
         Map.of("issues", TWO_ISSUES, "validate_only", true),
         "Bearer t",
@@ -129,5 +175,21 @@ public class BatchCreateIssuesToolTest {
 
     assertEquals(Set.of("issues", "validate_only"), props.keySet());
     assertEquals(List.of("issues"), tool.inputSchema().get("required"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void schemaDescribesTheShapeOfOneIssue() {
+    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+    Map<String, Object> issues = (Map<String, Object>) props.get("issues");
+    Map<String, Object> item = (Map<String, Object>) issues.get("items");
+
+    assertEquals("array", issues.get("type"));
+    assertEquals("object", item.get("type"));
+    assertEquals(Boolean.FALSE, item.get("additionalProperties"));
+    assertEquals(
+        Set.of("project_key", "summary", "issue_type", "description", "assignee", "components"),
+        ((Map<String, Object>) item.get("properties")).keySet());
+    assertEquals(List.of("project_key", "summary", "issue_type"), item.get("required"));
   }
 }

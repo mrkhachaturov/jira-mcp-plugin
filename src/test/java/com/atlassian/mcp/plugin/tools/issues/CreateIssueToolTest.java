@@ -46,8 +46,8 @@ public class CreateIssueToolTest {
                 "issue_type", "Bug",
                 "assignee", "jdoe",
                 "description", "hello world",
-                "components", "Frontend, API",
-                "additional_fields", "{\"labels\":[\"urgent\"]}"));
+                "components", java.util.List.of("Frontend", "API"),
+                "additional_fields", Map.of("labels", java.util.List.of("urgent"))));
 
     assertEquals("PROJ", fields.path("project").path("key").asText());
     assertEquals("A summary", fields.path("summary").asText());

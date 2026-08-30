@@ -44,12 +44,18 @@ public class SearchToolTest {
     String url =
         urlFor(
             Map.of(
-                "jql", "status = Open",
-                "fields", "summary,status",
-                "limit", 25,
-                "start_at", 30,
-                "projects_filter", "ALPHA, BETA",
-                "expand", "changelog"));
+                "jql",
+                "status = Open",
+                "fields",
+                "summary,status",
+                "limit",
+                25,
+                "start_at",
+                30,
+                "projects_filter",
+                java.util.List.of("ALPHA", "BETA"),
+                "expand",
+                "changelog"));
 
     assertTrue(url, url.startsWith("/rest/api/2/search?jql="));
     assertEquals("(status = Open) AND project in (\"ALPHA\", \"BETA\")", jqlOf(url));
