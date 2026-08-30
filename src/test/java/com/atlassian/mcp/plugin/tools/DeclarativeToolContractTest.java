@@ -21,12 +21,12 @@ import org.junit.Test;
 /**
  * Proves that no tool advertises a parameter it does not consume. This is the guard for the bug
  * class that motivated {@link DeclarativeTool}: 22 parameters across ten tools were declared in a
- * hand-written schema, parsed into a local, and then dropped — so agents were told about
- * pagination and filters that silently did nothing.
+ * hand-written schema, parsed into a local, and then dropped — so agents were told about pagination
+ * and filters that silently did nothing.
  *
  * <p>Every {@link DeclarativeTool} on the classpath is driven with a filled-in argument map and
- * must read every parameter it declares. A tool whose validation legitimately short-circuits
- * before reading everything supplies a fixture in {@link #FIXTURES}.
+ * must read every parameter it declares. A tool whose validation legitimately short-circuits before
+ * reading everything supplies a fixture in {@link #FIXTURES}.
  */
 public class DeclarativeToolContractTest {
 
@@ -66,8 +66,7 @@ public class DeclarativeToolContractTest {
     for (DeclarativeTool tool : discoverTools()) {
       Set<String> seen = new LinkedHashSet<>();
       for (ToolParam<?> param : tool.params()) {
-        assertTrue(
-            tool.name() + " declares '" + param.name() + "' twice", seen.add(param.name()));
+        assertTrue(tool.name() + " declares '" + param.name() + "' twice", seen.add(param.name()));
       }
     }
   }
@@ -115,7 +114,8 @@ public class DeclarativeToolContractTest {
     return tools;
   }
 
-  private static DeclarativeTool instantiate(Class<?> type, JiraRestClient client) throws Exception {
+  private static DeclarativeTool instantiate(Class<?> type, JiraRestClient client)
+      throws Exception {
     Constructor<?> best = null;
     for (Constructor<?> candidate : type.getConstructors()) {
       if (best == null || candidate.getParameterCount() < best.getParameterCount()) {

@@ -37,3 +37,6 @@ mcp-app/node_modules/
 src/main/resources/mcp-app/
 
 /docs/
+
+# Subagent worktrees (created by the harness, never committed)
+.claude/worktrees/
