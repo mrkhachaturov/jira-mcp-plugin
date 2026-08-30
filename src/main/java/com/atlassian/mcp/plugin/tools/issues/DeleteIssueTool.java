@@ -2,19 +2,20 @@ package com.atlassian.mcp.plugin.tools.issues;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
-import java.util.List;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-public class DeleteIssueTool extends DeclarativeTool {
+public class DeleteIssueTool extends TypedTool<DeleteIssueTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey) {}
 
   private final JiraRestClient client;
 
   public DeleteIssueTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -39,12 +40,7 @@ public class DeleteIssueTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    return client.delete("/rest/api/2/issue/" + args.require(ISSUE_KEY), authHeader);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.delete("/rest/api/2/issue/" + args.issueKey(), context.authHeader());
   }
 }

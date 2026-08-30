@@ -2,19 +2,20 @@ package com.atlassian.mcp.plugin.tools.worklogs;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
-import java.util.List;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-public class GetWorklogTool extends DeclarativeTool {
+public class GetWorklogTool extends TypedTool<GetWorklogTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey) {}
 
   private final JiraRestClient client;
 
   public GetWorklogTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -34,14 +35,7 @@ public class GetWorklogTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-
-    return client.get("/rest/api/2/issue/" + issueKey + "/worklog", authHeader);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get("/rest/api/2/issue/" + args.issueKey() + "/worklog", context.authHeader());
   }
 }

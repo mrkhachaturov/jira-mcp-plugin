@@ -8,6 +8,7 @@ import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
@@ -43,20 +44,39 @@ public class UpdateIssueToolTest {
     JsonNode fields =
         putFields(
             Map.of(
-                "issue_key", "PROJ-1",
-                "fields", "{\"summary\":\"New summary\"}",
-                "additional_fields", "{\"customfield_10010\":\"x\"}",
-                "components", "Frontend, API"));
+                "issue_key",
+                "PROJ-1",
+                "fields",
+                Map.of("summary", "New summary", "customfield_10010", "x"),
+                "components",
+                List.of("Frontend", "API")));
 
     assertEquals("New summary", fields.path("summary").asText());
     assertEquals("x", fields.path("customfield_10010").asText());
     assertEquals(2, fields.path("components").size());
     assertEquals("Frontend", fields.path("components").get(0).path("name").asText());
+    assertEquals("API", fields.path("components").get(1).path("name").asText());
+  }
+
+  /** A nested field value keeps its structure instead of being flattened into a string. */
+  @Test
+  public void structuredFieldValuesAreForwardedAsObjects() throws Exception {
+    JsonNode fields =
+        putFields(
+            Map.of(
+                "issue_key",
+                "PROJ-1",
+                "fields",
+                Map.of("priority", Map.of("name", "High"), "labels", List.of("urgent", "api"))));
+
+    assertEquals("High", fields.path("priority").path("name").asText());
+    assertEquals(2, fields.path("labels").size());
+    assertEquals("urgent", fields.path("labels").get(0).asText());
   }
 
   @Test
-  public void onlyTheFieldsJsonIsSentWhenNothingElseIsPassed() throws Exception {
-    JsonNode fields = putFields(Map.of("issue_key", "PROJ-1", "fields", "{\"summary\":\"S\"}"));
+  public void onlyTheDeclaredFieldsAreSent() throws Exception {
+    JsonNode fields = putFields(Map.of("issue_key", "PROJ-1", "fields", Map.of("summary", "S")));
 
     assertEquals(Set.of("summary"), fieldNames(fields));
   }
@@ -65,7 +85,7 @@ public class UpdateIssueToolTest {
   public void markdownDescriptionIsConvertedToJiraMarkup() throws Exception {
     JsonNode fields =
         putFields(
-            Map.of("issue_key", "PROJ-1", "fields", "{\"description\":\"## Updated\\ntext\"}"));
+            Map.of("issue_key", "PROJ-1", "fields", Map.of("description", "## Updated\ntext")));
 
     String description = fields.path("description").asText();
     assertTrue(description, description.contains("h2. Updated"));
@@ -75,7 +95,7 @@ public class UpdateIssueToolTest {
   @Test
   public void theUpdatedIssueIsReReadAndWrapped() throws Exception {
     String result =
-        tool.execute(Map.of("issue_key", "PROJ-1", "fields", "{\"summary\":\"S\"}"), "Bearer t");
+        tool.execute(Map.of("issue_key", "PROJ-1", "fields", Map.of("summary", "S")), "Bearer t");
 
     verify(client).get("/rest/api/2/issue/PROJ-1", "Bearer t");
     JsonNode parsed = MAPPER.readTree(result);
@@ -83,25 +103,76 @@ public class UpdateIssueToolTest {
     assertEquals("PROJ-1", parsed.path("issue").path("key").asText());
   }
 
-  @Test(expected = McpToolException.class)
-  public void issueKeyIsRequired() throws Exception {
-    tool.execute(Map.of("fields", "{}"), "Bearer t");
+  /** A rejected update must not be reported as a serialisation problem. */
+  @Test
+  public void aJiraFailureIsReportedAsItself() throws Exception {
+    when(client.put(anyString(), anyString(), any()))
+        .thenThrow(new McpToolException("Jira API error (403): you lack permission"));
+
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-1", "fields", Map.of("summary", "S")), "Bearer t"));
+
+    assertEquals("Jira API error (403): you lack permission", e.getMessage());
   }
 
-  @Test(expected = McpToolException.class)
-  public void fieldsIsRequired() throws Exception {
-    tool.execute(Map.of("issue_key", "PROJ-1"), "Bearer t");
+  @Test
+  public void everyRequiredParamIsEnforced() {
+    for (Map<String, Object> args :
+        List.of(
+            Map.<String, Object>of("fields", Map.of()),
+            Map.<String, Object>of("issue_key", "PROJ-1"))) {
+      assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+    }
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void fieldsMustBeAnObject() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-1", "fields", "{\"summary\":\"S\"}"), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("fields"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParametersAreRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of(
+                        "issue_key",
+                        "PROJ-1",
+                        "fields",
+                        Map.of("summary", "S"),
+                        "additional_fields",
+                        Map.of("customfield_10010", "x")),
+                    "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("additional_fields"));
+    verifyNoInteractions(client);
   }
 
   @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
-    Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
+    Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(Set.of("issue_key", "fields", "additional_fields", "components"), props.keySet());
-    assertEquals(
-        Set.of("issue_key", "fields"),
-        Set.copyOf((java.util.List<String>) tool.inputSchema().get("required")));
+    assertEquals(Set.of("issue_key", "fields", "components"), props.keySet());
+    assertEquals(Set.of("issue_key", "fields"), Set.copyOf((List<String>) schema.get("required")));
+    assertEquals("object", ((Map<String, Object>) props.get("fields")).get("type"));
+    assertEquals("array", ((Map<String, Object>) props.get("components")).get("type"));
   }
 
   private static Set<String> fieldNames(JsonNode node) {

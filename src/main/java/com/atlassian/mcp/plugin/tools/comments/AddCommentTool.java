@@ -3,29 +3,45 @@ package com.atlassian.mcp.plugin.tools.comments;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class AddCommentTool extends DeclarativeTool {
+public class AddCommentTool extends TypedTool<AddCommentTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
-  private static final ToolParam<String> BODY =
-      ToolParam.string("body", "Comment text in Markdown format").required();
-  private static final ToolParam<String> VISIBILITY =
-      ToolParam.string(
-          "visibility",
-          "(Optional) Comment visibility as JSON string (e.g."
-              + " '{\"type\":\"group\",\"value\":\"jira-users\"}')");
+  /**
+   * Who may read a comment. Shared with {@link EditCommentTool}, which restricts it the same way.
+   */
+  public record Visibility(
+      @ToolArg(
+              value = "Whether the comment is restricted to a group or to a project role",
+              required = true,
+              allowed = {"group", "role"})
+          String type,
+      @ToolArg(
+              value =
+                  "Name of the group or project role that may read the comment, e.g."
+                      + " 'jira-users'",
+              required = true)
+          String value) {}
+
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(value = "Comment text in Markdown format", required = true) String body,
+      @ToolArg(
+              "(Optional) Restricts who can read the comment. Omit to let everyone who can see the"
+                  + " issue read it.")
+          Visibility visibility) {}
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public AddCommentTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -45,24 +61,24 @@ public class AddCommentTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, BODY, VISIBILITY);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String body = serialize(mapper, args.body(), args.visibility());
+    return client.post(
+        "/rest/api/2/issue/" + args.issueKey() + "/comment", body, context.authHeader());
   }
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String body = args.require(BODY);
-    String visibility = args.get(VISIBILITY);
-
-    Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
+  /**
+   * Builds the comment body both comment tools send; Jira's shape is the same on create and edit.
+   */
+  static String serialize(ObjectMapper mapper, String markdown, Visibility visibility)
+      throws McpToolException {
+    Map<String, Object> requestBody = new LinkedHashMap<>();
+    requestBody.put("body", JiraMarkupConverter.markdownToJira(markdown));
     if (visibility != null) {
-      requestBody.put("visibility", jsonObject(mapper, visibility, "visibility"));
+      requestBody.put("visibility", Map.of("type", visibility.type(), "value", visibility.value()));
     }
     try {
-      String jsonBody = mapper.writeValueAsString(requestBody);
-      return client.post("/rest/api/2/issue/" + issueKey + "/comment", jsonBody, authHeader);
+      return mapper.writeValueAsString(requestBody);
     } catch (Exception e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }

@@ -9,6 +9,7 @@ import com.atlassian.mcp.plugin.McpToolException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
@@ -40,7 +41,7 @@ public class EditCommentToolTest {
   private static Map<String, Object> required() {
     Map<String, Object> args = new HashMap<>();
     args.put("issue_key", "PROJ-3");
-    args.put("comment_id", "10100");
+    args.put("comment_id", 10100L);
     args.put("body", "**revised**");
     return args;
   }
@@ -48,15 +49,15 @@ public class EditCommentToolTest {
   @Test
   public void everyDeclaredParamReachesTheRequest() throws Exception {
     Map<String, Object> args = required();
-    args.put("visibility", "{\"type\":\"group\",\"value\":\"jira-users\"}");
+    args.put("visibility", Map.of("type", "role", "value", "Developers"));
 
     JsonNode json = putFor(args);
 
     assertEquals("/rest/api/2/issue/PROJ-3/comment/10100", path.getValue());
     // Markdown is converted to Jira markup before it is sent.
     assertEquals("*revised*", json.path("body").asText());
-    assertEquals("group", json.path("visibility").path("type").asText());
-    assertEquals("jira-users", json.path("visibility").path("value").asText());
+    assertEquals("role", json.path("visibility").path("type").asText());
+    assertEquals("Developers", json.path("visibility").path("value").asText());
   }
 
   @Test
@@ -64,13 +65,60 @@ public class EditCommentToolTest {
     assertFalse(putFor(required()).has("visibility"));
   }
 
+  /** A caller that quotes the numeric id still reaches the same comment. */
   @Test
-  public void missingCommentIdIsRejected() {
+  public void aQuotedCommentIdIsAccepted() throws Exception {
     Map<String, Object> args = required();
-    args.remove("comment_id");
+    args.put("comment_id", "10100");
+
+    putFor(args);
+
+    assertEquals("/rest/api/2/issue/PROJ-3/comment/10100", path.getValue());
+  }
+
+  @Test
+  public void aNonNumericCommentIdIsRefused() {
+    Map<String, Object> args = required();
+    args.put("comment_id", "not-a-number");
 
     McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+
     assertTrue(e.getMessage(), e.getMessage().contains("comment_id"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void visibilityIsRestrictedTheSameWayAsOnAddComment() {
+    Map<String, Object> args = required();
+    args.put("visibility", Map.of("type", "user", "value", "bob"));
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("visibility.type"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void everyRequiredParamIsEnforced() {
+    for (String missing : new String[] {"issue_key", "comment_id", "body"}) {
+      Map<String, Object> args = required();
+      args.remove(missing);
+
+      McpToolException e =
+          assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+      assertTrue(e.getMessage(), e.getMessage().contains(missing));
+    }
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParametersAreRefused() {
+    Map<String, Object> args = required();
+    args.put("notify_users", true);
+
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("notify_users"));
     verifyNoInteractions(client);
   }
 
@@ -78,12 +126,17 @@ public class EditCommentToolTest {
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(
-        Set.of("issue_key", "comment_id", "body", "visibility"),
-        ((Map<String, Object>) schema.get("properties")).keySet());
+    assertEquals(Set.of("issue_key", "comment_id", "body", "visibility"), props.keySet());
     assertEquals(
         Set.of("issue_key", "comment_id", "body"),
-        Set.copyOf((java.util.List<String>) schema.get("required")));
+        Set.copyOf((List<String>) schema.get("required")));
+    assertEquals("integer", ((Map<String, Object>) props.get("comment_id")).get("type"));
+
+    Map<String, Object> visibility = (Map<String, Object>) props.get("visibility");
+    assertEquals("object", visibility.get("type"));
+    assertEquals(
+        Set.of("type", "value"), ((Map<String, Object>) visibility.get("properties")).keySet());
   }
 }

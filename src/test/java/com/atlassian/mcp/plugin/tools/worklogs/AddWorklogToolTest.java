@@ -69,6 +69,15 @@ public class AddWorklogToolTest {
     assertEquals("2023-08-01T12:00:00.000+0000", body.path("started").asText());
   }
 
+  /** The comment is declared as Markdown, so it is converted like every other Markdown field. */
+  @Test
+  public void markdownCommentIsConvertedToJiraMarkup() throws Exception {
+    Map<String, Object> args = validArgs();
+    args.put("comment", "**done**");
+
+    assertEquals("*done*", bodyFor(args).path("comment").asText());
+  }
+
   /** Jira answers "Unrecognized field ... not marked as ignorable" for anything else. */
   @Test
   public void bodyCarriesOnlyThePropertyNamesJiraKnows() throws Exception {
@@ -95,22 +104,19 @@ public class AddWorklogToolTest {
   }
 
   /**
-   * Jira's worklog resource has no original-estimate field and rejects unknown body properties, so
-   * this parameter must not reach the request until a verified endpoint carries it.
+   * Jira's worklog resource has no original-estimate field, and the estimate lives on the issue
+   * rather than on the worklog, so this tool does not offer it at all — update_issue sets it
+   * through the issue's timetracking field.
    */
   @Test
-  public void originalEstimateIsNotSerialisedIntoTheWorklog() throws Exception {
+  public void originalEstimateIsNotOffered() {
     Map<String, Object> args = validArgs();
     args.put("original_estimate", "5d");
 
-    tool.execute(args, "Bearer t");
+    McpToolException e = assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
 
-    ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
-    ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-    verify(client).post(url.capture(), body.capture(), any());
-
-    assertFalse(body.getValue(), body.getValue().contains("5d"));
-    assertFalse(url.getValue(), url.getValue().contains("5d"));
+    assertTrue(e.getMessage(), e.getMessage().contains("original_estimate"));
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -130,6 +136,7 @@ public class AddWorklogToolTest {
           assertThrows(McpToolException.class, () -> tool.execute(args, "Bearer t"));
       assertTrue(e.getMessage(), e.getMessage().contains(missing));
     }
+    verifyNoInteractions(client);
   }
 
   @Test
@@ -138,13 +145,7 @@ public class AddWorklogToolTest {
     Map<String, Object> schema = tool.inputSchema();
 
     assertEquals(
-        Set.of(
-            "issue_key",
-            "time_spent",
-            "comment",
-            "started",
-            "original_estimate",
-            "remaining_estimate"),
+        Set.of("issue_key", "time_spent", "comment", "started", "remaining_estimate"),
         ((Map<String, Object>) schema.get("properties")).keySet());
     assertEquals(
         Set.of("issue_key", "time_spent"), Set.copyOf((List<String>) schema.get("required")));

@@ -3,44 +3,35 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-public class UpdateIssueTool extends DeclarativeTool {
+public class UpdateIssueTool extends TypedTool<UpdateIssueTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEY =
-      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
-  private static final ToolParam<String> FIELDS =
-      ToolParam.string(
-              "fields",
-              "JSON string of fields to update. For 'assignee', provide the username. For"
-                  + " 'description', provide text in Markdown format."
-                  + " Example: '{\"assignee\": \"user@example.com\", \"summary\": \"New Summary\","
-                  + " \"description\": \"## Updated\\nMarkdown text\"}'")
-          .required();
-  private static final ToolParam<String> ADDITIONAL_FIELDS =
-      ToolParam.string(
-          "additional_fields",
-          "(Optional) JSON string of additional fields to update. Use this for custom fields or"
-              + " more complex updates. Link to epic: {\"epicKey\": \"EPIC-123\"} or"
-              + " {\"epic_link\": \"EPIC-123\"}.");
-  private static final ToolParam<String> COMPONENTS =
-      ToolParam.string(
-          "components",
-          "(Optional) Comma-separated list of component names (e.g., 'Frontend,API')");
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(
+              value =
+                  "The fields to set, as they are named in Jira. For 'assignee' provide the"
+                      + " username, for 'description' provide Markdown. Examples: {\"summary\":"
+                      + " \"New summary\"}, {\"priority\": {\"name\": \"High\"}}, {\"labels\":"
+                      + " [\"urgent\"]}, {\"customfield_10010\": \"value\"}",
+              required = true)
+          Map<String, Object> fields,
+      @ToolArg("(Optional) Component names to set, e.g. ['Frontend', 'API']")
+          List<String> components) {}
 
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public UpdateIssueTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -51,7 +42,8 @@ public class UpdateIssueTool extends DeclarativeTool {
 
   @Override
   public String description() {
-    return "Update an existing Jira issue including changing status, adding Epic links, updating fields, etc.";
+    return "Update an existing Jira issue including changing status, adding Epic links, updating"
+        + " fields, etc.";
   }
 
   @Override
@@ -60,64 +52,34 @@ public class UpdateIssueTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, FIELDS, ADDITIONAL_FIELDS, COMPONENTS);
-  }
+  protected String run(Args args, McpContext context) throws McpToolException {
+    Map<String, Object> fields = new LinkedHashMap<>(args.fields());
 
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String issueKey = args.require(ISSUE_KEY);
-    String fields = args.require(FIELDS);
-    String additionalFields = args.get(ADDITIONAL_FIELDS);
-    String components = args.get(COMPONENTS);
+    if (fields.get("description") instanceof String description) {
+      fields.put("description", JiraMarkupConverter.markdownToJira(description));
+    }
+    if (args.components() != null && !args.components().isEmpty()) {
+      fields.put("components", args.components().stream().map(c -> Map.of("name", c)).toList());
+    }
 
-    Map<String, Object> updateFields;
+    String body;
     try {
-      @SuppressWarnings("unchecked")
-      Map<String, Object> parsed = mapper.readValue(fields, Map.class);
-      updateFields = new HashMap<>(parsed);
+      body = mapper.writeValueAsString(Map.of("fields", fields));
     } catch (Exception e) {
-      throw new McpToolException("Invalid fields JSON: " + e.getMessage());
+      throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
 
-    if (additionalFields != null && !additionalFields.isBlank()) {
-      try {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> extra = mapper.readValue(additionalFields, Map.class);
-        updateFields.putAll(extra);
-      } catch (Exception e) {
-        throw new McpToolException("Invalid additional_fields JSON: " + e.getMessage());
-      }
-    }
-
-    if (updateFields.containsKey("description")
-        && updateFields.get("description") instanceof String desc) {
-      updateFields.put("description", JiraMarkupConverter.markdownToJira(desc));
-    }
-
-    if (components != null && !components.isBlank()) {
-      updateFields.put(
-          "components",
-          Arrays.stream(components.split(","))
-              .map(String::trim)
-              .filter(s -> !s.isEmpty())
-              .map(c -> Map.of("name", c))
-              .collect(Collectors.toList()));
-    }
+    client.put("/rest/api/2/issue/" + args.issueKey(), body, context.authHeader());
+    // Jira's PUT returns 204 with no body, so the updated issue has to be re-read.
+    String updated = client.get("/rest/api/2/issue/" + args.issueKey(), context.authHeader());
 
     try {
-      String jsonBody = mapper.writeValueAsString(Map.of("fields", updateFields));
-      client.put("/rest/api/2/issue/" + issueKey, jsonBody, authHeader);
-      // Jira's PUT returns 204 with no body, so the updated issue has to be re-read.
-      String updatedIssue = client.get("/rest/api/2/issue/" + issueKey, authHeader);
       Map<String, Object> result = new LinkedHashMap<>();
       result.put("success", true);
-      result.put("issue", mapper.readTree(updatedIssue));
+      result.put("issue", mapper.readTree(updated));
       return mapper.writeValueAsString(result);
-    } catch (McpToolException e) {
-      throw e;
     } catch (Exception e) {
-      throw new McpToolException("Failed to update issue: " + e.getMessage());
+      throw new McpToolException("Failed to serialize result: " + e.getMessage());
     }
   }
 }

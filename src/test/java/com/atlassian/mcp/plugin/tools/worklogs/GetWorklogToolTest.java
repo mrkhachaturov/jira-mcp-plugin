@@ -47,6 +47,18 @@ public class GetWorklogToolTest {
     McpToolException e =
         assertThrows(McpToolException.class, () -> tool.execute(Map.of(), "Bearer t"));
     assertTrue(e.getMessage(), e.getMessage().contains("issue_key"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
+  public void unknownParametersAreRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () -> tool.execute(Map.of("issue_key", "PROJ-123", "limit", 5), "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("limit"));
+    verifyNoInteractions(client);
   }
 
   @Test
