@@ -2,14 +2,28 @@ package com.atlassian.mcp.plugin.tools.fields;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /** search_fields: fuzzy keyword matching + limit. Uses substring + prefix scoring. */
-public class SearchFieldsTool implements McpTool {
+public class SearchFieldsTool extends DeclarativeTool {
+
+  private static final ToolParam<String> KEYWORD =
+      ToolParam.string(
+              "keyword",
+              "Keyword for fuzzy search. If left empty, lists the first 'limit' available fields in"
+                  + " their default order.")
+          .withDefault("");
+  private static final ToolParam<Integer> LIMIT =
+      ToolParam.integer("limit", "Maximum number of results").withDefault(10);
+  private static final ToolParam<Boolean> REFRESH =
+      ToolParam.bool("refresh", "Whether to force refresh the field list").withDefault(false);
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,49 +42,23 @@ public class SearchFieldsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "keyword",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Keyword for fuzzy search. If left empty, lists the first 'limit' available fields in their default order.",
-                        "default",
-                        ""),
-                "limit",
-                    Map.of(
-                        "type",
-                        "integer",
-                        "description",
-                        "Maximum number of results",
-                        "default",
-                        10),
-                "refresh",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "Whether to force refresh the field list",
-                        "default",
-                        false)),
-        "required", List.of());
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String keyword = (String) args.getOrDefault("keyword", "");
-    int limit = getInt(args, "limit", 10);
+  public List<ToolParam<?>> params() {
+    return List.of(KEYWORD, LIMIT, REFRESH);
+  }
 
-    // Fetch all fields from Jira
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String keyword = args.get(KEYWORD);
+    int limit = args.get(LIMIT);
+    // The field list is read from Jira on every call and nothing is held between calls, so there is
+    // no cached copy for 'refresh' to invalidate.
+    args.get(REFRESH);
+
     String raw = client.get("/rest/api/2/field", authHeader);
 
     try {
@@ -143,18 +131,5 @@ public class SearchFieldsTool implements McpTool {
 
   private static String str(Object o) {
     return o != null ? o.toString() : "";
-  }
-
-  private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Number n) return n.intValue();
-    if (val instanceof String s) {
-      try {
-        return Integer.parseInt(s);
-      } catch (NumberFormatException e) {
-        return defaultVal;
-      }
-    }
-    return defaultVal;
   }
 }

@@ -2,11 +2,16 @@ package com.atlassian.mcp.plugin.tools.forms;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.util.List;
-import java.util.Map;
 
-public class GetIssueProformaFormsTool implements McpTool {
+public class GetIssueProformaFormsTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+
   private final JiraRestClient client;
 
   public GetIssueProformaFormsTool(JiraRestClient client) {
@@ -24,17 +29,6 @@ public class GetIssueProformaFormsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')")),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
@@ -45,11 +39,13 @@ public class GetIssueProformaFormsTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
 
     return client.get("/rest/api/2/issue/" + issueKey + "/properties/proforma.forms", authHeader);
   }

@@ -47,6 +47,7 @@ public class JiraRequestBodyContractTest {
     }
     forbidUnknownProperties(spec);
     relaxHeterogeneousMaps(spec);
+    relaxRawJsonBodies(spec);
     makeOperationIdsUnique(spec);
     validator =
         OpenApiInteractionValidator.createForInlineApiSpecification(MAPPER.writeValueAsString(spec))
@@ -88,6 +89,27 @@ public class JiraRequestBodyContractTest {
       if (node.isObject()) {
         ((ObjectNode) node).set("additionalProperties", MAPPER.createObjectNode());
       }
+    }
+  }
+
+  /**
+   * An issue property holds any JSON value the caller chooses, but the document types the body of
+   * {@code PUT .../properties/{propertyKey}} as {@code "type": "string", "format": "json"} — the
+   * shape of the resource method's parameter, not of the payload. Read literally that rejects every
+   * object body, so such a schema is left unconstrained; it names no properties, so nothing this
+   * test checks is lost.
+   */
+  private static void relaxRawJsonBodies(JsonNode node) {
+    if (node.isObject()) {
+      ObjectNode object = (ObjectNode) node;
+      if ("string".equals(object.path("type").asText())
+          && "json".equals(object.path("format").asText())) {
+        object.removeAll();
+        return;
+      }
+      object.fields().forEachRemaining(field -> relaxRawJsonBodies(field.getValue()));
+    } else if (node.isArray()) {
+      node.forEach(JiraRequestBodyContractTest::relaxRawJsonBodies);
     }
   }
 
