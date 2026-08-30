@@ -2,13 +2,27 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class CreateSprintTool implements McpTool {
+public class CreateSprintTool extends DeclarativeTool {
+
+  private static final ToolParam<String> BOARD_ID =
+      ToolParam.string("board_id", "The id of board (e.g., '1000')").required();
+  private static final ToolParam<String> NAME =
+      ToolParam.string("name", "Name of the sprint (e.g., 'Sprint 1')").required();
+  private static final ToolParam<String> START_DATE =
+      ToolParam.string("start_date", "Start time for sprint (ISO 8601 format)").required();
+  private static final ToolParam<String> END_DATE =
+      ToolParam.string("end_date", "End time for sprint (ISO 8601 format)").required();
+  private static final ToolParam<String> GOAL =
+      ToolParam.string("goal", "(Optional) Goal of the sprint");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,27 +41,6 @@ public class CreateSprintTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "board_id",
-                    Map.of("type", "string", "description", "The id of board (e.g., '1000')"),
-                "name",
-                    Map.of(
-                        "type", "string", "description", "Name of the sprint (e.g., 'Sprint 1')"),
-                "start_date",
-                    Map.of(
-                        "type", "string", "description", "Start time for sprint (ISO 8601 format)"),
-                "end_date",
-                    Map.of(
-                        "type", "string", "description", "End time for sprint (ISO 8601 format)"),
-                "goal", Map.of("type", "string", "description", "(Optional) Goal of the sprint")),
-        "required", List.of("board_id", "name", "start_date", "end_date"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -58,24 +51,17 @@ public class CreateSprintTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String boardId = (String) args.get("board_id");
-    if (boardId == null || boardId.isBlank()) {
-      throw new McpToolException("'board_id' parameter is required");
-    }
-    String name = (String) args.get("name");
-    if (name == null || name.isBlank()) {
-      throw new McpToolException("'name' parameter is required");
-    }
-    String startDate = (String) args.get("start_date");
-    if (startDate == null || startDate.isBlank()) {
-      throw new McpToolException("'start_date' parameter is required");
-    }
-    String endDate = (String) args.get("end_date");
-    if (endDate == null || endDate.isBlank()) {
-      throw new McpToolException("'end_date' parameter is required");
-    }
-    String goal = (String) args.get("goal");
+  public List<ToolParam<?>> params() {
+    return List.of(BOARD_ID, NAME, START_DATE, END_DATE, GOAL);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String boardId = args.require(BOARD_ID);
+    String name = args.require(NAME);
+    String startDate = args.require(START_DATE);
+    String endDate = args.require(END_DATE);
+    String goal = args.get(GOAL);
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("board_id", boardId);
