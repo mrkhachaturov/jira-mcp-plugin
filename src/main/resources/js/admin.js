@@ -14,7 +14,7 @@
 
     if (allToolsMeta.length === 0) {
       $list.append(
-        '<div style="padding:12px; color:#6b778c;">No tools registered.</div>',
+        '<div style="padding:12px; color:var(--ds-text-subtlest, #6b778c);">No tools registered.</div>',
       );
       return;
     }
@@ -96,7 +96,7 @@
                 '">' +
                 esc(r.label) +
                 (r.extra
-                  ? ' <span style="color:#6b778c;">(' +
+                  ? ' <span style="color:var(--ds-text-subtlest, #6b778c);">(' +
                     esc(r.extra) +
                     ")</span>"
                   : "") +
@@ -236,7 +236,7 @@
           );
         }
         var baseUrl = window.location.origin + AJS.contextPath();
-        var mcpUrl = `${baseUrl}/rest/mcp/1.0/`;
+        var mcpUrl = `${baseUrl}/plugins/servlet/mcp`;
         $("#oauth-callback-url").text(
           `${baseUrl}/plugins/servlet/mcp-oauth/callback`,
         );
@@ -254,7 +254,7 @@
       })
       .fail((xhr) => {
         $("#mcp-tools-list").html(
-          '<div style="padding:12px; color:#de350b;">Failed to load config (HTTP ' +
+          '<div style="padding:12px; color:var(--ds-text-danger, #ae2e24);">Failed to load config (HTTP ' +
             xhr.status +
             ").</div>",
         );

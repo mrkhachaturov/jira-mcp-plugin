@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- **The admin page handed out an MCP URL that does not exist.** The "MCP Config for Users" block advertised `/rest/mcp/1.0/`, a path removed when the transport moved to the SDK servlet; anyone who pasted it into Claude Code or Cursor got a redirect to the login page instead of the MCP endpoint. It now advertises `/plugins/servlet/mcp`.
+- **The admin page was unreadable in Jira's light theme.** Its stylesheet hard-coded dark-theme colours, and two read-only blocks set a dark background without setting a foreground, so the callback URL and the MCP config rendered as dark text on dark. Colours are now Atlassian Design System tokens with light-theme fallbacks, so the page follows whichever theme Jira is in.
 - **The Issue Card widget could not post a comment.** It called `add_comment` with `comment`, a parameter the tool has never declared — the body was missing on every call. It also sent `update_issue.fields` as a stringified JSON. Both corrected.
 - **Three parameters that were declared and never read now work.** `get_proforma_form_details.form_id` returns the named form instead of the whole property; `get_service_desk_for_project.project_key` resolves the desk for that project instead of listing all of them; `update_proforma_form_answers` performs the ISO-8601-to-timestamp conversion its description promised, which it could not do while the answers were an opaque string.
 - **A Jira rejection is no longer reported as a serialisation failure.** Ten tools wrapped the REST call in the `try` whose `catch` blamed serialisation, so a 403, a 404 or "version name already exists" reached the model as "Failed to serialize request".

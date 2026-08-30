@@ -91,12 +91,12 @@
                 </div>
                 <div class="field-group">
                     <label>Callback URL (set in Application Link)</label>
-                    <pre id="oauth-callback-url" style="background:#1b2638; padding:12px; border-radius:3px; font-size:12px;"></pre>
+                    <pre id="oauth-callback-url" class="mcp-code"></pre>
                     <div class="description">Set this as the Redirect URL when creating the incoming Application Link.</div>
                 </div>
                 <div class="field-group">
                     <label>MCP Config for Users</label>
-                    <pre id="oauth-mcp-config" style="background:#1b2638; padding:12px; border-radius:3px; font-size:12px;"></pre>
+                    <pre id="oauth-mcp-config" class="mcp-code"></pre>
                     <div class="description">Users paste this into their Claude Code / Cursor MCP settings.</div>
                 </div>
             </div>
