@@ -68,20 +68,32 @@ public final class ResultSchema {
     if (type instanceof ParameterizedType parameterized) {
       Class<?> raw = (Class<?>) parameterized.getRawType();
       if (List.class.isAssignableFrom(raw)) {
-        return Map.of(
-            "type", "array", "items", typeOf(parameterized.getActualTypeArguments()[0], enclosing));
+        return nullable(
+            Map.of(
+                "type",
+                "array",
+                "items",
+                typeOf(parameterized.getActualTypeArguments()[0], enclosing)));
       }
       throw new IllegalStateException("Unsupported result type: " + type);
     }
 
     Class<?> raw = (Class<?>) type;
-    if (raw.isRecord()) return of(raw, enclosing);
-    if (raw == String.class) return Map.of("type", "string");
-    if (raw == boolean.class || raw == Boolean.class) return Map.of("type", "boolean");
-    if (raw == int.class || raw == Integer.class || raw == long.class || raw == Long.class) {
-      return Map.of("type", "integer");
-    }
-    if (raw == double.class || raw == Double.class) return Map.of("type", "number");
+    if (raw.isRecord()) return nullable(of(raw, enclosing));
+    if (raw == String.class) return nullable(Map.of("type", "string"));
+    if (raw == boolean.class) return Map.of("type", "boolean");
+    if (raw == int.class || raw == long.class) return Map.of("type", "integer");
+    if (raw == double.class) return Map.of("type", "number");
+    if (raw == Boolean.class) return nullable(Map.of("type", "boolean"));
+    if (raw == Integer.class || raw == Long.class) return nullable(Map.of("type", "integer"));
+    if (raw == Double.class) return nullable(Map.of("type", "number"));
     throw new IllegalStateException("Unsupported result type: " + raw.getName());
+  }
+
+  /** A reference-typed component can always arrive as null, and the schema has to allow it. */
+  private static Map<String, Object> nullable(Map<String, Object> schema) {
+    Map<String, Object> out = new LinkedHashMap<>(schema);
+    out.put("type", List.of(String.valueOf(schema.get("type")), "null"));
+    return Collections.unmodifiableMap(out);
   }
 }

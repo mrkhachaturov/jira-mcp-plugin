@@ -144,7 +144,11 @@ public class ResourceContextBuilderTest {
       }
       if (value.isNull()) continue;
 
-      String type = String.valueOf(declared.get("type"));
+      Object declaredType = declared.get("type");
+      String type =
+          declaredType instanceof List<?> union
+              ? String.valueOf(union.get(0))
+              : String.valueOf(declaredType);
       switch (type) {
         case "object" -> {
           if (!value.isObject()) {
