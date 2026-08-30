@@ -2,13 +2,29 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class UpdateSprintTool implements McpTool {
+public class UpdateSprintTool extends DeclarativeTool {
+
+  private static final ToolParam<String> SPRINT_ID =
+      ToolParam.string("sprint_id", "The id of sprint (e.g., '10001')").required();
+  private static final ToolParam<String> NAME =
+      ToolParam.string("name", "(Optional) New name for the sprint");
+  private static final ToolParam<String> STATE =
+      ToolParam.string("state", "(Optional) New state for the sprint (future|active|closed)");
+  private static final ToolParam<String> START_DATE =
+      ToolParam.string("start_date", "(Optional) New start date for the sprint");
+  private static final ToolParam<String> END_DATE =
+      ToolParam.string("end_date", "(Optional) New end date for the sprint");
+  private static final ToolParam<String> GOAL =
+      ToolParam.string("goal", "(Optional) New goal for the sprint");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,36 +43,6 @@ public class UpdateSprintTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "sprint_id",
-                    Map.of("type", "string", "description", "The id of sprint (e.g., '10001')"),
-                "name",
-                    Map.of("type", "string", "description", "(Optional) New name for the sprint"),
-                "state",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) New state for the sprint (future|active|closed)"),
-                "start_date",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) New start date for the sprint"),
-                "end_date",
-                    Map.of(
-                        "type", "string", "description", "(Optional) New end date for the sprint"),
-                "goal",
-                    Map.of("type", "string", "description", "(Optional) New goal for the sprint")),
-        "required", List.of("sprint_id"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -67,16 +53,18 @@ public class UpdateSprintTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String sprintId = (String) args.get("sprint_id");
-    if (sprintId == null || sprintId.isBlank()) {
-      throw new McpToolException("'sprint_id' parameter is required");
-    }
-    String name = (String) args.get("name");
-    String state = (String) args.get("state");
-    String startDate = (String) args.get("start_date");
-    String endDate = (String) args.get("end_date");
-    String goal = (String) args.get("goal");
+  public List<ToolParam<?>> params() {
+    return List.of(SPRINT_ID, NAME, STATE, START_DATE, END_DATE, GOAL);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String sprintId = args.require(SPRINT_ID);
+    String name = args.get(NAME);
+    String state = args.get(STATE);
+    String startDate = args.get(START_DATE);
+    String endDate = args.get(END_DATE);
+    String goal = args.get(GOAL);
 
     Map<String, Object> requestBody = new HashMap<>();
     if (name != null) requestBody.put("name", name);

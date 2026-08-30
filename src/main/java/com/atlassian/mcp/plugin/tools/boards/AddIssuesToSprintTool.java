@@ -2,13 +2,22 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AddIssuesToSprintTool implements McpTool {
+public class AddIssuesToSprintTool extends DeclarativeTool {
+
+  private static final ToolParam<String> SPRINT_ID =
+      ToolParam.string("sprint_id", "Sprint ID to add issues to").required();
+  private static final ToolParam<String> ISSUE_KEYS =
+      ToolParam.string("issue_keys", "Comma-separated issue keys (e.g., 'PROJ-1,PROJ-2')")
+          .required();
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,22 +36,6 @@ public class AddIssuesToSprintTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "sprint_id", Map.of("type", "string", "description", "Sprint ID to add issues to"),
-                "issue_keys",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Comma-separated issue keys (e.g., 'PROJ-1,PROJ-2')")),
-        "required", List.of("sprint_id", "issue_keys"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -53,15 +46,14 @@ public class AddIssuesToSprintTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String sprintId = (String) args.get("sprint_id");
-    if (sprintId == null || sprintId.isBlank()) {
-      throw new McpToolException("'sprint_id' parameter is required");
-    }
-    String issueKeys = (String) args.get("issue_keys");
-    if (issueKeys == null || issueKeys.isBlank()) {
-      throw new McpToolException("'issue_keys' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(SPRINT_ID, ISSUE_KEYS);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String sprintId = args.require(SPRINT_ID);
+    String issueKeys = args.require(ISSUE_KEYS);
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("issue_keys", issueKeys);

@@ -3,13 +3,36 @@ package com.atlassian.mcp.plugin.tools.transitions;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class TransitionIssueTool implements McpTool {
+public class TransitionIssueTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> TRANSITION_ID =
+      ToolParam.string(
+              "transition_id",
+              "ID of the transition to perform. Use the jira_get_transitions tool first to get the"
+                  + " available transition IDs for the issue. Example values: '11', '21', '31'")
+          .required();
+  private static final ToolParam<String> FIELDS =
+      ToolParam.string(
+          "fields",
+          "(Optional) JSON string of fields to update during the transition. Some transitions"
+              + " require specific fields to be set (e.g., resolution). Example: '{\"resolution\":"
+              + " {\"name\": \"Fixed\"}}'");
+  private static final ToolParam<String> COMMENT =
+      ToolParam.string(
+          "comment",
+          "(Optional) Comment to add during the transition in Markdown format. This will be"
+              + " visible in the issue history.");
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,61 +51,27 @@ public class TransitionIssueTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "transition_id",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "ID of the transition to perform. Use the jira_get_transitions tool first to get the available transition IDs for the issue. Example values: '11', '21', '31'"),
-                "fields",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) JSON string of fields to update during the transition. Some transitions require specific fields to be set (e.g., resolution). Example: '{\"resolution\": {\"name\": \"Fixed\"}}'"),
-                "comment",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Comment to add during the transition in Markdown format. This will be visible in the issue history.")),
-        "required", List.of("issue_key", "transition_id"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String transitionId = (String) args.get("transition_id");
-    if (transitionId == null || transitionId.isBlank()) {
-      throw new McpToolException("'transition_id' parameter is required");
-    }
-    String fieldsJson = (String) args.get("fields");
-    String comment = (String) args.get("comment");
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, TRANSITION_ID, FIELDS, COMMENT);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String transitionId = args.require(TRANSITION_ID);
+    String fieldsJson = args.get(FIELDS);
+    String comment = args.get(COMMENT);
 
     // Jira API expects: {"transition": {"id": "..."}, "fields": {...}, "update": {...}}
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("transition", Map.of("id", transitionId));
 
-    if (fieldsJson != null && !fieldsJson.isBlank()) {
+    if (fieldsJson != null) {
       try {
         @SuppressWarnings("unchecked")
         Map<String, Object> fields = mapper.readValue(fieldsJson, Map.class);
@@ -92,7 +81,7 @@ public class TransitionIssueTool implements McpTool {
       }
     }
 
-    if (comment != null && !comment.isBlank()) {
+    if (comment != null) {
       requestBody.put(
           "update",
           Map.of(
@@ -103,7 +92,8 @@ public class TransitionIssueTool implements McpTool {
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       client.post("/rest/api/2/issue/" + issueKey + "/transitions", jsonBody, authHeader);
-      // Return the updated issue (matches upstream behavior)
+      // The transition response body is empty (204), so re-read the issue to hand back its new
+      // state.
       return client.get("/rest/api/2/issue/" + issueKey, authHeader);
     } catch (McpToolException e) {
       throw e;
