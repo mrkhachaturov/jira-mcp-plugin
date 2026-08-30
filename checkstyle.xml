@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+    High-signal subset, not a house style: formatting is google-java-format's job
+    (see .github/config/flint.toml), so this file only carries checks that catch
+    real defects or dead code. Keep it that way — a rule that fires on working
+    code teaches people to ignore the report.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <!-- Suppressions are only read when this module declares them; a bare
+              checkstyle-suppressions.xml at the root is ignored. -->
+    <module name="SuppressionFilter">
+        <property name="file" value="checkstyle-suppressions.xml"/>
+        <property name="optional" value="true"/>
+    </module>
+    <!-- Escape hatch at the call site: @SuppressWarnings("checkstyle:MethodName"). -->
+    <module name="SuppressWarningsFilter"/>
+
+    <module name="TreeWalker">
+
+        <module name="SuppressWarningsHolder"/>
+
+        <!-- Dead and ambiguous imports -->
+        <module name="UnusedImports">
+            <property name="processJavadoc" value="true"/>
+        </module>
+        <module name="RedundantImport"/>
+        <module name="IllegalImport">
+            <!-- Jira 11 runs Jakarta EE 10; javax.* resolves at compile time but not at runtime. -->
+            <property name="illegalPkgs" value="sun, javax.servlet, javax.ws.rs, javax.inject, javax.annotation"/>
+        </module>
+
+        <!-- Latent bugs -->
+        <module name="EqualsHashCode"/>
+        <module name="CovariantEquals"/>
+        <module name="StringLiteralEquality"/>
+        <module name="NoClone"/>
+        <module name="NoFinalizer"/>
+        <module name="FallThrough"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="DefaultComesLast"/>
+        <module name="EmptyStatement"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+        <module name="IllegalCatch">
+            <property name="illegalClassNames" value="java.lang.Error, java.lang.Throwable"/>
+        </module>
+        <module name="IllegalThrows"/>
+        <module name="UnusedLocalVariable"/>
+        <module name="InnerAssignment"/>
+        <module name="IllegalInstantiation">
+            <!-- String is deliberately absent: new String(bytes, UTF_8) is the correct decode, and
+                      the rule cannot tell it from the pointless new String("literal"). -->
+            <property name="classes" value="java.lang.Boolean, java.lang.Integer, java.lang.Long"/>
+        </module>
+        <module name="AvoidDoubleBraceInitialization"/>
+        <module name="MissingDeprecated"/>
+        <module name="UnnecessarySemicolonInEnumeration"/>
+        <module name="UnnecessarySemicolonAfterTypeMemberDeclaration"/>
+
+        <!-- Structure that silently changes meaning when edited -->
+        <!-- Braces are only load-bearing when the body is on its own line: that is where a later
+                  edit silently adds a second statement outside the branch. `if (x) return;` cannot. -->
+        <module name="NeedBraces">
+            <property name="allowSingleLineStatement" value="true"/>
+        </module>
+        <module name="EmptyBlock">
+            <property name="option" value="text"/>
+            <property name="tokens" value="LITERAL_TRY, LITERAL_CATCH, LITERAL_FINALLY, LITERAL_IF,
+                                                                          LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO,
+                                                                          LITERAL_SWITCH, STATIC_INIT, INSTANCE_INIT"/>
+        </module>
+        <module name="MissingOverride"/>
+
+        <!-- Naming — the conventions the codebase already follows -->
+        <module name="PackageName"/>
+        <module name="TypeName"/>
+        <module name="MethodName"/>
+        <module name="LocalVariableName"/>
+        <module name="ParameterName"/>
+        <module name="ConstantName">
+            <!-- `log` is the SLF4J convention and reads as an object, not a constant. -->
+            <property name="format" value="^(log|[A-Z][A-Z0-9]*(_[A-Z0-9]+)*)$"/>
+        </module>
+
+    </module>
+</module>

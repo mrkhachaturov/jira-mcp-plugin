@@ -11,7 +11,7 @@ Add MCP App support to an existing web application so it works both as a standal
 
 The existing web app stays intact. A thin initialization layer detects whether the app is running inside an MCP host or as a regular web page, and fetches parameters from the appropriate source. A new MCP server wraps the app's bundled HTML as a resource and registers a tool to display it.
 
-```
+```text
 Standalone:  Browser loads page → App reads URL params / APIs → renders
 MCP App:     Host calls tool → Server returns result → Host renders app in iframe → App reads MCP lifecycle → renders
 ```
@@ -30,35 +30,35 @@ git clone --branch "v$(npm view @modelcontextprotocol/ext-apps version)" --depth
 
 Read JSDoc documentation directly from `/tmp/mcp-ext-apps/src/`:
 
-| File | Contents |
-|------|----------|
-| `src/app.ts` | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`), lifecycle |
-| `src/server/index.ts` | `registerAppTool`, `registerAppResource`, tool visibility options |
-| `src/spec.types.ts` | All type definitions: `McpUiHostContext`, CSS variable keys, display modes |
-| `src/styles.ts` | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts` |
-| `src/react/useApp.tsx` | `useApp` hook for React apps |
-| `src/react/useHostStyles.ts` | `useHostStyles`, `useHostStyleVariables`, `useHostFonts` hooks |
+| File                         | Contents                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `src/app.ts`                 | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`), lifecycle |
+| `src/server/index.ts`        | `registerAppTool`, `registerAppResource`, tool visibility options                                      |
+| `src/spec.types.ts`          | All type definitions: `McpUiHostContext`, CSS variable keys, display modes                             |
+| `src/styles.ts`              | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts`                                      |
+| `src/react/useApp.tsx`       | `useApp` hook for React apps                                                                           |
+| `src/react/useHostStyles.ts` | `useHostStyles`, `useHostStyleVariables`, `useHostFonts` hooks                                         |
 
 ### Framework Templates
 
 Learn and adapt from `/tmp/mcp-ext-apps/examples/basic-server-{framework}/`:
 
-| Template | Key Files |
-|----------|-----------|
-| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html` |
-| `basic-server-react/` | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
-| `basic-server-vue/` | `server.ts`, `src/App.vue` |
-| `basic-server-svelte/` | `server.ts`, `src/App.svelte` |
-| `basic-server-preact/` | `server.ts`, `src/mcp-app.tsx` |
-| `basic-server-solid/` | `server.ts`, `src/mcp-app.tsx` |
+| Template                  | Key Files                                           |
+| ------------------------- | --------------------------------------------------- |
+| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html`       |
+| `basic-server-react/`     | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
+| `basic-server-vue/`       | `server.ts`, `src/App.vue`                          |
+| `basic-server-svelte/`    | `server.ts`, `src/App.svelte`                       |
+| `basic-server-preact/`    | `server.ts`, `src/mcp-app.tsx`                      |
+| `basic-server-solid/`     | `server.ts`, `src/mcp-app.tsx`                      |
 
 ### Reference Examples
 
-| Example | Relevant Pattern |
-|---------|-----------------|
-| `examples/map-server/` | External API integration + CSP (`connectDomains`, `resourceDomains`) |
-| `examples/sheet-music-server/` | Library that loads external assets (soundfonts) |
-| `examples/pdf-server/` | Binary content handling + app-only helper tools |
+| Example                        | Relevant Pattern                                                     |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `examples/map-server/`         | External API integration + CSP (`connectDomains`, `resourceDomains`) |
+| `examples/sheet-music-server/` | Library that loads external assets (soundfonts)                      |
+| `examples/pdf-server/`         | Binary content handling + app-only helper tools                      |
 
 ## Step 1: Analyze the Existing Web App
 
@@ -78,14 +78,14 @@ Present findings to the user and confirm the approach.
 
 In hybrid mode, the app keeps its existing data sources for standalone use and adds MCP equivalents:
 
-| Standalone data source | MCP App equivalent |
-|---|---|
-| URL query parameters | `ontoolinput` / `ontoolresult` `arguments` or `structuredContent` |
-| REST API calls | `app.callServerTool()` to server-side tools, or keep direct API calls with CSP `connectDomains` |
-| Props / component inputs | `ontoolinput` `arguments` |
-| localStorage / sessionStorage | Not available in sandboxed iframe — pass via `structuredContent` or server-side state |
-| WebSocket connections | Keep with CSP `connectDomains`, or convert to polling via app-only tools |
-| Hardcoded data | Move to tool `structuredContent` to make it dynamic |
+| Standalone data source        | MCP App equivalent                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| URL query parameters          | `ontoolinput` / `ontoolresult` `arguments` or `structuredContent`                               |
+| REST API calls                | `app.callServerTool()` to server-side tools, or keep direct API calls with CSP `connectDomains` |
+| Props / component inputs      | `ontoolinput` `arguments`                                                                       |
+| localStorage / sessionStorage | Not available in sandboxed iframe — pass via `structuredContent` or server-side state           |
+| WebSocket connections         | Keep with CSP `connectDomains`, or convert to polling via app-only tools                        |
+| Hardcoded data                | Move to tool `structuredContent` to make it dynamic                                             |
 
 ## Step 2: Investigate CSP Requirements
 
@@ -390,6 +390,7 @@ main().catch(console.error);
 When running as an MCP App, integrate with host styling for theme consistency. Use CSS variable fallbacks so the app looks correct in both modes.
 
 **Vanilla JS** — use helper functions:
+
 ```typescript
 import { applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from "@modelcontextprotocol/ext-apps";
 
@@ -401,6 +402,7 @@ app.onhostcontextchanged = (ctx) => {
 ```
 
 **React** — use hooks:
+
 ```typescript
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 

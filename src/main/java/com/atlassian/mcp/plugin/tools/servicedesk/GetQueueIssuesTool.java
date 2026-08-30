@@ -2,66 +2,68 @@ package com.atlassian.mcp.plugin.tools.servicedesk;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-import java.util.List;
-import java.util.Map;
+public class GetQueueIssuesTool extends TypedTool<GetQueueIssuesTool.Args> {
 
-public class GetQueueIssuesTool implements McpTool {
-    private final JiraRestClient client;
+  public record Args(
+      @ToolArg(
+              value =
+                  "The id of the service desk, e.g. 4. get_service_desk_for_project turns a"
+                      + " project key into one.",
+              required = true)
+          long serviceDeskId,
+      @ToolArg(value = "The id of the queue, e.g. 47", required = true) long queueId,
+      @ToolArg(value = "Index of the first issue to return, counting from 0", defaultValue = "0")
+          int startAt,
+      @ToolArg(
+              value =
+                  "Maximum number of issues to return, from 1 to "
+                      + GetServiceDeskQueuesTool.PAGE_LIMIT,
+              defaultValue = GetServiceDeskQueuesTool.PAGE_LIMIT)
+          int limit) {}
 
-    public GetQueueIssuesTool(JiraRestClient client) {
-        this.client = client;
-    }
+  private final JiraRestClient client;
 
-    @Override public String name() { return "get_queue_issues"; }
+  public GetQueueIssuesTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public String description() {
-        return "Get issues from a Jira Service Desk queue. Server/Data Center only. Not available on Jira Cloud.";
-    }
+  @Override
+  public String name() {
+    return "get_queue_issues";
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "service_desk_id", Map.of("type", "string", "description", "Service desk ID (e.g., '4')"),
-                        "queue_id", Map.of("type", "string", "description", "Queue ID (e.g., '47')"),
-                        "start_at", Map.of("type", "integer", "description", "Starting index for pagination (0-based)", "default", 0),
-                        "limit", Map.of("type", "integer", "description", "Maximum number of results (1-50)", "default", 50)
-                ),
-                "required", List.of("service_desk_id", "queue_id")
-        );
-    }
+  @Override
+  public String description() {
+    return "List the issues sitting in a Jira Service Desk queue. Server/Data Center only.";
+  }
 
-    @Override public boolean isWriteTool() { return false; }
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
 
-    @Override
-    public String requiredPluginKey() { return "com.atlassian.servicedesk"; }
+  @Override
+  public String requiredPluginKey() {
+    return "com.atlassian.servicedesk";
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String serviceDeskId = (String) args.get("service_desk_id");
-        if (serviceDeskId == null || serviceDeskId.isBlank()) {
-            throw new McpToolException("'service_desk_id' parameter is required");
-        }
-        String queueId = (String) args.get("queue_id");
-        if (queueId == null || queueId.isBlank()) {
-            throw new McpToolException("'queue_id' parameter is required");
-        }
-        int startAt = getInt(args, "start_at", 0);
-        int limit = getInt(args, "limit", 50);
-
-        return client.get("/rest/servicedeskapi/servicedesk/" + serviceDeskId + "/queue/" + queueId + "/issue", authHeader);
-    }
-
-    private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-        Object val = args.get(key);
-        if (val instanceof Number n) return n.intValue();
-        if (val instanceof String s) {
-            try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultVal; }
-        }
-        return defaultVal;
-    }
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    // The ServiceDesk API pages with start/limit, not the platform API's startAt/maxResults.
+    return client.get(
+        "/rest/servicedeskapi/servicedesk/"
+            + args.serviceDeskId()
+            + "/queue/"
+            + args.queueId()
+            + "/issue?start="
+            + args.startAt()
+            + "&limit="
+            + GetServiceDeskQueuesTool.clampToPage(args.limit()),
+        context.authHeader());
+  }
 }

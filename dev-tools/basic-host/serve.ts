@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+
 /**
  * HTTP servers for the MCP UI example:
  * - Host server (port 8080): serves host HTML files (React and Vanilla examples)
@@ -10,11 +11,11 @@
  * This ensures content cannot tamper with CSP (unlike meta tags).
  */
 
-import express from "express";
-import cors from "cors";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps";
+import cors from "cors";
+import express from "express";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

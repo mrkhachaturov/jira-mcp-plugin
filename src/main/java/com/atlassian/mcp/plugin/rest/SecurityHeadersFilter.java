@@ -15,13 +15,13 @@ import java.io.IOException;
 @Named("mcpSecurityHeadersFilter")
 public class SecurityHeadersFilter implements Filter {
 
-    @Override
-    public void doFilter(ServletRequest req, ServletResponse resp, FilterChain chain)
-            throws IOException, ServletException {
-        HttpServletResponse httpResp = (HttpServletResponse) resp;
-        httpResp.setHeader("X-Content-Type-Options", "nosniff");
-        httpResp.setHeader("Cache-Control", "no-store");
-        httpResp.setHeader("X-Frame-Options", "DENY");
-        chain.doFilter(req, resp);
-    }
+  @Override
+  public void doFilter(ServletRequest req, ServletResponse resp, FilterChain chain)
+      throws IOException, ServletException {
+    HttpServletResponse httpResp = (HttpServletResponse) resp;
+    httpResp.setHeader("X-Content-Type-Options", "nosniff");
+    httpResp.setHeader("Cache-Control", "no-store");
+    httpResp.setHeader("X-Frame-Options", "DENY");
+    chain.doFilter(req, resp);
+  }
 }

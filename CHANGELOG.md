@@ -1,6 +1,30 @@
 # Changelog
 
-## [Unreleased]
+## [1.5.3] - 2026-08-30
+
+### Changed
+
+- Tools declare their parameters as a record and extend `TypedTool<A>`; the advertised JSON Schema is derived from that record. Schemas carry `additionalProperties: false`, so an unknown parameter is refused. Auth and progress come from `McpContext` instead of the method signature. See [tool-authoring.md](wiki/project/tool-authoring.md).
+- `structuredContent` is built as `IssueCardPayload` records and `outputSchema()` is derived from them. A tool binds to the Issue Card by passing its `UiBinding` to `TypedTool`.
+- Lists are arrays instead of comma-separated strings: `components`, `projects_filter`, `issue_keys`, `issue_ids_or_keys`, `metrics`, `state`.
+- Objects are objects instead of strings holding JSON: `additional_fields`, `fields` on `update_issue` and `transition_issue`, `comment_visibility`, `visibility`, `answers`, and the records in `batch_create_issues.issues` and `batch_create_versions.versions`.
+- Numeric Jira ids are integers: `board_id`, `sprint_id`, `link_id`, `comment_id`, `transition_id`, `service_desk_id`, `queue_id`.
+- `batch_get_changelogs.fields` is renamed `changed_fields`; `remove_watcher.username` is renamed `user_identifier`.
+- Removed `update_issue.additional_fields`, `add_worklog.original_estimate` and `search_fields.refresh`. Each is now refused as an unknown parameter.
+
+### Fixed
+
+- The admin page advertised `/rest/mcp/1.0/`, which no longer exists; it now advertises `/plugins/servlet/mcp`.
+- The admin page is readable in both Jira themes — its colours are Atlassian Design System tokens.
+- The Issue Card widget can post a comment again: it called `add_comment` with `comment` rather than `body`, and sent `update_issue.fields` as a string.
+- `get_proforma_form_details.form_id` returns the form it names, `get_service_desk_for_project.project_key` resolves the desk for that project, and `update_proforma_form_answers` converts ISO-8601 answers to timestamps.
+- A Jira rejection is reported as itself rather than as "Failed to serialize request", in ten tools.
+- `update_sprint.state`, `get_issue_sla.metrics` and the development-info `data_type` refuse a value outside their documented set.
+- `get_board_issues` no longer sends `expand=version` on every request.
+- `batch_get_changelogs` builds its JSON with Jackson rather than string concatenation.
+- `get_issue_development_info` no longer returns four permanently empty arrays.
+- `batch_create_versions` accepts only the fields it declares, as its single-version sibling already did.
+- **OAuth `/authorize` rejected loopback clients with an ephemeral port.** Claude Code identifies itself with a CIMD `client_id` whose document declares portless loopback callbacks (`http://localhost/callback`, `http://127.0.0.1/callback`) and then sends `redirect_uri=http://localhost:<random>/callback` — a fresh port per launch. The check was a plain string `contains()`, so every connection attempt died on `400 invalid_request — redirect_uri does not match registered URIs`. New [RedirectUriMatcher](src/main/java/com/atlassian/mcp/plugin/rest/oauth/RedirectUriMatcher.java) ignores the port for loopback redirect URIs per RFC 8252 §7.3 (safe: a loopback address is only reachable from the user's own machine) while keeping scheme, host, path and query exact — `localhost` and `127.0.0.1` stay distinct URIs, `http://localhost.evil.example`, embedded credentials and fragments are rejected, and non-loopback hosts get no port relaxation. Applies to both the CIMD and DCR paths; `/token` still exact-matches the value captured at `/authorize`.
 
 ## [1.4.3] - 2026-05-31
 

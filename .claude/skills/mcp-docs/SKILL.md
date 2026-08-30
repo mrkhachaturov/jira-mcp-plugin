@@ -11,7 +11,7 @@ Search the official Model Context Protocol docs mirrored locally and indexed in 
 
 Always pass `folder_path: "mcp-docs"` — without it Miyo searches across every indexed folder (RouterOS, codex-docs, etc.) and pollutes the results.
 
-```
+```text
 mcp__miyo__search(
   query: "<natural-language question>",
   folder_path: "mcp-docs",
@@ -26,17 +26,17 @@ Synthesize from the top 3–5 hits. Cite source files inline as `[file.md](wiki/
 
 Narrow with `path:` when the area is known. The filter is a substring match against the returned path.
 
-| Topic | `path:` filter |
-|---|---|
-| Current stable spec | `specification/<latest>/` — newest dated dir (see below) |
-| Draft spec (in-flight changes) | `specification/draft/` |
-| Spec history (all versions) | `specification/` |
-| Spec Enhancement Proposals | `seps/` |
-| MCP Apps SDK | `extensions/apps/` |
-| Authorization extension (OAuth, SEP-991, RFC 8707) | `extensions/auth/` |
-| Tasks extension | `extensions/tasks/` |
-| Developer guides & tutorials | `docs/docs/` |
-| Anthropic MCP blog posts | `blog/` |
+| Topic                                              | `path:` filter                                           |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| Current stable spec                                | `specification/<latest>/` — newest dated dir (see below) |
+| Draft spec (in-flight changes)                     | `specification/draft/`                                   |
+| Spec history (all versions)                        | `specification/`                                         |
+| Spec Enhancement Proposals                         | `seps/`                                                  |
+| MCP Apps SDK                                       | `extensions/apps/`                                       |
+| Authorization extension (OAuth, SEP-991, RFC 8707) | `extensions/auth/`                                       |
+| Tasks extension                                    | `extensions/tasks/`                                      |
+| Developer guides & tutorials                       | `docs/docs/`                                             |
+| Anthropic MCP blog posts                           | `blog/`                                                  |
 
 Spec versions are dated directories under `specification/`. To list what's mirrored, `ls wiki/mcp-docs/docs/specification/`. The **current stable** version is the newest dated directory (every entry except `draft`); `draft` holds in-flight changes. Never hardcode a version here — the mirror updates via `just wiki-sync`, so resolve the latest at read time.
 
@@ -50,7 +50,7 @@ Search returns chunks, not whole files. Read the raw file when the snippet misse
 
 Miyo returns paths like `mcp-docs/docs/specification/2025-11-25/server/tools.md`. Prepend `wiki/` and the repo root, then use the standard `Read` tool — never `mcp__miyo__read_file` (it returns the whole file as one blob and truncates):
 
-```
+```text
 Read("<repo>/wiki/mcp-docs/docs/specification/2025-11-25/server/tools.md")
 Read("<repo>/wiki/mcp-docs/seps/991-enable-url-based-client-registration-using-oauth-c.md")
 ```
@@ -59,13 +59,13 @@ For surgical reads of long files, pass `offset` / `limit` to `Read`.
 
 ## Sub-commands
 
-| Form | Behavior |
-|------|----------|
-| `/mcp-docs <question>` | Search + synthesize from top 3–5 chunks |
-| `/mcp-docs explain "<concept>"` | Broader search (`limit: 10`), group hits by category, cover definition + version differences + gotchas |
-| `/mcp-docs sep <number>` | Locate `SEP-<number>` file under `seps/`, summarize motivation + design + status |
-| `/mcp-docs spec <topic> [version]` | Scope to `path: "specification/<version>/"` (default: newest dated dir under `specification/`) |
-| `/mcp-docs` (no args) | `ls wiki/mcp-docs/` and suggest a question |
+| Form                               | Behavior                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `/mcp-docs <question>`             | Search + synthesize from top 3–5 chunks                                                                |
+| `/mcp-docs explain "<concept>"`    | Broader search (`limit: 10`), group hits by category, cover definition + version differences + gotchas |
+| `/mcp-docs sep <number>`           | Locate `SEP-<number>` file under `seps/`, summarize motivation + design + status                       |
+| `/mcp-docs spec <topic> [version]` | Scope to `path: "specification/<version>/"` (default: newest dated dir under `specification/`)         |
+| `/mcp-docs` (no args)              | `ls wiki/mcp-docs/` and suggest a question                                                             |
 
 ## Common Mistakes to Avoid
 

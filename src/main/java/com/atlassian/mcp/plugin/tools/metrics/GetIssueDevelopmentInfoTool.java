@@ -2,8 +2,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
@@ -13,139 +14,149 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class GetIssueDevelopmentInfoTool implements McpTool {
-    private final JiraRestClient client;
-    private final ObjectMapper mapper = new ObjectMapper();
+public class GetIssueDevelopmentInfoTool extends TypedTool<GetIssueDevelopmentInfoTool.Args> {
 
-    /** Application types to try when none is specified (matches upstream). */
-    private static final String[] APP_TYPES = {"stash", "bitbucket", "github", "gitlab"};
-    /** Data types to try for each application type (matches upstream). */
-    private static final String[] DATA_TYPES = {"pullrequest", "branch", "repository"};
+  static final String APPLICATION_TYPE_DESCRIPTION =
+      "(Optional) Restrict the lookup to one application, e.g. 'stash' (Bitbucket Server),"
+          + " 'bitbucket', 'github' or 'gitlab'. When omitted, every one of those four is probed"
+          + " and the results merged.";
+  static final String DATA_TYPE_DESCRIPTION =
+      "(Optional) Restrict the lookup to one kind of development data. When omitted, all three"
+          + " are probed.";
+  static final String PULL_REQUEST = "pullrequest";
+  static final String BRANCH = "branch";
+  static final String REPOSITORY = "repository";
 
-    public GetIssueDevelopmentInfoTool(JiraRestClient client) {
-        this.client = client;
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123')", required = true) String issueKey,
+      @ToolArg(APPLICATION_TYPE_DESCRIPTION) String applicationType,
+      @ToolArg(
+              value = DATA_TYPE_DESCRIPTION,
+              allowed = {PULL_REQUEST, BRANCH, REPOSITORY})
+          String dataType) {}
+
+  /** Application types probed when the caller names none. */
+  private static final String[] APP_TYPES = {"stash", "bitbucket", "github", "gitlab"};
+
+  /** Data types probed for each application type when the caller names none. */
+  private static final String[] DATA_TYPES = {PULL_REQUEST, BRANCH, REPOSITORY};
+
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
+
+  public GetIssueDevelopmentInfoTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
+
+  @Override
+  public String name() {
+    return "get_issue_development_info";
+  }
+
+  @Override
+  public String description() {
+    return "Get development information (PRs, commits, branches) linked to a Jira issue. This retrieves the development panel information that shows linked pull requests, branches, and commits from connected source control systems like Bitbucket, GitHub, or GitLab.";
+  }
+
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
+
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String issueId = resolveIssueId(args.issueKey(), context.authHeader());
+
+    if (args.applicationType() != null) {
+      return fetchDevInfo(
+          args.issueKey(), issueId, args.applicationType(), args.dataType(), context.authHeader());
     }
 
-    @Override public String name() { return "get_issue_development_info"; }
-
-    @Override
-    public String description() {
-        return "Get development information (PRs, commits, branches) linked to a Jira issue. This retrieves the development panel information that shows linked pull requests, branches, and commits from connected source control systems like Bitbucket, GitHub, or GitLab.";
-    }
-
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "issue_key", Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                        "application_type", Map.of("type", "string", "description", "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server), 'bitbucket', 'github', 'gitlab'"),
-                        "data_type", Map.of("type", "string", "description", "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'")
-                ),
-                "required", List.of("issue_key")
-        );
-    }
-
-    @Override public boolean isWriteTool() { return false; }
-
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String issueKey = (String) args.get("issue_key");
-        if (issueKey == null || issueKey.isBlank()) {
-            throw new McpToolException("'issue_key' parameter is required");
-        }
-        String applicationType = (String) args.get("application_type");
-        String dataType = (String) args.get("data_type");
-
-        // Step 1: Get the numeric issue ID (dev-status API requires it, not the key)
-        String issueId;
+    // The endpoint answers for one application and one data type at a time, so with no application
+    // named every one is probed and the results merged — restricted to the caller's data type when
+    // they named one.
+    List<Object> detail = new ArrayList<>();
+    String[] dataTypes = args.dataType() != null ? new String[] {args.dataType()} : DATA_TYPES;
+    for (String appType : APP_TYPES) {
+      for (String dt : dataTypes) {
         try {
-            String issueJson = client.get("/rest/api/2/issue/" + encode(issueKey) + "?fields=id", authHeader);
-            JsonNode issueNode = mapper.readTree(issueJson);
-            issueId = issueNode.path("id").asText(null);
-            if (issueId == null || issueId.isEmpty()) {
-                throw new McpToolException("Could not get numeric issue ID for " + issueKey);
-            }
-        } catch (McpToolException e) {
-            throw e;
+          collectDetail(detail, fetchDevInfoRaw(issueId, appType, dt, context.authHeader()));
         } catch (Exception e) {
-            throw new McpToolException("Failed to resolve issue ID for " + issueKey + ": " + e.getMessage());
+          // An application that is not connected answers with an error; the others still count.
         }
-
-        // Step 2: Fetch dev info — single app type or try all (matches upstream)
-        if (applicationType != null && !applicationType.isBlank()) {
-            return fetchDevInfo(issueKey, issueId, applicationType, dataType, authHeader);
-        }
-
-        // No app type specified: try all combinations and merge results (matches upstream)
-        Map<String, Object> merged = new LinkedHashMap<>();
-        merged.put("issue_key", issueKey);
-        merged.put("detail", new ArrayList<>());
-        merged.put("pullRequests", new ArrayList<>());
-        merged.put("branches", new ArrayList<>());
-        merged.put("commits", new ArrayList<>());
-        merged.put("repositories", new ArrayList<>());
-
-        for (String appType : APP_TYPES) {
-            for (String dt : DATA_TYPES) {
-                try {
-                    String json = fetchDevInfoRaw(issueId, appType, dt, authHeader);
-                    mergeDevResults(merged, json);
-                } catch (Exception e) {
-                    // Continue trying other combinations (matches upstream behavior)
-                }
-            }
-        }
-
-        try {
-            return mapper.writeValueAsString(merged);
-        } catch (Exception e) {
-            throw new McpToolException("Failed to serialize dev info: " + e.getMessage());
-        }
+      }
     }
 
-    private String fetchDevInfo(String issueKey, String issueId, String appType,
-                                String dataType, String authHeader) throws McpToolException {
-        String json = fetchDevInfoRaw(issueId, appType, dataType, authHeader);
-        // Wrap with issue_key for context (matches upstream)
-        try {
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("issue_key", issueKey);
-            JsonNode node = mapper.readTree(json);
-            if (node.isObject()) {
-                node.fields().forEachRemaining(e -> result.put(e.getKey(), e.getValue()));
-            }
-            return mapper.writeValueAsString(result);
-        } catch (Exception e) {
-            return json;
-        }
+    Map<String, Object> merged = new LinkedHashMap<>();
+    merged.put("issue_key", args.issueKey());
+    merged.put("detail", detail);
+    try {
+      return mapper.writeValueAsString(merged);
+    } catch (Exception e) {
+      throw new McpToolException("Failed to serialize dev info: " + e.getMessage());
     }
+  }
 
-    private String fetchDevInfoRaw(String issueId, String appType,
-                                   String dataType, String authHeader) throws McpToolException {
-        StringBuilder query = new StringBuilder("?issueId=").append(encode(issueId));
-        query.append("&applicationType=").append(encode(appType));
-        if (dataType != null && !dataType.isBlank()) {
-            query.append("&dataType=").append(encode(dataType));
-        }
-        return client.get("/rest/dev-status/1.0/issue/detail" + query, authHeader);
-    }
+  /** The dev-status API keys off the numeric issue ID; it does not accept an issue key. */
+  private String resolveIssueId(String issueKey, String authHeader) throws McpToolException {
+    String issueJson =
+        client.get("/rest/api/2/issue/" + encode(issueKey) + "?fields=id", authHeader);
 
-    @SuppressWarnings("unchecked")
-    private void mergeDevResults(Map<String, Object> merged, String json) {
-        try {
-            JsonNode node = mapper.readTree(json);
-            if (node.has("detail") && node.get("detail").isArray()) {
-                for (JsonNode detail : node.get("detail")) {
-                    ((List<Object>) merged.get("detail")).add(mapper.treeToValue(detail, Object.class));
-                }
-            }
-        } catch (Exception e) {
-            // Ignore parse errors for individual results
-        }
+    String issueId;
+    try {
+      issueId = mapper.readTree(issueJson).path("id").asText(null);
+    } catch (Exception e) {
+      throw new McpToolException(
+          "Failed to resolve issue ID for " + issueKey + ": " + e.getMessage());
     }
+    if (issueId == null || issueId.isEmpty()) {
+      throw new McpToolException("Could not get numeric issue ID for " + issueKey);
+    }
+    return issueId;
+  }
 
-    private static String encode(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  private String fetchDevInfo(
+      String issueKey, String issueId, String appType, String dataType, String authHeader)
+      throws McpToolException {
+    String json = fetchDevInfoRaw(issueId, appType, dataType, authHeader);
+    try {
+      Map<String, Object> result = new LinkedHashMap<>();
+      result.put("issue_key", issueKey);
+      JsonNode node = mapper.readTree(json);
+      if (node.isObject()) {
+        node.properties().forEach(e -> result.put(e.getKey(), e.getValue()));
+      }
+      return mapper.writeValueAsString(result);
+    } catch (Exception e) {
+      return json;
     }
+  }
+
+  private String fetchDevInfoRaw(String issueId, String appType, String dataType, String authHeader)
+      throws McpToolException {
+    StringBuilder query = new StringBuilder("?issueId=").append(encode(issueId));
+    query.append("&applicationType=").append(encode(appType));
+    if (dataType != null) {
+      query.append("&dataType=").append(encode(dataType));
+    }
+    return client.get("/rest/dev-status/1.0/issue/detail" + query, authHeader);
+  }
+
+  private void collectDetail(List<Object> detail, String json) {
+    try {
+      JsonNode node = mapper.readTree(json);
+      if (node.path("detail").isArray()) {
+        for (JsonNode entry : node.get("detail")) {
+          detail.add(mapper.treeToValue(entry, Object.class));
+        }
+      }
+    } catch (Exception e) {
+      // A malformed answer from one application does not invalidate the others.
+    }
+  }
+
+  private static String encode(String s) {
+    return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
 }

@@ -1,0 +1,3 @@
+[files]
+# Atlassian's published API description carries misspellings of its own in enum values.
+extend-exclude = ["**/jira-openapi.json"]

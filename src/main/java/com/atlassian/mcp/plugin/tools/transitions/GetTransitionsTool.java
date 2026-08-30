@@ -2,8 +2,9 @@ package com.atlassian.mcp.plugin.tools.transitions;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -12,80 +13,75 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Get available status transitions for a Jira issue.
- * Simplifies the raw Jira response to {id, name, to_status} dicts
- * matching upstream get_available_transitions() behavior.
+ * Get available status transitions for a Jira issue, trimmed to {id, name, to_status} so an agent
+ * choosing a transition id is not handed the full workflow payload.
  */
-public class GetTransitionsTool implements McpTool {
-    private final JiraRestClient client;
-    private final ObjectMapper mapper = new ObjectMapper();
+public class GetTransitionsTool extends TypedTool<GetTransitionsTool.Args> {
 
-    public GetTransitionsTool(JiraRestClient client) {
-        this.client = client;
-    }
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey) {}
 
-    @Override public String name() { return "get_transitions"; }
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
-    @Override
-    public String description() {
-        return "Get available status transitions for a Jira issue.";
-    }
+  public GetTransitionsTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "issue_key", Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')")
-                ),
-                "required", List.of("issue_key")
-        );
-    }
+  @Override
+  public String name() {
+    return "get_transitions";
+  }
 
-    @Override public boolean isWriteTool() { return false; }
+  @Override
+  public String description() {
+    return "Get available status transitions for a Jira issue.";
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String issueKey = (String) args.get("issue_key");
-        if (issueKey == null || issueKey.isBlank()) {
-            throw new McpToolException("'issue_key' parameter is required");
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
+
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String rawJson =
+        client.get("/rest/api/2/issue/" + args.issueKey() + "/transitions", context.authHeader());
+
+    try {
+      JsonNode root = mapper.readTree(rawJson);
+      JsonNode transitions = root.path("transitions");
+
+      List<Map<String, Object>> simplified = new ArrayList<>();
+      if (transitions.isArray()) {
+        for (JsonNode t : transitions) {
+          Map<String, Object> entry = new LinkedHashMap<>();
+          entry.put("id", t.path("id").asText(""));
+          entry.put("name", t.path("name").asText(""));
+
+          // The target status has appeared under three shapes across Jira versions and workflow
+          // configurations; picking only "to" would silently drop to_status for the others.
+          String toStatus = null;
+          if (t.has("to") && t.get("to").isObject()) {
+            toStatus = t.path("to").path("name").asText(null);
+          } else if (t.has("to_status")) {
+            toStatus = t.path("to_status").asText(null);
+          } else if (t.has("status")) {
+            toStatus = t.path("status").asText(null);
+          }
+          if (toStatus != null) {
+            entry.put("to_status", toStatus);
+          }
+
+          simplified.add(entry);
         }
+      }
 
-        try {
-            String rawJson = client.get("/rest/api/2/issue/" + issueKey + "/transitions", authHeader);
-            JsonNode root = mapper.readTree(rawJson);
-            JsonNode transitions = root.path("transitions");
-
-            // Simplify to {id, name, to_status} matching upstream
-            List<Map<String, Object>> simplified = new ArrayList<>();
-            if (transitions.isArray()) {
-                for (JsonNode t : transitions) {
-                    Map<String, Object> entry = new LinkedHashMap<>();
-                    entry.put("id", t.path("id").asText(""));
-                    entry.put("name", t.path("name").asText(""));
-
-                    // Extract target status name from various formats
-                    String toStatus = null;
-                    if (t.has("to") && t.get("to").isObject()) {
-                        toStatus = t.path("to").path("name").asText(null);
-                    } else if (t.has("to_status")) {
-                        toStatus = t.path("to_status").asText(null);
-                    } else if (t.has("status")) {
-                        toStatus = t.path("status").asText(null);
-                    }
-                    if (toStatus != null) {
-                        entry.put("to_status", toStatus);
-                    }
-
-                    simplified.add(entry);
-                }
-            }
-
-            return mapper.writeValueAsString(simplified);
-        } catch (McpToolException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new McpToolException("Failed to get transitions: " + e.getMessage());
-        }
+      return mapper.writeValueAsString(simplified);
+    } catch (Exception e) {
+      throw new McpToolException("Failed to read the transitions Jira returned: " + e.getMessage());
     }
+  }
 }

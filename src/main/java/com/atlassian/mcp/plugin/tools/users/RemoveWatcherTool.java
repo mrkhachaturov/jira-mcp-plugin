@@ -2,67 +2,57 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Map;
 
-public class RemoveWatcherTool implements McpTool {
-    private final JiraRestClient client;
+public class RemoveWatcherTool extends TypedTool<RemoveWatcherTool.Args> {
 
-    public RemoveWatcherTool(JiraRestClient client) {
-        this.client = client;
-    }
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g., 'PROJ-123')", required = true) String issueKey,
+      @ToolArg(value = "Jira username of the watcher to remove", required = true)
+          String userIdentifier) {}
 
-    @Override public String name() { return "remove_watcher"; }
+  private final JiraRestClient client;
 
-    @Override
-    public String description() {
-        return "Remove a user from watching a Jira issue.";
-    }
+  public RemoveWatcherTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "issue_key", Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                        "username", Map.of("type", "string", "description", "Username to remove (for Jira Server/DC)."),
-                        "account_id", Map.of("type", "string", "description", "Account ID to remove (for Jira Cloud).")
-                ),
-                "required", List.of("issue_key")
-        );
-    }
+  @Override
+  public String name() {
+    return "remove_watcher";
+  }
 
-    @Override public boolean isWriteTool() { return true; }
+  @Override
+  public String description() {
+    return "Remove a user from watching a Jira issue.";
+  }
 
-    @Override public boolean isDestructiveTool() { return true; }
+  @Override
+  public boolean isWriteTool() {
+    return true;
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String issueKey = (String) args.get("issue_key");
-        if (issueKey == null || issueKey.isBlank()) {
-            throw new McpToolException("'issue_key' parameter is required");
-        }
-        String username = (String) args.get("username");
-        String accountId = (String) args.get("account_id");
+  @Override
+  public boolean isDestructiveTool() {
+    return true;
+  }
 
-        StringBuilder query = new StringBuilder();
-        String sep = "?";
-        if (username != null && !username.isBlank()) {
-            query.append(sep).append("username=").append(encode(username));
-            sep = "&";
-        }
-        if (accountId != null && !accountId.isBlank()) {
-            query.append(sep).append("accountId=").append(encode(accountId));
-            sep = "&";
-        }
-        return client.delete("/rest/api/2/issue/" + issueKey + "/watchers" + query, authHeader);
-    }
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.delete(
+        "/rest/api/2/issue/"
+            + args.issueKey()
+            + "/watchers?username="
+            + encode(args.userIdentifier()),
+        context.authHeader());
+  }
 
-    private static String encode(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
-    }
+  private static String encode(String s) {
+    return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
 }

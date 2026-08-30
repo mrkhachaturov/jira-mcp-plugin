@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- Tests name methods `subject_behaviourUnderTest` / `testNN_scenario` so the report reads as
+              a spec and e2e cases keep their execution order. Production code stays on camelCase. -->
+    <suppress checks="MethodName" files="[\\/]src[\\/]test[\\/]"/>
+</suppressions>

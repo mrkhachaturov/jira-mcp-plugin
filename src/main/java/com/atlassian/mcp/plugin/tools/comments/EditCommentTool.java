@@ -1,70 +1,53 @@
 package com.atlassian.mcp.plugin.tools.comments;
 
-import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
-public class EditCommentTool implements McpTool {
-    private final JiraRestClient client;
-    private final ObjectMapper mapper = new ObjectMapper();
+public class EditCommentTool extends TypedTool<EditCommentTool.Args> {
 
-    public EditCommentTool(JiraRestClient client) {
-        this.client = client;
-    }
+  public record Args(
+      @ToolArg(value = "Jira issue key (e.g. 'PROJ-123', 'ACV2-642')", required = true)
+          String issueKey,
+      @ToolArg(value = "The ID of the comment to edit, e.g. 10100", required = true) long commentId,
+      @ToolArg(value = "Updated comment text in Markdown format", required = true) String body,
+      @ToolArg(
+              "(Optional) Restricts who can read the comment. Omit to let everyone who can see the"
+                  + " issue read it.")
+          AddCommentTool.Visibility visibility) {}
 
-    @Override public String name() { return "edit_comment"; }
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
-    @Override
-    public String description() {
-        return "Edit an existing comment on a Jira issue.";
-    }
+  public EditCommentTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "issue_key", Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                        "comment_id", Map.of("type", "string", "description", "The ID of the comment to edit"),
-                        "body", Map.of("type", "string", "description", "Updated comment text in Markdown format"),
-                        "visibility", Map.of("type", "string", "description", "(Optional) Comment visibility as JSON string (e.g. '{\"type\":\"group\",\"value\":\"jira-users\"}')")
-                ),
-                "required", List.of("issue_key", "comment_id", "body")
-        );
-    }
+  @Override
+  public String name() {
+    return "edit_comment";
+  }
 
-    @Override public boolean isWriteTool() { return true; }
+  @Override
+  public String description() {
+    return "Edit an existing comment on a Jira issue.";
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String issueKey = (String) args.get("issue_key");
-        if (issueKey == null || issueKey.isBlank()) {
-            throw new McpToolException("'issue_key' parameter is required");
-        }
-        String commentId = (String) args.get("comment_id");
-        if (commentId == null || commentId.isBlank()) {
-            throw new McpToolException("'comment_id' parameter is required");
-        }
-        String body = (String) args.get("body");
-        if (body == null || body.isBlank()) {
-            throw new McpToolException("'body' parameter is required");
-        }
-        String visibility = (String) args.get("visibility");
+  @Override
+  public boolean isWriteTool() {
+    return true;
+  }
 
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
-        if (visibility != null) requestBody.put("visibility", visibility);
-        try {
-            String jsonBody = mapper.writeValueAsString(requestBody);
-            return client.put("/rest/api/2/issue/" + issueKey + "/comment/" + commentId, jsonBody, authHeader);
-        } catch (Exception e) {
-            throw new McpToolException("Failed to serialize request: " + e.getMessage());
-        }
-    }
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    String body = AddCommentTool.serialize(mapper, args.body(), args.visibility());
+    return client.put(
+        "/rest/api/2/issue/" + args.issueKey() + "/comment/" + args.commentId(),
+        body,
+        context.authHeader());
+  }
 }

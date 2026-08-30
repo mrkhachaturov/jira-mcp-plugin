@@ -9,21 +9,21 @@
  * The key must match the exact priority name as returned by Jira.
  */
 
-import highest from './highest.svg'
-import high from './high.svg'
-import medium from './medium.svg'
-import low from './low.svg'
-import lowest from './lowest.svg'
-import blocker from './blocker.svg'
-import trivial from './trivial.svg'
+import blocker from "./blocker.svg";
+import high from "./high.svg";
+import highest from "./highest.svg";
+import low from "./low.svg";
+import lowest from "./lowest.svg";
+import medium from "./medium.svg";
+import trivial from "./trivial.svg";
 
 export const priorityIcons: Record<string, string> = {
-  'Highest': highest,
-  'High': high,
-  'Medium': medium,
-  'Low': low,
-  'Lowest': lowest,
-  'Blocker': blocker,
-  'Minor': trivial,
-  'Trivial': trivial,
-}
+  Highest: highest,
+  High: high,
+  Medium: medium,
+  Low: low,
+  Lowest: lowest,
+  Blocker: blocker,
+  Minor: trivial,
+  Trivial: trivial,
+};

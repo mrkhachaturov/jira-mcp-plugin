@@ -2,45 +2,41 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-import java.util.List;
-import java.util.Map;
+public class GetProjectVersionsTool extends TypedTool<GetProjectVersionsTool.Args> {
 
-public class GetProjectVersionsTool implements McpTool {
-    private final JiraRestClient client;
+  public record Args(
+      @ToolArg(value = "Jira project key (e.g. 'PROJ', 'ACV2')", required = true)
+          String projectKey) {}
 
-    public GetProjectVersionsTool(JiraRestClient client) {
-        this.client = client;
-    }
+  private final JiraRestClient client;
 
-    @Override public String name() { return "get_project_versions"; }
+  public GetProjectVersionsTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public String description() {
-        return "Get all fix versions for a specific Jira project.";
-    }
+  @Override
+  public String name() {
+    return "get_project_versions";
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "project_key", Map.of("type", "string", "description", "Jira project key (e.g., 'PROJ', 'ACV2')")
-                ),
-                "required", List.of("project_key")
-        );
-    }
+  @Override
+  public String description() {
+    return "Get all fix versions for a specific Jira project.";
+  }
 
-    @Override public boolean isWriteTool() { return false; }
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String projectKey = (String) args.get("project_key");
-        if (projectKey == null || projectKey.isBlank()) {
-            throw new McpToolException("'project_key' parameter is required");
-        }
-
-        return client.get("/rest/api/2/project/" + projectKey + "/versions", authHeader);
-    }
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get(
+        "/rest/api/2/project/" + args.projectKey() + "/versions", context.authHeader());
+  }
 }

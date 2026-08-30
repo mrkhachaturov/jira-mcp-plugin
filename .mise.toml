@@ -1,7 +1,0 @@
-min_version = "2026.5.15"
-
-[tools]
-just = "latest"
-java = "temurin-21"
-maven = "3.9"
-hivemind = "latest"

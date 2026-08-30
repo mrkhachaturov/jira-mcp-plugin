@@ -1,20 +1,20 @@
-# Tools — 49 Total
+# Tools
 
-| Package | Count | Toolset | Plugin Requirement |
-|---------|-------|---------|--------------------|
-| `issues/` | 8 | `jira_issues` | — |
-| `comments/` | 2 | `jira_comments` | — |
-| `transitions/` | 2 | `jira_transitions` | — |
-| `worklogs/` | 2 | `jira_worklog` | — |
-| `boards/` | 7 | `jira_agile` | Jira Software |
-| `links/` | 5 | `jira_links` | — |
-| `projects/` | 5 | `jira_projects` | — |
-| `users/` | 4 | `jira_watchers` / `jira_users` | — |
-| `attachments/` | 2 | `jira_attachments` | — |
-| `fields/` | 2 | `jira_fields` | — |
-| `servicedesk/` | 3 | `jira_service_desk` | JSM |
-| `forms/` | 3 | `jira_forms` | Proforma |
-| `metrics/` | 4 | `jira_sla` / `jira_development` | JSM (SLA only) |
+| Package        | Count | Toolset                         | Plugin Requirement |
+| -------------- | ----- | ------------------------------- | ------------------ |
+| `issues/`      | 8     | `jira_issues`                   | —                  |
+| `comments/`    | 2     | `jira_comments`                 | —                  |
+| `transitions/` | 2     | `jira_transitions`              | —                  |
+| `worklogs/`    | 2     | `jira_worklog`                  | —                  |
+| `boards/`      | 7     | `jira_agile`                    | Jira Software      |
+| `links/`       | 5     | `jira_links`                    | —                  |
+| `projects/`    | 5     | `jira_projects`                 | —                  |
+| `users/`       | 4     | `jira_watchers` / `jira_users`  | —                  |
+| `attachments/` | 2     | `jira_attachments`              | —                  |
+| `fields/`      | 2     | `jira_fields`                   | —                  |
+| `servicedesk/` | 3     | `jira_service_desk`             | JSM                |
+| `forms/`       | 3     | `jira_forms`                    | Proforma           |
+| `metrics/`     | 4     | `jira_sla` / `jira_development` | JSM (SLA only)     |
 
 Tools with a plugin requirement are automatically hidden from `tools/list`
 if that plugin isn't installed.
@@ -40,16 +40,22 @@ Additional optional methods on `McpTool` cover progress streaming
 `idempotentHint`, `openWorldHint`, `isDestructiveTool`, `iconUri`), and
 structured content (`outputSchema`, `structuredContent`).
 
-## Writing `execute()` bodies
+## Writing `run` bodies
 
-Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`.
-Key patterns:
+How a tool declares its parameters is the contract in
+[tool-authoring.md](tool-authoring.md); this section covers only what the body
+does with them.
 
-- **GET tools**: build query string, return `client.get(path + query, authHeader)`.
-- **POST/PUT tools**: build `Map<String, Object>`, serialize with Jackson, send as body.
-- **Create/Update issue**: must wrap fields in
-  `{"fields": {"project": {"key": "..."}, ...}}` — Jira API requirement.
-- **JSON string params** (like `fields`, `additional_fields`): parse with
-  `mapper.readValue(str, Map.class)` before sending.
-- **Components param**: parse comma-separated string into
-  `[{"name": "Frontend"}, {"name": "API"}]`.
+Tools call the Jira REST API directly via `JiraRestClient.get/post/put/delete()`.
+
+- **GET tools**: build the query string, return
+  `client.get(path + query, context.authHeader())`.
+- **POST/PUT tools**: build a `Map<String, Object>`, serialise it with Jackson,
+  send it as the body.
+- **Create/Update issue**: fields must be wrapped in
+  `{"fields": {"project": {"key": "..."}, ...}}` — a Jira API requirement.
+- **Structured parameters arrive already bound.** A list is a `List<String>` and
+  an object is a `Map<String, Object>` or a nested record; the body never parses
+  a comma-separated string or a string holding JSON. Mapping `List.of("Frontend",
+  "API")` onto `[{"name": "Frontend"}, {"name": "API"}]` is Jira's payload shape,
+  not argument parsing.

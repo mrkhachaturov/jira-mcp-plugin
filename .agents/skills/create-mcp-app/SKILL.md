@@ -22,20 +22,22 @@ Host calls tool → Host renders resource UI → Server returns result → UI re
 
 ### Framework Selection
 
-| Framework | SDK Support | Best For |
-|-----------|-------------|----------|
-| React | `useApp` hook provided | Teams familiar with React |
-| Vanilla JS | Manual lifecycle | Simple apps, no build complexity |
-| Vue/Svelte/Preact/Solid | Manual lifecycle | Framework preference |
+| Framework               | SDK Support            | Best For                         |
+| ----------------------- | ---------------------- | -------------------------------- |
+| React                   | `useApp` hook provided | Teams familiar with React        |
+| Vanilla JS              | Manual lifecycle       | Simple apps, no build complexity |
+| Vue/Svelte/Preact/Solid | Manual lifecycle       | Framework preference             |
 
 ### Project Context
 
 **Adding to existing MCP server:**
+
 - Import `registerAppTool`, `registerAppResource` from SDK
 - Add tool registration with `_meta.ui.resourceUri`
 - Add resource registration serving bundled HTML
 
 **Creating new MCP server:**
+
 - Set up server with transport (stdio or HTTP)
 - Register tools and resources
 - Configure build system with `vite-plugin-singlefile`
@@ -52,16 +54,17 @@ git clone --branch "v$(npm view @modelcontextprotocol/ext-apps version)" --depth
 
 Learn and adapt from `/tmp/mcp-ext-apps/examples/basic-server-{framework}/`:
 
-| Template | Key Files |
-|----------|-----------|
-| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html` |
-| `basic-server-react/` | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
-| `basic-server-vue/` | `server.ts`, `src/App.vue` |
-| `basic-server-svelte/` | `server.ts`, `src/App.svelte` |
-| `basic-server-preact/` | `server.ts`, `src/mcp-app.tsx` |
-| `basic-server-solid/` | `server.ts`, `src/mcp-app.tsx` |
+| Template                  | Key Files                                           |
+| ------------------------- | --------------------------------------------------- |
+| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html`       |
+| `basic-server-react/`     | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
+| `basic-server-vue/`       | `server.ts`, `src/App.vue`                          |
+| `basic-server-svelte/`    | `server.ts`, `src/App.svelte`                       |
+| `basic-server-preact/`    | `server.ts`, `src/mcp-app.tsx`                      |
+| `basic-server-solid/`     | `server.ts`, `src/mcp-app.tsx`                      |
 
 Each template includes:
+
 - `server.ts` with `registerAppTool` and `registerAppResource`
 - `main.ts` entry point with HTTP and stdio transport setup
 - Client-side app (e.g., `src/mcp-app.ts`, `src/mcp-app.tsx`) with lifecycle handlers
@@ -74,13 +77,13 @@ Each template includes:
 
 Read JSDoc documentation directly from `/tmp/mcp-ext-apps/src/`:
 
-| File | Contents |
-|------|----------|
-| `src/app.ts` | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`, etc.), lifecycle |
-| `src/server/index.ts` | `registerAppTool`, `registerAppResource`, helper functions |
-| `src/spec.types.ts` | All type definitions: `McpUiHostContext`, `McpUiStyleVariableKey` (CSS variable names), `McpUiResourceCsp` (CSP configuration), etc. |
-| `src/styles.ts` | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts` |
-| `src/react/useApp.tsx` | `useApp` hook for React apps |
+| File                   | Contents                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/app.ts`           | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`, etc.), lifecycle                         |
+| `src/server/index.ts`  | `registerAppTool`, `registerAppResource`, helper functions                                                                           |
+| `src/spec.types.ts`    | All type definitions: `McpUiHostContext`, `McpUiStyleVariableKey` (CSS variable names), `McpUiResourceCsp` (CSP configuration), etc. |
+| `src/styles.ts`        | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts`                                                                    |
+| `src/react/useApp.tsx` | `useApp` hook for React apps                                                                                                         |
 
 ### Advanced Patterns
 

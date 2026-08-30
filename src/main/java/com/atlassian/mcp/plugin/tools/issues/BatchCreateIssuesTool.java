@@ -1,121 +1,134 @@
 package com.atlassian.mcp.plugin.tools.issues;
 
+import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.server.McpSyncServerExchange;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
-import java.util.*;
+public class BatchCreateIssuesTool extends TypedTool<BatchCreateIssuesTool.Args> {
 
-public class BatchCreateIssuesTool implements McpTool {
-    private final JiraRestClient client;
-    private final ObjectMapper mapper = new ObjectMapper();
+  public record NewIssue(
+      @ToolArg(value = "The project key, e.g. 'PROJ'", required = true) String projectKey,
+      @ToolArg(value = "Issue summary/title", required = true) String summary,
+      @ToolArg(value = "Type of issue, e.g. 'Task' or 'Bug'", required = true) String issueType,
+      @ToolArg("Issue description in Markdown format") String description,
+      @ToolArg("Assignee username or email") String assignee,
+      @ToolArg("Component names to assign, e.g. ['Frontend', 'API']") List<String> components) {}
 
-    public BatchCreateIssuesTool(JiraRestClient client) {
-        this.client = client;
-    }
+  public record Args(
+      @ToolArg(value = "The issues to create", required = true) List<NewIssue> issues,
+      @ToolArg(
+              value =
+                  "If true, build and return each request body without sending anything to Jira."
+                      + " Project-specific field configuration is still only checked on a real"
+                      + " create.",
+              defaultValue = "false")
+          boolean validateOnly) {}
 
-    @Override public String name() { return "batch_create_issues"; }
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
-    @Override
-    public String description() {
-        return "Create multiple Jira issues in a batch.";
-    }
+  public BatchCreateIssuesTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "issues", Map.of("type", "string", "description", "JSON array of issue objects. Each object should contain: - project_key (required): The project key (e.g., 'PROJ') - summary (required): Issue summary/title - issue_type (required): Type of issue (e.g., 'Task', 'Bug') - description (optional): Issue description in Markdown format - assignee (optional): Assignee username or email - components (optional): Array of component names Example: [ {\"project_key\": \"PROJ\", \"summary\": \"Issue 1\", \"issue_type\": \"Task\"}, {\"project_key\": \"PROJ\", \"summary\": \"Issue 2\", \"issue_type\": \"Bug\", \"components\": [\"Frontend\"]} ]"),
-                        "validate_only", Map.of("type", "boolean", "description", "If true, only validates the issues without creating them", "default", false)
-                ),
-                "required", List.of("issues")
-        );
-    }
+  @Override
+  public String name() {
+    return "batch_create_issues";
+  }
 
-    @Override public boolean isWriteTool() { return true; }
-    @Override public boolean supportsProgress() { return true; }
+  @Override
+  public String description() {
+    return "Create multiple Jira issues in a batch.";
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        return executeWithProgress(args, authHeader, (current, total, message) -> {});
-    }
+  @Override
+  public boolean isWriteTool() {
+    return true;
+  }
 
-    @Override
-    public String executeWithSdkProgress(Map<String, Object> args, String authHeader,
-                                         McpSyncServerExchange exchange,
-                                         Object progressToken) throws McpToolException {
-        return executeWithProgress(args, authHeader, BatchProgressBridge.bridge(exchange, progressToken));
-    }
+  @Override
+  public boolean supportsProgress() {
+    return true;
+  }
 
-    @Override
-    public String executeWithProgress(Map<String, Object> args, String authHeader,
-                                      ProgressCallback progress) throws McpToolException {
-        String issuesJson = (String) args.get("issues");
-        if (issuesJson == null || issuesJson.isBlank()) {
-            throw new McpToolException("'issues' parameter is required");
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    int total = args.issues().size();
+    List<Object> succeeded = new ArrayList<>();
+    List<Map<String, Object>> errors = new ArrayList<>();
+
+    for (int i = 0; i < total; i++) {
+      NewIssue issue = args.issues().get(i);
+      String verb = args.validateOnly() ? "Validating" : "Creating";
+      context.reportProgress(
+          i, total, verb + " issue " + (i + 1) + " of " + total + ": " + issue.summary());
+
+      try {
+        String body = mapper.writeValueAsString(Map.of("fields", fieldsOf(issue)));
+        if (args.validateOnly()) {
+          succeeded.add(mapper.readTree(body));
+        } else {
+          String created = client.post("/rest/api/2/issue", body, context.authHeader());
+          succeeded.add(mapper.readValue(created, new TypeReference<Map<String, Object>>() {}));
         }
-
-        List<Map<String, Object>> issues;
-        try {
-            issues = mapper.readValue(issuesJson, new TypeReference<>() {});
-        } catch (Exception e) {
-            throw new McpToolException("Invalid issues JSON: " + e.getMessage());
-        }
-
-        int total = issues.size();
-        List<Map<String, Object>> created = new ArrayList<>();
-        List<Map<String, Object>> errors = new ArrayList<>();
-
-        for (int i = 0; i < total; i++) {
-            Map<String, Object> issue = issues.get(i);
-            String summary = (String) issue.getOrDefault("summary", "?");
-
-            progress.report(i, total, "Creating issue " + (i + 1) + " of " + total + ": " + summary);
-
-            try {
-                // Build Jira fields structure
-                Map<String, Object> fields = new HashMap<>();
-                fields.put("project", Map.of("key", issue.get("project_key")));
-                fields.put("summary", issue.get("summary"));
-                fields.put("issuetype", Map.of("name", issue.get("issue_type")));
-
-                if (issue.containsKey("description"))
-                    fields.put("description", issue.get("description"));
-                if (issue.containsKey("assignee"))
-                    fields.put("assignee", Map.of("name", issue.get("assignee")));
-
-                String body = mapper.writeValueAsString(Map.of("fields", fields));
-                String result = client.post("/rest/api/2/issue", body, authHeader);
-                Map<String, Object> parsed = mapper.readValue(result, new TypeReference<>() {});
-                created.add(parsed);
-            } catch (Exception e) {
-                errors.add(Map.of(
-                        "index", i,
-                        "summary", summary,
-                        "error", e.getMessage()
-                ));
-            }
-        }
-
-        progress.report(total, total, "Completed: " + created.size() + " created, " + errors.size() + " errors");
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("created", created.size());
-        result.put("errors", errors.size());
-        result.put("issues", created);
-        if (!errors.isEmpty()) {
-            result.put("failed", errors);
-        }
-
-        try {
-            return mapper.writeValueAsString(result);
-        } catch (Exception e) {
-            throw new McpToolException("Failed to serialize result: " + e.getMessage());
-        }
+      } catch (Exception e) {
+        errors.add(
+            Map.of(
+                "index", i,
+                "summary", issue.summary(),
+                "error", String.valueOf(e.getMessage())));
+      }
     }
+
+    String done = args.validateOnly() ? " validated, " : " created, ";
+    context.reportProgress(
+        total, total, "Completed: " + succeeded.size() + done + errors.size() + " errors");
+
+    Map<String, Object> result = new LinkedHashMap<>();
+    if (args.validateOnly()) {
+      result.put("validate_only", true);
+      result.put("valid", succeeded.size());
+    } else {
+      result.put("created", succeeded.size());
+    }
+    result.put("errors", errors.size());
+    result.put("issues", succeeded);
+    if (!errors.isEmpty()) {
+      result.put("failed", errors);
+    }
+
+    try {
+      return mapper.writeValueAsString(result);
+    } catch (Exception e) {
+      throw new McpToolException("Failed to serialize result: " + e.getMessage());
+    }
+  }
+
+  private static Map<String, Object> fieldsOf(NewIssue issue) {
+    Map<String, Object> fields = new LinkedHashMap<>();
+    fields.put("project", Map.of("key", issue.projectKey()));
+    fields.put("summary", issue.summary());
+    fields.put("issuetype", Map.of("name", issue.issueType()));
+
+    if (issue.description() != null) {
+      fields.put("description", JiraMarkupConverter.markdownToJira(issue.description()));
+    }
+    if (issue.assignee() != null) {
+      fields.put("assignee", Map.of("name", issue.assignee()));
+    }
+    if (issue.components() != null && !issue.components().isEmpty()) {
+      fields.put("components", issue.components().stream().map(c -> Map.of("name", c)).toList());
+    }
+    return fields;
+  }
 }

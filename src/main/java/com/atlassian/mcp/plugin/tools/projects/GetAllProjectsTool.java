@@ -2,49 +2,43 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 
-import java.util.List;
-import java.util.Map;
+public class GetAllProjectsTool extends TypedTool<GetAllProjectsTool.Args> {
 
-public class GetAllProjectsTool implements McpTool {
-    private final JiraRestClient client;
+  public record Args(
+      @ToolArg(
+              value = "Whether to include archived projects in the results; false by default",
+              defaultValue = "false")
+          boolean includeArchived) {}
 
-    public GetAllProjectsTool(JiraRestClient client) {
-        this.client = client;
-    }
+  private final JiraRestClient client;
 
-    @Override public String name() { return "get_all_projects"; }
+  public GetAllProjectsTool(JiraRestClient client) {
+    super(Args.class);
+    this.client = client;
+  }
 
-    @Override
-    public String description() {
-        return "Get all Jira projects accessible to the current user.";
-    }
+  @Override
+  public String name() {
+    return "get_all_projects";
+  }
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "include_archived", Map.of("type", "boolean", "description", "Whether to include archived projects in the results", "default", false)
-                ),
-                "required", List.of()
-        );
-    }
+  @Override
+  public String description() {
+    return "Get all Jira projects accessible to the current user.";
+  }
 
-    @Override public boolean isWriteTool() { return false; }
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        boolean includeArchived = getBoolean(args, "include_archived", false);
-
-        return client.get("/rest/api/2/project", authHeader);
-    }
-
-    private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-        Object val = args.get(key);
-        if (val instanceof Boolean b) return b;
-        if (val instanceof String s) return "true".equalsIgnoreCase(s);
-        return defaultVal;
-    }
+  @Override
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get(
+        "/rest/api/2/project?includeArchived=" + args.includeArchived(), context.authHeader());
+  }
 }

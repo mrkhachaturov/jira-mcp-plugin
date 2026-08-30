@@ -7,17 +7,17 @@
 
     <groupId>com.atlassian.mcp</groupId>
     <artifactId>jira-mcp-plugin</artifactId>
-    <version>1.4.3</version>
+    <version>1.5.3</version>
     <packaging>atlassian-plugin</packaging>
 
     <name>Jira MCP Plugin</name>
     <description>Connect AI agents to Jira Data Center</description>
 
     <properties>
-        <jira.version>11.3.6</jira.version>
-        <amps.version>9.12.4</amps.version>
+        <jira.version>11.3.8</jira.version>
+        <amps.version>9.13.0</amps.version>
         <atlassian.spring.scanner.version>6.0.2</atlassian.spring.scanner.version>
-        <mcp.sdk.version>2.0.0-M3</mcp.sdk.version>
+        <mcp.sdk.version>2.0.1</mcp.sdk.version>
 
         <atlassian.plugin.key>${project.groupId}.${project.artifactId}</atlassian.plugin.key>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -162,9 +162,77 @@
             <version>5.12.0</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Validates the request bodies the tools build against Jira's own OpenAPI
+                 description. Test scope only — it never reaches the plugin JAR. -->
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>swagger-request-validator-core</artifactId>
+            <version>2.44.9</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>atlassian-plugin.xml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>atlassian-plugin.xml</exclude>
+                </excludes>
+            </resource>
+        </resources>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.eclipse.m2e</groupId>
+                    <artifactId>lifecycle-mapping</artifactId>
+                    <version>1.0.0</version>
+                    <configuration>
+                        <lifecycleMappingMetadata>
+                            <pluginExecutions>
+                                <pluginExecution>
+                                    <pluginExecutionFilter>
+                                        <groupId>com.atlassian.maven.plugins</groupId>
+                                        <artifactId>jira-maven-plugin</artifactId>
+                                        <versionRange>[0,)</versionRange>
+                                        <goals>
+                                            <goal>compress-resources</goal>
+                                            <goal>filter-plugin-descriptor</goal>
+                                            <goal>filter-test-plugin-descriptor</goal>
+                                            <goal>generate-rest-docs</goal>
+                                        </goals>
+                                    </pluginExecutionFilter>
+                                    <action>
+                                        <ignore/>
+                                    </action>
+                                </pluginExecution>
+                                <pluginExecution>
+                                    <pluginExecutionFilter>
+                                        <groupId>com.atlassian.plugin</groupId>
+                                        <artifactId>atlassian-spring-scanner-maven-plugin</artifactId>
+                                        <versionRange>[0,)</versionRange>
+                                        <goals>
+                                            <goal>atlassian-spring-scanner</goal>
+                                        </goals>
+                                    </pluginExecutionFilter>
+                                    <action>
+                                        <ignore/>
+                                    </action>
+                                </pluginExecution>
+                            </pluginExecutions>
+                        </lifecycleMappingMetadata>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>com.atlassian.maven.plugins</groupId>
@@ -232,11 +300,25 @@
                     <verbose>false</verbose>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.15.0</version>
+                <configuration>
+                    <showDeprecation>true</showDeprecation>
+                    <showWarnings>true</showWarnings>
+                    <compilerArgs>
+                        <arg>-Xlint:all,-this-escape,-serial,-processing</arg>
+                        <arg>-Werror</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
             <!-- Hard kill-switch: e2e tests hit a live Jira via the MCP SDK client.
                  Cap the surefire fork at 3 min so a network hang can never block CI. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
                 <configuration>
                     <forkedProcessTimeoutInSeconds>180</forkedProcessTimeoutInSeconds>
                     <rerunFailingTestsCount>2</rerunFailingTestsCount>

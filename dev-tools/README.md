@@ -3,7 +3,7 @@
 Local development harness for visually testing MCP Apps widgets (the Issue
 Card) without deploying to Claude.ai / ChatGPT / VS Code Copilot.
 
-```
+```text
 dev-tools/
 ├── basic-host/          # Vendored from @modelcontextprotocol/ext-apps@1.7.2,
 │                        # examples/basic-host. Local mini-host: shows tools,
@@ -23,7 +23,7 @@ dev-tools/
 ## Usage
 
 ```bash
-just dev-host            # one-shot: builds basic-host + starts proxy + serves UI
+mise run dev:host          # one-shot: builds basic-host + starts proxy + serves UI
 ```
 
 Then open <http://localhost:8080>:
@@ -51,7 +51,7 @@ for the upstream source.
 `.upstream/` is gitignored (reference material), so a symlink wouldn't survive
 a fresh clone. We vendor only the seven source files (`serve.ts`, `src/`,
 `*.html`, `*.config.ts`, `package.json`) — ~10 KB. `node_modules/` and `dist/`
-are gitignored and rebuilt on `just dev-host`.
+are gitignored and rebuilt on `mise run dev:host`.
 
 To pull updates from upstream, copy the same files again from
 `.upstream/ext-apps/examples/basic-host/`.

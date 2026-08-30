@@ -6,7 +6,7 @@ Locally-mirrored documentation for fast offline / semantic search via
 
 ## Layout
 
-```
+```text
 wiki/
 ├── README.md               # this file (committed)
 ├── .gitignore              # ignores everything below — content is regenerable
