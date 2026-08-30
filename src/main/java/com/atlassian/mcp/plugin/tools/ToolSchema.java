@@ -70,6 +70,14 @@ public final class ToolSchema {
                 + component.getName()
                 + " is primitive, so it must be required() or carry a defaultValue()");
       }
+      if (arg.allowed().length > 0 && component.getType() != String.class) {
+        throw new IllegalStateException(
+            argsType.getSimpleName()
+                + "."
+                + component.getName()
+                + " declares allowed() but is not a String; the binder compares whole values, so"
+                + " an enum over list elements is not expressible");
+      }
 
       String name = wireName(component);
       properties.put(name, property(component, arg, enclosing));

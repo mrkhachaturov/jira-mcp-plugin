@@ -136,22 +136,34 @@ public class JiraRequestBodyContractTest {
                         }));
   }
 
+  private static final List<String> AWAITING_MIGRATION = List.of("batch_create_versions");
+
   @Test
   public void everyWriteToolSendsABodyJiraAccepts() throws Exception {
     List<String> violations = new ArrayList<>();
+    List<String> silent = new ArrayList<>();
 
-    for (Class<?> type : ToolScan.declarativeToolClasses()) {
+    for (Class<?> type : ToolScan.mcpToolClasses()) {
       JiraRestClient client = mockClient();
-      DeclarativeTool tool = instantiate(type, client);
+      McpTool tool = instantiate(type, client);
       if (!tool.isWriteTool()) continue;
 
-      for (Sent sent : capture(tool, client)) {
-        for (String problem : validate(sent)) {
-          violations.add(tool.name() + ": " + sent.method + " " + sent.path + " — " + problem);
+      List<Sent> sent = capture(tool, client);
+      if (mockingDetails(client).getInvocations().isEmpty()
+          && !AWAITING_MIGRATION.contains(tool.name())) {
+        silent.add(tool.name());
+      }
+      for (Sent one : sent) {
+        for (String problem : validate(one)) {
+          violations.add(tool.name() + ": " + one.method + " " + one.path + " — " + problem);
         }
       }
     }
 
+    assertEquals(
+        "these write tools never reached Jira, so this check covers none of them",
+        List.of(),
+        silent);
     assertEquals(
         "these tools build a body Jira rejects, so the call does nothing", List.of(), violations);
   }
@@ -179,14 +191,9 @@ public class JiraRequestBodyContractTest {
   private record Sent(String method, String path, String body) {}
 
   /** Drives a tool with synthetic arguments and returns each POST/PUT body it produced. */
-  private static List<Sent> capture(DeclarativeTool tool, JiraRestClient client) throws Exception {
-    Map<String, Object> args = new LinkedHashMap<>();
-    for (ToolParam<?> param : tool.params()) {
-      args.put(param.name(), sampleFor(param));
-    }
-
+  private static List<Sent> capture(McpTool tool, JiraRestClient client) throws Exception {
     try {
-      tool.run(new ToolArgs(tool.params(), args), "Bearer test");
+      tool.execute(sampleObject(tool.inputSchema()), "Bearer test");
     } catch (McpToolException | RuntimeException e) {
       // Synthetic arguments may be rejected; whatever was sent before that still counts.
     }
@@ -213,23 +220,37 @@ public class JiraRequestBodyContractTest {
     }
   }
 
-  private static Object sampleFor(ToolParam<?> param) {
-    switch (String.valueOf(param.schema().get("type"))) {
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> sampleObject(Map<String, Object> schema) {
+    Map<String, Object> properties =
+        (Map<String, Object>) schema.getOrDefault("properties", Map.of());
+    Map<String, Object> args = new LinkedHashMap<>();
+    properties.forEach(
+        (name, property) -> args.put(name, sampleFor(name, (Map<String, Object>) property)));
+    return args;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Object sampleFor(String name, Map<String, Object> property) {
+    List<String> allowed = (List<String>) property.get("enum");
+    if (allowed != null && !allowed.isEmpty()) return allowed.get(0);
+
+    switch (String.valueOf(property.get("type"))) {
       case "integer":
       case "number":
         return 1;
       case "boolean":
-        return Boolean.TRUE;
+        return Boolean.FALSE;
       case "array":
-        return List.of();
+        return List.of(sampleFor(name, (Map<String, Object>) property.get("items")));
       case "object":
-        return Map.of();
+        return property.containsKey("properties") ? sampleObject(property) : Map.of();
       default:
         // Several tools parse a parameter as embedded JSON; an object literal survives both paths.
-        if (param.name().contains("field") || param.name().contains("visibility")) return "{}";
+        if (name.contains("field") || name.contains("visibility")) return "{}";
         // A date parameter has to arrive as a date, or the finding is about this sample value
         // rather than about the property name the tool chose.
-        if (param.name().contains("date")) return "2025-01-01T00:00:00.000+0000";
+        if (name.contains("date")) return "2025-01-01T00:00:00.000+0000";
         return "TEST-1";
     }
   }
@@ -242,8 +263,7 @@ public class JiraRequestBodyContractTest {
     return client;
   }
 
-  private static DeclarativeTool instantiate(Class<?> type, JiraRestClient client)
-      throws Exception {
+  private static McpTool instantiate(Class<?> type, JiraRestClient client) throws Exception {
     Constructor<?> best = null;
     for (Constructor<?> candidate : type.getConstructors()) {
       if (best == null || candidate.getParameterCount() < best.getParameterCount()) {
@@ -255,6 +275,6 @@ public class JiraRequestBodyContractTest {
     for (int i = 0; i < arguments.length; i++) {
       arguments[i] = types[i] == JiraRestClient.class ? client : mock(types[i]);
     }
-    return (DeclarativeTool) best.newInstance(arguments);
+    return (McpTool) best.newInstance(arguments);
   }
 }

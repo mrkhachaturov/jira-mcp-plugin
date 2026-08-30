@@ -141,4 +141,17 @@ public class ToolSchemaTest {
   public void aRecordThatContainsItselfIsRejected() {
     assertThrows(IllegalStateException.class, () -> ToolSchema.of(SelfReferencing.class));
   }
+
+  public record EnumOverAList(
+      @ToolArg(
+              value = "Sprint states",
+              allowed = {"future", "active"})
+          List<String> states) {}
+
+  @Test
+  public void anEnumOverListElementsIsRejectedRatherThanSilentlyNeverMatching() {
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> ToolSchema.of(EnumOverAList.class));
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("states"));
+  }
 }
