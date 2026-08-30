@@ -2,13 +2,22 @@ package com.atlassian.mcp.plugin.tools.links;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class LinkToEpicTool implements McpTool {
+public class LinkToEpicTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "The key of the issue to link (e.g., 'PROJ-123', 'ACV2-642')")
+          .required();
+  private static final ToolParam<String> EPIC_KEY =
+      ToolParam.string("epic_key", "The key of the epic to link to (e.g., 'PROJ-456')").required();
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -27,41 +36,19 @@ public class LinkToEpicTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "The key of the issue to link (e.g., 'PROJ-123', 'ACV2-642')"),
-                "epic_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "The key of the epic to link to (e.g., 'PROJ-456')")),
-        "required", List.of("issue_key", "epic_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String epicKey = (String) args.get("epic_key");
-    if (epicKey == null || epicKey.isBlank()) {
-      throw new McpToolException("'epic_key' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, EPIC_KEY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String epicKey = args.require(EPIC_KEY);
 
     // Jira Agile API expects: {"issues": ["PROJ-123"]}
     Map<String, Object> requestBody = new HashMap<>();
@@ -69,7 +56,6 @@ public class LinkToEpicTool implements McpTool {
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       client.post("/rest/agile/1.0/epic/" + epicKey + "/issue", jsonBody, authHeader);
-      // Return the updated issue with a message (matches upstream)
       String updatedIssue = client.get("/rest/api/2/issue/" + issueKey, authHeader);
       Map<String, Object> result = new HashMap<>();
       result.put("message", "Issue " + issueKey + " has been linked to epic " + epicKey + ".");

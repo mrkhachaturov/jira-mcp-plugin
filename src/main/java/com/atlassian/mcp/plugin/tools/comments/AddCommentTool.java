@@ -3,13 +3,33 @@ package com.atlassian.mcp.plugin.tools.comments;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AddCommentTool implements McpTool {
+public class AddCommentTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> BODY =
+      ToolParam.string("body", "Comment text in Markdown format").required();
+  private static final ToolParam<String> VISIBILITY =
+      ToolParam.string(
+          "visibility",
+          "(Optional) Comment visibility as JSON string (e.g."
+              + " '{\"type\":\"group\",\"value\":\"jira-users\"}')");
+  private static final ToolParam<Boolean> PUBLIC =
+      ToolParam.bool(
+              "public",
+              "(Optional) For JSM/Service Desk issues only. Set to true for customer-visible"
+                  + " comment, false for internal agent-only comment. Uses the ServiceDesk API"
+                  + " (plain text, not Markdown). Cannot be combined with visibility.")
+          .withDefault(Boolean.FALSE);
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,50 +48,21 @@ public class AddCommentTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "body", Map.of("type", "string", "description", "Comment text in Markdown format"),
-                "visibility",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Comment visibility as JSON string (e.g. '{\"type\":\"group\",\"value\":\"jira-users\"}')"),
-                "public",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "(Optional) For JSM/Service Desk issues only. Set to true for customer-visible comment, false for internal agent-only comment. Uses the ServiceDesk API (plain text, not Markdown). Cannot be combined with visibility.")),
-        "required", List.of("issue_key", "body"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String body = (String) args.get("body");
-    if (body == null || body.isBlank()) {
-      throw new McpToolException("'body' parameter is required");
-    }
-    String visibility = (String) args.get("visibility");
-    boolean isPublic = getBoolean(args, "public", false);
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, BODY, VISIBILITY, PUBLIC);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String body = args.require(BODY);
+    String visibility = args.get(VISIBILITY);
+    boolean isPublic = args.get(PUBLIC);
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
@@ -83,12 +74,5 @@ public class AddCommentTool implements McpTool {
     } catch (Exception e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }
-  }
-
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
   }
 }

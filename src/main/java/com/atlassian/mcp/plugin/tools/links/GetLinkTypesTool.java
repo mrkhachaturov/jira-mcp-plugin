@@ -2,7 +2,9 @@ package com.atlassian.mcp.plugin.tools.links;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -10,9 +12,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
-public class GetLinkTypesTool implements McpTool {
+public class GetLinkTypesTool extends DeclarativeTool {
+
+  private static final ToolParam<String> NAME_FILTER =
+      ToolParam.string(
+          "name_filter", "(Optional) Filter link types by name substring (case-insensitive)");
+
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final JiraRestClient client;
@@ -32,33 +38,21 @@ public class GetLinkTypesTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "name_filter",
-                Map.of(
-                    "type",
-                    "string",
-                    "description",
-                    "(Optional) Filter link types by name substring (case-insensitive)")),
-        "required", List.of());
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String nameFilter = (String) args.get("name_filter");
+  public List<ToolParam<?>> params() {
+    return List.of(NAME_FILTER);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String nameFilter = args.get(NAME_FILTER);
     String response = client.get("/rest/api/2/issueLinkType", authHeader);
 
-    return nameFilter == null || nameFilter.isBlank()
-        ? response
-        : filterByName(response, nameFilter);
+    return nameFilter == null ? response : filterByName(response, nameFilter);
   }
 
   /**
