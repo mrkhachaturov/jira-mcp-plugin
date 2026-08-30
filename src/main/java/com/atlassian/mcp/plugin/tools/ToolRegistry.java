@@ -31,6 +31,7 @@ public class ToolRegistry {
   private final Map<String, McpTool> allTools = new ConcurrentHashMap<>();
   private final PluginAccessor pluginAccessor;
   private final McpPluginConfig config;
+  private final com.atlassian.mcp.plugin.rest.McpCancellationRegistry cancellations;
 
   @Inject
   public ToolRegistry(
@@ -38,9 +39,11 @@ public class ToolRegistry {
       McpPluginConfig config,
       JiraRestClient client,
       ResourceRegistry resourceRegistry,
-      ResourceContextBuilder resourceContextBuilder) {
+      ResourceContextBuilder resourceContextBuilder,
+      com.atlassian.mcp.plugin.rest.McpCancellationRegistry cancellations) {
     this.pluginAccessor = pluginAccessor;
     this.config = config;
+    this.cancellations = cancellations;
     UiBinding ui = new UiBinding(resourceRegistry, resourceContextBuilder);
     registerAllTools(client, ui);
   }
@@ -202,7 +205,7 @@ public class ToolRegistry {
       if (!isCapabilityMet(tool)) continue;
       if (!config.isToolEnabled(tool.name())) continue;
       if (config.isReadOnlyMode() && tool.isWriteTool()) continue;
-      specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(tool, config));
+      specs.add(com.atlassian.mcp.plugin.rest.McpToolAdapter.adapt(tool, config, cancellations));
     }
     return specs;
   }

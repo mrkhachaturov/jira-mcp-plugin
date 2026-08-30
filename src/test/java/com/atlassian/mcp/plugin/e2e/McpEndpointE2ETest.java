@@ -442,8 +442,6 @@ public class McpEndpointE2ETest {
    */
   @Test
   public void test12_forbiddenWhenUserBlocked() {
-    // TODO: requires staging instance — locking out the admin running these
-    //       tests against prod would brick the suite.
     Assume.assumeTrue(
         "staging-only test — set STAGING=1 to enable", System.getenv("STAGING") != null);
 
@@ -792,6 +790,114 @@ public class McpEndpointE2ETest {
           "CIMD SSRF to " + host + " must be invalid_client, body=" + resp.body(),
           resp.body().contains("invalid_client"));
     }
+  }
+
+  // ========================================================================
+  // 22 — notifications/cancelled stops a running batch part way
+  // ========================================================================
+
+  /**
+   * Drives the whole cancellation path against the live plugin: a batch is started under a known
+   * JSON-RPC id, a {@code notifications/cancelled} naming that id follows while it runs, and the
+   * batch has to come back having stopped early rather than having fetched every item.
+   *
+   * <p>Raw HTTP rather than {@link McpSyncClient} for two reasons: the SDK has no {@code
+   * notifications/cancelled} to send, and it picks its own request ids, while cancelling requires
+   * naming one.
+   *
+   * <p>{@code batch_get_changelogs} reads, so nothing is written to Jira. The key is repeated
+   * because each entry costs its own round trip: the list has to be long enough that the batch
+   * outlives the cancellation in flight.
+   */
+  @Test
+  public void test22_cancellationStopsARunningBatch() throws Exception {
+    Assume.assumeNotNull(knownIssueKey);
+
+    HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    String session = openRawSession(http);
+
+    StringBuilder keys = new StringBuilder("[");
+    for (int i = 0; i < 300; i++) {
+      keys.append(i == 0 ? "" : ",").append('"').append(knownIssueKey).append('"');
+    }
+    keys.append(']');
+
+    var running =
+        http.sendAsync(
+            rawPost(
+                session,
+                "{\"jsonrpc\":\"2.0\",\"id\":\"e2e-cancel\",\"method\":\"tools/call\",\"params\":"
+                    + "{\"name\":\"batch_get_changelogs\",\"arguments\":"
+                    + "{\"issue_ids_or_keys\":"
+                    + keys
+                    + "}}}"),
+            HttpResponse.BodyHandlers.ofString());
+
+    Thread.sleep(250);
+    http.send(
+        rawPost(
+            session,
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":"
+                + "{\"requestId\":\"e2e-cancel\",\"reason\":\"e2e pressed stop\"}}"),
+        HttpResponse.BodyHandlers.ofString());
+
+    JsonNode payload = MAPPER.readTree(toolResultText(running.get().body()));
+
+    assertTrue(
+        "the batch ran to completion despite notifications/cancelled, payload=" + payload,
+        payload.path("cancelled").asBoolean());
+    assertEquals("e2e pressed stop", payload.path("cancelled_reason").asText());
+    assertEquals(300, payload.path("total").asInt());
+    int processed = payload.path("processed").asInt();
+    assertTrue(
+        "a cancelled batch must stop short of its last item, processed=" + processed,
+        processed > 0 && processed < 300);
+  }
+
+  /** Initializes a session over raw HTTP and returns its {@code Mcp-Session-Id}. */
+  private static String openRawSession(HttpClient http) throws Exception {
+    HttpResponse<String> initialized =
+        http.send(
+            rawPost(
+                null,
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+                    + "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+                    + "\"clientInfo\":{\"name\":\"e2e-cancel\",\"version\":\"1\"}}}"),
+            HttpResponse.BodyHandlers.ofString());
+    String session = initialized.headers().firstValue("Mcp-Session-Id").orElse(null);
+    assertNotNull("initialize must return a session id", session);
+
+    http.send(
+        rawPost(session, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"),
+        HttpResponse.BodyHandlers.ofString());
+    return session;
+  }
+
+  private static HttpRequest rawPost(String session, String body) {
+    HttpRequest.Builder request =
+        HttpRequest.newBuilder()
+            .uri(URI.create(JIRA_URL + MCP_ENDPOINT))
+            .header("Authorization", "Bearer " + JIRA_PAT)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .timeout(Duration.ofSeconds(60));
+    if (session != null) {
+      request.header("Mcp-Session-Id", session);
+    }
+    return request.build();
+  }
+
+  /** Pulls the tool's text payload out of the single-event SSE envelope the transport writes. */
+  private static String toolResultText(String sse) throws Exception {
+    for (String line : sse.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      JsonNode message = MAPPER.readTree(line.substring("data: ".length()));
+      if (message.has("result")) {
+        return message.path("result").path("content").path(0).path("text").asText();
+      }
+    }
+    throw new AssertionError("no JSON-RPC result in the response: " + sse);
   }
 
   // =======================================================================

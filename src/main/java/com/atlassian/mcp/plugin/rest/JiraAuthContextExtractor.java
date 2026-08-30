@@ -29,6 +29,11 @@ public class JiraAuthContextExtractor implements McpTransportContextExtractor<Ht
   public static final String CTX_JIRA_USER_DISPLAY = "jiraUserDisplay";
   public static final String CTX_JIRA_USER_KEY = "jiraUserKey";
 
+  /** Identifies the call, so a later {@code notifications/cancelled} can be matched to it. */
+  public static final String CTX_REQUEST_ID = "requestId";
+
+  public static final String CTX_SESSION_ID = "sessionId";
+
   private final UserManager userManager;
 
   @Inject
@@ -42,6 +47,13 @@ public class JiraAuthContextExtractor implements McpTransportContextExtractor<Ht
     String authHeader = request.getHeader("Authorization");
     if (authHeader != null && !authHeader.isEmpty()) {
       ctx.put(CTX_AUTH_HEADER, authHeader);
+    }
+    // Set by McpTransportFilter, which is the only place the JSON-RPC envelope is read.
+    Object requestId = request.getAttribute(McpTransportFilter.ATTR_REQUEST_ID);
+    if (requestId != null) {
+      ctx.put(CTX_REQUEST_ID, requestId);
+      Object sessionId = request.getAttribute(McpTransportFilter.ATTR_SESSION_ID);
+      ctx.put(CTX_SESSION_ID, sessionId == null ? "" : sessionId);
     }
     try {
       UserKey key = userManager.getRemoteUserKey(request);

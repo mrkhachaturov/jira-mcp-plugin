@@ -3,6 +3,7 @@ package com.atlassian.mcp.plugin.tools.issues;
 import com.atlassian.mcp.plugin.JiraMarkupConverter;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.atlassian.mcp.plugin.tools.BatchResult;
 import com.atlassian.mcp.plugin.tools.McpContext;
 import com.atlassian.mcp.plugin.tools.ToolArg;
 import com.atlassian.mcp.plugin.tools.TypedTool;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class BatchCreateIssuesTool extends TypedTool<BatchCreateIssuesTool.Args> {
 
@@ -66,8 +68,17 @@ public class BatchCreateIssuesTool extends TypedTool<BatchCreateIssuesTool.Args>
     int total = args.issues().size();
     List<Object> succeeded = new ArrayList<>();
     List<Map<String, Object>> errors = new ArrayList<>();
+    String stopped = null;
+    int processed = 0;
 
     for (int i = 0; i < total; i++) {
+      Optional<String> cancellation = context.cancellation();
+      if (cancellation.isPresent()) {
+        stopped = cancellation.get();
+        break;
+      }
+      processed = i + 1;
+
       NewIssue issue = args.issues().get(i);
       String verb = args.validateOnly() ? "Validating" : "Creating";
       context.reportProgress(
@@ -92,7 +103,13 @@ public class BatchCreateIssuesTool extends TypedTool<BatchCreateIssuesTool.Args>
 
     String done = args.validateOnly() ? " validated, " : " created, ";
     context.reportProgress(
-        total, total, "Completed: " + succeeded.size() + done + errors.size() + " errors");
+        processed,
+        total,
+        (stopped == null ? "Completed: " : "Stopped: ")
+            + succeeded.size()
+            + done
+            + errors.size()
+            + " errors");
 
     Map<String, Object> result = new LinkedHashMap<>();
     if (args.validateOnly()) {
@@ -105,6 +122,12 @@ public class BatchCreateIssuesTool extends TypedTool<BatchCreateIssuesTool.Args>
     result.put("issues", succeeded);
     if (!errors.isEmpty()) {
       result.put("failed", errors);
+    }
+    if (stopped != null) {
+      result.put(BatchResult.CANCELLED, true);
+      result.put(BatchResult.CANCELLED_REASON, stopped);
+      result.put(BatchResult.PROCESSED, processed);
+      result.put(BatchResult.TOTAL, total);
     }
 
     try {

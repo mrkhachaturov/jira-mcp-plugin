@@ -113,6 +113,22 @@ in the release notes.
 observes whether the caller asked for progress notifications, so one `run` body
 serves both cases.
 
+**Stopping early.** A tool that loops over items reads
+`context.cancellation()` at the top of each iteration and leaves the loop when
+it is present. Only a batch has anywhere to put this: a request that has reached
+Jira runs to completion, so there is no checkpoint inside one item.
+
+A tool that stops must still report what it did, because the issues or versions
+it already wrote are in Jira whether or not the caller is still there. Add the
+four fields named in `BatchResult` — `cancelled`, `cancelled_reason`,
+`processed`, `total` — and only when the run actually stopped short. A result
+that carries fewer items and says nothing is indistinguishable from one where
+the rest had no data, and a caller reading it will redo work that already
+happened.
+
+This also means a batch result needs somewhere to put them: a tool that returns
+a bare array has to grow an envelope before it can be made cancellable.
+
 ## Questions to answer before converting a tool
 
 Do not port the existing parameters across. Ask what the tool is for, then write

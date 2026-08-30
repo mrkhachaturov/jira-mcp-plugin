@@ -2,6 +2,7 @@ package com.atlassian.mcp.plugin.rest;
 
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
+import com.atlassian.mcp.plugin.tools.CancellationSignal;
 import com.atlassian.mcp.plugin.tools.McpTool;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -70,7 +71,7 @@ public final class McpToolAdapter {
 
   /** Build a {@link McpServerFeatures.SyncToolSpecification} from an internal {@link McpTool}. */
   public static McpServerFeatures.SyncToolSpecification adapt(
-      McpTool tool, McpPluginConfig config) {
+      McpTool tool, McpPluginConfig config, McpCancellationRegistry cancellations) {
     McpSchema.ToolAnnotations annotations =
         McpSchema.ToolAnnotations.builder()
             .title(tool.title())
@@ -123,24 +124,15 @@ public final class McpToolAdapter {
 
     return McpServerFeatures.SyncToolSpecification.builder()
         .tool(schemaTool)
-        .callHandler((exchange, request) -> dispatch(tool, config, exchange, request))
+        .callHandler(
+            (exchange, request) -> dispatch(tool, config, cancellations, exchange, request))
         .build();
   }
 
-  // TODO(F-08): in-flight cancellation via notifications/cancelled is not surfaced
-  // to tool handlers by the MCP Java SDK 2.0.0-M3 — the SDK has no cancellation
-  // listener API on McpSyncServerExchange (verified by `grep -rn "cancel"
-  // .upstream/java-sdk/mcp-core/src/main/java/io/modelcontextprotocol/` returning
-  // only ElicitResult.Action.CANCEL and unrelated subscriber-cancellation paths).
-  // The MCP spec defines cancellation as "servers SHOULD process / MAY ignore",
-  // so the four batch tools (BatchCreateIssuesTool, BatchCreateVersionsTool,
-  // BatchGetChangelogsTool, GetIssuesDevelopmentInfoTool) currently run to
-  // completion regardless of any inbound notifications/cancelled. Plumb cooperative
-  // cancellation through executeWithSdkProgress once the SDK exposes a hook (e.g.
-  // exchange.isCancelled() or a CancellationToken on the call request).
   private static McpSchema.CallToolResult dispatch(
       McpTool tool,
       McpPluginConfig config,
+      McpCancellationRegistry cancellations,
       McpSyncServerExchange exchange,
       McpSchema.CallToolRequest request) {
     // Call-time guard: the SDK sync server's tool list is frozen at filter init
@@ -170,8 +162,25 @@ public final class McpToolAdapter {
     Map<String, Object> args = request.arguments() != null ? request.arguments() : Map.of();
     Object progressToken = extractProgressToken(request);
 
+    // The call is registered under the id McpTransportFilter read off the wire, so a
+    // notifications/cancelled naming it — arriving later, on its own request and its own thread —
+    // reaches the tool's next checkpoint. A call with no id (nothing read the envelope) simply
+    // cannot be cancelled.
+    String requestId = readContext(exchange, JiraAuthContextExtractor.CTX_REQUEST_ID);
+    String callKey =
+        requestId == null
+            ? null
+            : McpCancellationRegistry.key(
+                readContext(exchange, JiraAuthContextExtractor.CTX_SESSION_ID), requestId);
+    CancellationSignal cancellation = CancellationSignal.NONE;
+    if (callKey != null) {
+      cancellations.begin(callKey);
+      cancellation = cancellations.signalFor(callKey);
+    }
+
     try {
-      String resultText = tool.executeWithSdkProgress(args, authHeader, exchange, progressToken);
+      String resultText =
+          tool.executeWithSdkProgress(args, authHeader, exchange, progressToken, cancellation);
 
       Object structured = null;
       try {
@@ -201,6 +210,10 @@ public final class McpToolAdapter {
           .addTextContent("Internal error: " + e.getMessage())
           .isError(Boolean.TRUE)
           .build();
+    } finally {
+      if (callKey != null) {
+        cancellations.end(callKey);
+      }
     }
   }
 
