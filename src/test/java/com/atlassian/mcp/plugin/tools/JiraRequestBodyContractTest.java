@@ -204,9 +204,11 @@ public class JiraRequestBodyContractTest {
         return Map.of();
       default:
         // Several tools parse a parameter as embedded JSON; an object literal survives both paths.
-        return param.name().contains("field") || param.name().contains("visibility")
-            ? "{}"
-            : "TEST-1";
+        if (param.name().contains("field") || param.name().contains("visibility")) return "{}";
+        // A date parameter has to arrive as a date, or the finding is about this sample value
+        // rather than about the property name the tool chose.
+        if (param.name().contains("date")) return "2025-01-01T00:00:00.000+0000";
+        return "TEST-1";
     }
   }
 

@@ -2,11 +2,17 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.util.List;
-import java.util.Map;
 
-public class GetAllProjectsTool implements McpTool {
+public class GetAllProjectsTool extends DeclarativeTool {
+
+  private static final ToolParam<Boolean> INCLUDE_ARCHIVED =
+      ToolParam.bool("include_archived", "Whether to include archived projects in the results")
+          .withDefault(false);
+
   private final JiraRestClient client;
 
   public GetAllProjectsTool(JiraRestClient client) {
@@ -24,38 +30,19 @@ public class GetAllProjectsTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "include_archived",
-                Map.of(
-                    "type",
-                    "boolean",
-                    "description",
-                    "Whether to include archived projects in the results",
-                    "default",
-                    false)),
-        "required", List.of());
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    boolean includeArchived = getBoolean(args, "include_archived", false);
-
-    return client.get("/rest/api/2/project?includeArchived=" + includeArchived, authHeader);
+  public List<ToolParam<?>> params() {
+    return List.of(INCLUDE_ARCHIVED);
   }
 
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    boolean includeArchived = args.get(INCLUDE_ARCHIVED);
+
+    return client.get("/rest/api/2/project?includeArchived=" + includeArchived, authHeader);
   }
 }
