@@ -4,6 +4,7 @@ import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.rest.JiraAuthContextExtractor;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -188,7 +189,7 @@ public class ResourceRegistry {
     }
     try {
       if (applicationProperties != null) {
-        return applicationProperties.getBaseUrl().toString();
+        return applicationProperties.getBaseUrl(UrlMode.CANONICAL).toString();
       }
     } catch (Exception e) {
       // fall through
@@ -214,9 +215,7 @@ public class ResourceRegistry {
     Map<String, Object> metaMap = jsonObjectToMap(buildResourceMeta());
 
     McpSchema.Resource resource =
-        McpSchema.Resource.builder()
-            .uri(resourceUri)
-            .name("Jira Issue Card")
+        McpSchema.Resource.builder(resourceUri, "Jira Issue Card")
             .description("Interactive Jira issue viewer with status transitions and comments")
             .mimeType(MIME_TYPE)
             .meta(metaMap)

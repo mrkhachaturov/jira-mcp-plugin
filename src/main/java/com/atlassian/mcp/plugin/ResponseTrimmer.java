@@ -113,7 +113,7 @@ public final class ResponseTrimmer {
       }
 
       // Recurse into remaining children
-      obj.fields().forEachRemaining(e -> trimNode(e.getValue(), false));
+      obj.properties().forEach(e -> trimNode(e.getValue(), false));
 
       // Simplify nested "fields" object in issue responses
       if (isTopLevel && obj.has("fields") && obj.get("fields").isObject()) {

@@ -33,6 +33,11 @@ taplo = "0.10.0"
 typos = "1.50.0"
 zizmor = "1.29.0"
 
+[tools."http:atlassian-plugin-sdk"]
+version = "9.11.2"
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/{{ version }}/atlassian-plugin-sdk-{{ version }}.tar.gz"
+strip_components = 1
+
 [tasks.lint]
 description = "Run all lints"
 run = "flint run"

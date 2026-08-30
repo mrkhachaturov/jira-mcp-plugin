@@ -21,8 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Resolves and validates OAuth Client ID Metadata Documents (CIMD) per <a
@@ -54,8 +52,6 @@ import org.slf4j.LoggerFactory;
  * caching so a repeatedly-failing URL cannot be used to hammer the resolver.
  */
 public final class CimdValidator {
-
-  private static final Logger log = LoggerFactory.getLogger(CimdValidator.class);
 
   /** Hard cap on the metadata document body (8 KB). */
   public static final int MAX_BODY_BYTES = 8 * 1024;

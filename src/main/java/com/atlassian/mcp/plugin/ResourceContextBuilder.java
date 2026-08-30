@@ -3,6 +3,7 @@ package com.atlassian.mcp.plugin;
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -127,7 +128,7 @@ public class ResourceContextBuilder {
     }
     try {
       if (applicationProperties != null) {
-        return applicationProperties.getBaseUrl().toString();
+        return applicationProperties.getBaseUrl(UrlMode.CANONICAL).toString();
       }
     } catch (Exception ignored) {
       // fall through

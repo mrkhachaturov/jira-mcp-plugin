@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Build the plugin JAR/OBR"
 #MISE depends=["build:app"]
+#MISE wait_for=["clean"]
 #MISE dir="{{config_root}}"
 set -euo pipefail
 

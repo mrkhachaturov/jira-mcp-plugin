@@ -7,6 +7,7 @@ import com.atlassian.mcp.plugin.rest.oauth.CimdValidator;
 import com.atlassian.mcp.plugin.rest.oauth.RedirectUriMatcher;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
@@ -82,7 +83,7 @@ public class OAuthServlet extends HttpServlet {
   private String getBaseUrl() {
     String override = config.getJiraBaseUrlOverride();
     if (override != null && !override.isEmpty()) return override;
-    return applicationProperties.getBaseUrl().toString();
+    return applicationProperties.getBaseUrl(UrlMode.CANONICAL).toString();
   }
 
   private String getOAuthBase() {

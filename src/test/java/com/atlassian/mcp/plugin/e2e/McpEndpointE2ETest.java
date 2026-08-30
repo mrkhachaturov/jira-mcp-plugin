@@ -530,7 +530,7 @@ public class McpEndpointE2ETest {
     String uri = list.resources().get(0).uri();
 
     McpSchema.ReadResourceResult result =
-        client.readResource(new McpSchema.ReadResourceRequest(uri));
+        client.readResource(McpSchema.ReadResourceRequest.builder(uri).build());
     assertNotNull("readResource returned null", result);
 
     List<McpSchema.ResourceContents> contents = result.contents();
@@ -863,12 +863,12 @@ public class McpEndpointE2ETest {
     return McpClient.sync(transport)
         .requestTimeout(REQUEST_TIMEOUT)
         .initializationTimeout(REQUEST_TIMEOUT)
-        .clientInfo(new McpSchema.Implementation("jira-mcp-e2e", "1.0"))
+        .clientInfo(McpSchema.Implementation.builder("jira-mcp-e2e", "1.0").build())
         .build();
   }
 
   private static CallToolResult call(String name, Map<String, Object> args) {
-    return client.callTool(new CallToolRequest(name, args));
+    return client.callTool(CallToolRequest.builder(name).arguments(args).build());
   }
 
   /** Asserts the result is not flagged as error; surfaces content if it is. */

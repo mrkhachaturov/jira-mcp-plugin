@@ -7,6 +7,7 @@ import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.mcp.plugin.tools.ToolRegistry;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
@@ -234,7 +235,7 @@ public class McpBootstrap {
       if (override != null && !override.isEmpty()) {
         return override;
       }
-      return applicationProperties.getBaseUrl();
+      return applicationProperties.getBaseUrl(UrlMode.CANONICAL);
     } catch (Exception e) {
       log.warn("[MCP] could not resolve Jira base URL for Origin allowlist", e);
       return null;

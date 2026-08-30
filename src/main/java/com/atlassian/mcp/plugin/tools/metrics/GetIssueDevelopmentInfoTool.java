@@ -127,7 +127,7 @@ public class GetIssueDevelopmentInfoTool extends DeclarativeTool {
       result.put("issue_key", issueKey);
       JsonNode node = mapper.readTree(json);
       if (node.isObject()) {
-        node.fields().forEachRemaining(e -> result.put(e.getKey(), e.getValue()));
+        node.properties().forEach(e -> result.put(e.getKey(), e.getValue()));
       }
       return mapper.writeValueAsString(result);
     } catch (Exception e) {

@@ -81,11 +81,9 @@ public final class McpToolAdapter {
             .build();
 
     McpSchema.Tool.Builder builder =
-        McpSchema.Tool.builder()
-            .name(tool.name())
+        McpSchema.Tool.builder(tool.name(), withSchemaDialect(tool.inputSchema()))
             .title(tool.title())
             .description(tool.description())
-            .inputSchema(withSchemaDialect(tool.inputSchema()))
             .annotations(annotations);
 
     Map<String, Object> outputSchema = tool.outputSchema();

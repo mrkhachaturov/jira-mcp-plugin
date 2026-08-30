@@ -70,7 +70,7 @@ public class JiraRequestBodyContractTest {
           && !object.has("additionalProperties")) {
         object.put("additionalProperties", false);
       }
-      object.fields().forEachRemaining(field -> forbidUnknownProperties(field.getValue()));
+      object.properties().forEach(field -> forbidUnknownProperties(field.getValue()));
     } else if (node.isArray()) {
       node.forEach(JiraRequestBodyContractTest::forbidUnknownProperties);
     }
@@ -107,7 +107,7 @@ public class JiraRequestBodyContractTest {
         object.removeAll();
         return;
       }
-      object.fields().forEachRemaining(field -> relaxRawJsonBodies(field.getValue()));
+      object.properties().forEach(field -> relaxRawJsonBodies(field.getValue()));
     } else if (node.isArray()) {
       node.forEach(JiraRequestBodyContractTest::relaxRawJsonBodies);
     }
@@ -123,8 +123,8 @@ public class JiraRequestBodyContractTest {
             path ->
                 paths
                     .path(path)
-                    .fields()
-                    .forEachRemaining(
+                    .properties()
+                    .forEach(
                         operation -> {
                           JsonNode node = operation.getValue();
                           if (!node.isObject() || !node.has("operationId")) return;

@@ -2,6 +2,7 @@ package com.atlassian.mcp.plugin;
 
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
@@ -52,7 +53,7 @@ public class JiraRestClient {
     if (override != null && !override.isBlank()) {
       return override.replaceAll("/+$", "");
     }
-    return applicationProperties.getBaseUrl().replaceAll("/+$", "");
+    return applicationProperties.getBaseUrl(UrlMode.CANONICAL).replaceAll("/+$", "");
   }
 
   private HttpRequest buildRequest(String path, String authHeader, String method, String body) {

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.config.McpPluginConfig;
 import com.atlassian.sal.api.ApplicationProperties;
+import com.atlassian.sal.api.UrlMode;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -17,7 +18,8 @@ public class JiraRestClientTest {
   public void setUp() {
     applicationProperties = mock(ApplicationProperties.class);
     pluginConfig = mock(McpPluginConfig.class);
-    when(applicationProperties.getBaseUrl()).thenReturn("http://localhost:2990/jira");
+    when(applicationProperties.getBaseUrl(UrlMode.CANONICAL))
+        .thenReturn("http://localhost:2990/jira");
     when(pluginConfig.getJiraBaseUrlOverride()).thenReturn("");
   }
 

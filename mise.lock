@@ -396,6 +396,35 @@ checksum = "sha256:1d0fa7242d5af85586527eab2a7fc5799c54388e1394e34ef5af26db9bc64
 url = "https://github.com/jdx/hk/releases/download/v1.56.0/hk-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/jdx/hk/releases/assets/520698507"
 
+[[tools."http:atlassian-plugin-sdk"]]
+version = "9.11.2"
+backend = "http:atlassian-plugin-sdk"
+
+[tools."http:atlassian-plugin-sdk".options]
+strip_components = "1"
+
+[tools."http:atlassian-plugin-sdk"."platforms.linux-arm64"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.linux-arm64-musl"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.linux-x64"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.linux-x64-musl"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.macos-arm64"]
+checksum = "blake3:23ea9b3d90cbccb5b9bca3dcd0cfd0b265b322e05f82b50022f74ac517aa6b51"
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.macos-x64"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
+[tools."http:atlassian-plugin-sdk"."platforms.windows-x64"]
+url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/9.11.2/atlassian-plugin-sdk-9.11.2.tar.gz"
+
 [[tools.java]]
 version = "temurin-21.0.11+10.0.LTS"
 backend = "core:java"
