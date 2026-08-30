@@ -40,16 +40,22 @@ Additional optional methods on `McpTool` cover progress streaming
 `idempotentHint`, `openWorldHint`, `isDestructiveTool`, `iconUri`), and
 structured content (`outputSchema`, `structuredContent`).
 
-## Writing `execute()` bodies
+## Writing `run` bodies
 
-Tools call Jira REST API directly via `JiraRestClient.get/post/put/delete()`.
-Key patterns:
+How a tool declares its parameters is the contract in
+[tool-authoring.md](tool-authoring.md); this section covers only what the body
+does with them.
 
-- **GET tools**: build query string, return `client.get(path + query, authHeader)`.
-- **POST/PUT tools**: build `Map<String, Object>`, serialize with Jackson, send as body.
-- **Create/Update issue**: must wrap fields in
-  `{"fields": {"project": {"key": "..."}, ...}}` — Jira API requirement.
-- **JSON string params** (like `fields`, `additional_fields`): parse with
-  `mapper.readValue(str, Map.class)` before sending.
-- **Components param**: parse comma-separated string into
-  `[{"name": "Frontend"}, {"name": "API"}]`.
+Tools call the Jira REST API directly via `JiraRestClient.get/post/put/delete()`.
+
+- **GET tools**: build the query string, return
+  `client.get(path + query, context.authHeader())`.
+- **POST/PUT tools**: build a `Map<String, Object>`, serialise it with Jackson,
+  send it as the body.
+- **Create/Update issue**: fields must be wrapped in
+  `{"fields": {"project": {"key": "..."}, ...}}` — a Jira API requirement.
+- **Structured parameters arrive already bound.** A list is a `List<String>` and
+  an object is a `Map<String, Object>` or a nested record; the body never parses
+  a comma-separated string or a string holding JSON. Mapping `List.of("Frontend",
+  "API")` onto `[{"name": "Frontend"}, {"name": "API"}]` is Jira's payload shape,
+  not argument parsing.

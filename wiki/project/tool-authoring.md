@@ -54,6 +54,12 @@ string. A parameter that is an object is a JSON object, not a string holding
 JSON. Keep `String` only where the value is an opaque expression forwarded to
 Jira verbatim.
 
+A selector expression stays a `String` even though it looks like a list. `fields`
+and `expand` are the cases in this plugin: they support wildcards such as `*all`,
+Jira parses them as one expression, and `search` and `get_issue` already declare
+them that way. A list of identifiers — issue keys, project keys, component names,
+sprint states — is an array.
+
 **Nested records.** A repeated structured argument is a record, not prose
 describing the shape of a map. The nested schema is generated, its required
 fields are enforced, and a complaint names the offending path — for example
@@ -65,7 +71,17 @@ a valid default for an `int`. A primitive component must be one or the other; a
 declaration that is neither fails when the tool is constructed.
 
 **Enums.** `allowed = {...}` both advertises the values and rejects anything
-else before the tool runs.
+else before the tool runs. It applies to a `String` component only: the binder
+compares whole values, so an enum over the elements of a list is not
+expressible, and declaring one fails when the tool is constructed. Name the
+values in the description and let Jira reject the rest.
+
+**Cardinality.** The schema layer has no `minItems`. A tool that needs a
+non-empty list checks it in `run` and throws `McpToolException`.
+
+**Constants.** `defaultValue` must be a compile-time constant, so a default
+shared between tools lives in whichever tool owns it and is referenced from the
+other. Do not copy the literal.
 
 **Context.** Anything the caller did not declare as a parameter comes from
 `McpContext`: `context.authHeader()` for the Jira call, and
