@@ -2,25 +2,22 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
-public class GetUserProfileTool extends DeclarativeTool {
+public class GetUserProfileTool extends TypedTool<GetUserProfileTool.Args> {
 
-  private static final ToolParam<String> USER_IDENTIFIER =
-      ToolParam.string(
-              "user_identifier",
-              "Identifier for the user (e.g., email address 'user@example.com', username"
-                  + " 'johndoe', account ID 'accountid:...', or key for Server/DC).")
-          .required();
+  public record Args(
+      @ToolArg(value = "Jira username of the user to look up (e.g., 'jsmith')", required = true)
+          String userIdentifier) {}
 
   private final JiraRestClient client;
 
   public GetUserProfileTool(JiraRestClient client) {
+    super(Args.class);
     this.client = client;
   }
 
@@ -40,15 +37,9 @@ public class GetUserProfileTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(USER_IDENTIFIER);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String userIdentifier = args.require(USER_IDENTIFIER);
-
-    return client.get("/rest/api/2/user?username=" + encode(userIdentifier), authHeader);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    return client.get(
+        "/rest/api/2/user?username=" + encode(args.userIdentifier()), context.authHeader());
   }
 
   private static String encode(String s) {

@@ -1,39 +1,39 @@
 package com.atlassian.mcp.plugin.tools.metrics;
 
+import static com.atlassian.mcp.plugin.tools.metrics.GetIssueDevelopmentInfoTool.APPLICATION_TYPE_DESCRIPTION;
+import static com.atlassian.mcp.plugin.tools.metrics.GetIssueDevelopmentInfoTool.BRANCH;
+import static com.atlassian.mcp.plugin.tools.metrics.GetIssueDevelopmentInfoTool.DATA_TYPE_DESCRIPTION;
+import static com.atlassian.mcp.plugin.tools.metrics.GetIssueDevelopmentInfoTool.PULL_REQUEST;
+import static com.atlassian.mcp.plugin.tools.metrics.GetIssueDevelopmentInfoTool.REPOSITORY;
+
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
-import com.atlassian.mcp.plugin.tools.DeclarativeTool;
-import com.atlassian.mcp.plugin.tools.ToolArgs;
-import com.atlassian.mcp.plugin.tools.ToolParam;
+import com.atlassian.mcp.plugin.tools.McpContext;
+import com.atlassian.mcp.plugin.tools.ToolArg;
+import com.atlassian.mcp.plugin.tools.TypedTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.server.McpSyncServerExchange;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /** Batch version of get_issue_development_info, driven one issue at a time. */
-public class GetIssuesDevelopmentInfoTool extends DeclarativeTool {
+public class GetIssuesDevelopmentInfoTool extends TypedTool<GetIssuesDevelopmentInfoTool.Args> {
 
-  private static final ToolParam<String> ISSUE_KEYS =
-      ToolParam.string(
-              "issue_keys", "Comma-separated list of Jira issue keys (e.g., 'PROJ-123,PROJ-456')")
-          .required();
-  private static final ToolParam<String> APPLICATION_TYPE =
-      ToolParam.string(
-          "application_type",
-          "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server),"
-              + " 'bitbucket', 'github', 'gitlab'");
-  private static final ToolParam<String> DATA_TYPE =
-      ToolParam.string(
-          "data_type",
-          "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'");
+  public record Args(
+      @ToolArg(value = "Jira issue keys to look up, e.g. ['PROJ-123', 'PROJ-456']", required = true)
+          List<String> issueKeys,
+      @ToolArg(APPLICATION_TYPE_DESCRIPTION) String applicationType,
+      @ToolArg(
+              value = DATA_TYPE_DESCRIPTION,
+              allowed = {PULL_REQUEST, BRANCH, REPOSITORY})
+          String dataType) {}
 
   private final GetIssueDevelopmentInfoTool singleTool;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssuesDevelopmentInfoTool(JiraRestClient client) {
+    super(Args.class);
     this.singleTool = new GetIssueDevelopmentInfoTool(client);
   }
 
@@ -58,77 +58,35 @@ public class GetIssuesDevelopmentInfoTool extends DeclarativeTool {
   }
 
   @Override
-  public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEYS, APPLICATION_TYPE, DATA_TYPE);
-  }
-
-  @Override
-  public String run(ToolArgs args, String authHeader) throws McpToolException {
-    return run(args, authHeader, (current, total, message) -> {});
-  }
-
-  @Override
-  public String executeWithSdkProgress(
-      Map<String, Object> args,
-      String authHeader,
-      McpSyncServerExchange exchange,
-      Object progressToken)
-      throws McpToolException {
-    return run(
-        new ToolArgs(params(), args),
-        authHeader,
-        BatchProgressBridge.bridge(exchange, progressToken));
-  }
-
-  @Override
-  public String executeWithProgress(
-      Map<String, Object> args, String authHeader, ProgressCallback progress)
-      throws McpToolException {
-    return run(new ToolArgs(params(), args), authHeader, progress);
-  }
-
-  private String run(ToolArgs args, String authHeader, ProgressCallback progress)
-      throws McpToolException {
-    String issueKeys = args.require(ISSUE_KEYS);
-    String applicationType = args.get(APPLICATION_TYPE);
-    String dataType = args.get(DATA_TYPE);
-
-    String[] keys = issueKeys.split(",");
-    List<String> trimmedKeys = new ArrayList<>();
-    for (String k : keys) {
-      String t = k.trim();
-      if (!t.isEmpty()) trimmedKeys.add(t);
+  protected String run(Args args, McpContext context) throws McpToolException {
+    if (args.issueKeys().isEmpty()) {
+      throw new McpToolException("'issue_keys' must name at least one issue");
     }
 
-    int total = trimmedKeys.size();
+    int total = args.issueKeys().size();
     List<Object> results = new ArrayList<>();
 
     for (int i = 0; i < total; i++) {
-      String key = trimmedKeys.get(i);
-      progress.report(
+      String key = args.issueKeys().get(i);
+      context.reportProgress(
           i, total, "Fetching dev info for " + key + " (" + (i + 1) + "/" + total + ")");
 
       try {
         // The single-issue tool owns the numeric-ID resolution and the per-application probing.
-        Map<String, Object> singleArgs = new LinkedHashMap<>();
-        singleArgs.put("issue_key", key);
-        if (applicationType != null) singleArgs.put("application_type", applicationType);
-        if (dataType != null) singleArgs.put("data_type", dataType);
-
-        String devInfo = singleTool.execute(singleArgs, authHeader);
+        String devInfo =
+            singleTool.run(
+                new GetIssueDevelopmentInfoTool.Args(key, args.applicationType(), args.dataType()),
+                context);
         results.add(mapper.readTree(devInfo));
       } catch (Exception e) {
         Map<String, Object> errorResult = new LinkedHashMap<>();
         errorResult.put("issue_key", key);
         errorResult.put("error", e.getMessage());
-        errorResult.put("pullRequests", List.of());
-        errorResult.put("branches", List.of());
-        errorResult.put("commits", List.of());
         results.add(errorResult);
       }
     }
 
-    progress.report(total, total, "Completed: " + total + " issues processed");
+    context.reportProgress(total, total, "Completed: " + total + " issues processed");
 
     try {
       return mapper.writeValueAsString(results);

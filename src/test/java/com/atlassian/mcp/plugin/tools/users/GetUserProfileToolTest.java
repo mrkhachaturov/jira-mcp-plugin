@@ -47,6 +47,18 @@ public class GetUserProfileToolTest {
   }
 
   @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(Map.of("user_identifier", "jsmith", "account_id", "5b10ac8d82"), "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("account_id"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
@@ -54,5 +66,6 @@ public class GetUserProfileToolTest {
     assertEquals(
         Set.of("user_identifier"), ((Map<String, Object>) schema.get("properties")).keySet());
     assertEquals(List.of("user_identifier"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
   }
 }

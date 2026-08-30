@@ -52,6 +52,20 @@ public class AddWatcherToolTest {
   }
 
   @Test
+  public void anUndeclaredParameterIsRefused() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-1", "user_identifier", "jsmith", "notify", true),
+                    "B"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("notify"));
+    verifyNoInteractions(client);
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   public void schemaAdvertisesExactlyTheDeclaredParams() {
     Map<String, Object> schema = tool.inputSchema();
@@ -60,6 +74,7 @@ public class AddWatcherToolTest {
         Set.of("issue_key", "user_identifier"),
         ((Map<String, Object>) schema.get("properties")).keySet());
     assertEquals(List.of("issue_key", "user_identifier"), schema.get("required"));
+    assertEquals(Boolean.FALSE, schema.get("additionalProperties"));
   }
 
   @Test
