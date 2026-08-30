@@ -2,79 +2,79 @@ package com.atlassian.mcp.plugin.tools.boards;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
-public class GetAgileBoardsTool implements McpTool {
-    private final JiraRestClient client;
+public class GetAgileBoardsTool extends DeclarativeTool {
 
-    public GetAgileBoardsTool(JiraRestClient client) {
-        this.client = client;
-    }
+  private static final ToolParam<String> BOARD_NAME =
+      ToolParam.string("board_name", "(Optional) The name of board, support fuzzy search");
+  private static final ToolParam<String> PROJECT_KEY =
+      ToolParam.string("project_key", "(Optional) Jira project key (e.g., 'PROJ', 'ACV2')");
+  private static final ToolParam<String> BOARD_TYPE =
+      ToolParam.string("board_type", "(Optional) The type of jira board")
+          .allowing("scrum", "kanban", "simple");
+  private static final ToolParam<Integer> START_AT =
+      ToolParam.integer("start_at", "Starting index for pagination (0-based)").withDefault(0);
+  private static final ToolParam<Integer> LIMIT =
+      ToolParam.integer("limit", "Maximum number of results (1-50)").withDefault(10);
 
-    @Override public String name() { return "get_agile_boards"; }
+  private static final int MAX_LIMIT = 50;
 
-    @Override
-    public String description() {
-        return "Get jira agile boards by name, project key, or type.";
-    }
+  private final JiraRestClient client;
 
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "board_name", Map.of("type", "string", "description", "(Optional) The name of board, support fuzzy search"),
-                        "project_key", Map.of("type", "string", "description", "(Optional) Jira project key (e.g., 'PROJ', 'ACV2')"),
-                        "board_type", Map.of("type", "string", "description", "(Optional) The type of jira board (e.g., 'scrum', 'kanban')"),
-                        "start_at", Map.of("type", "integer", "description", "Starting index for pagination (0-based)", "default", 0),
-                        "limit", Map.of("type", "integer", "description", "Maximum number of results (1-50)", "default", 10)
-                ),
-                "required", List.of()
-        );
-    }
+  public GetAgileBoardsTool(JiraRestClient client) {
+    this.client = client;
+  }
 
-    @Override public boolean isWriteTool() { return false; }
+  @Override
+  public String name() {
+    return "get_agile_boards";
+  }
 
-    @Override
-    public String requiredPluginKey() { return "com.atlassian.jira.plugins.jira-software-plugin"; }
+  @Override
+  public String description() {
+    return "Get jira agile boards by name, project key, or type.";
+  }
 
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String boardName = (String) args.get("board_name");
-        String projectKey = (String) args.get("project_key");
-        String boardType = (String) args.get("board_type");
-        int startAt = getInt(args, "start_at", 0);
-        int limit = Math.min(getInt(args, "limit", 10), 50);
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
 
-        StringBuilder query = new StringBuilder();
-        String sep = "?";
-        if (boardName != null && !boardName.isBlank()) {
-            query.append(sep).append("name=").append(encode(boardName));
-            sep = "&";
-        }
-        if (projectKey != null && !projectKey.isBlank()) {
-            query.append(sep).append("projectKeyOrId=").append(encode(projectKey));
-            sep = "&";
-        }
+  @Override
+  public String requiredPluginKey() {
+    return "com.atlassian.jira.plugins.jira-software-plugin";
+  }
 
-        return client.get("/rest/agile/1.0/board" + query, authHeader);
-    }
+  @Override
+  public List<ToolParam<?>> params() {
+    return List.of(BOARD_NAME, PROJECT_KEY, BOARD_TYPE, START_AT, LIMIT);
+  }
 
-    private static String encode(String s) {
-        return URLEncoder.encode(s, StandardCharsets.UTF_8);
-    }
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String boardName = args.get(BOARD_NAME);
+    String projectKey = args.get(PROJECT_KEY);
+    String boardType = args.get(BOARD_TYPE);
+    int startAt = args.get(START_AT);
+    int limit = Math.min(args.get(LIMIT), MAX_LIMIT);
 
-    private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-        Object val = args.get(key);
-        if (val instanceof Number n) return n.intValue();
-        if (val instanceof String s) {
-            try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultVal; }
-        }
-        return defaultVal;
-    }
+    StringBuilder query = new StringBuilder("?startAt=").append(startAt);
+    query.append("&maxResults=").append(limit);
+    if (boardName != null) query.append("&name=").append(encode(boardName));
+    if (projectKey != null) query.append("&projectKeyOrId=").append(encode(projectKey));
+    // Jira rejects an unknown board type with 400, so only forward a value the caller gave.
+    if (boardType != null) query.append("&type=").append(encode(boardType));
+
+    return client.get("/rest/agile/1.0/board" + query, authHeader);
+  }
+
+  private static String encode(String s) {
+    return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
 }
