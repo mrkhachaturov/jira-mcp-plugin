@@ -27,7 +27,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
       setBody("");
       setOpen(false);
       onCommented();
-    } catch (e) {
+    } catch {
       setError(t("commentFailed"));
     } finally {
       setSending(false);
@@ -36,7 +36,11 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={{ minWidth: "90px" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{ minWidth: "90px" }}
+      >
         {t("comment")}
       </button>
     );
@@ -67,6 +71,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
       )}
       <div style={{ display: "flex", gap: "6px" }}>
         <button
+          type="button"
           className="primary"
           onClick={handleSend}
           disabled={sending || !body.trim()}
@@ -74,6 +79,7 @@ export function CommentForm({ app, issue, onCommented }: CommentFormProps) {
           {sending ? t("commentSending") : t("commentSend")}
         </button>
         <button
+          type="button"
           onClick={() => {
             setOpen(false);
             setBody("");

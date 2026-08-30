@@ -55,8 +55,8 @@ public class JiraRequestBodyContractTest {
 
   /**
    * Only 4 of the spec's 332 schemas set {@code additionalProperties}, and JSON Schema permits
-   * unknown properties unless a schema forbids them — so a faithful reading of the document
-   * accepts bodies the server rejects outright. Jira answers "Unrecognized field ... not marked as
+   * unknown properties unless a schema forbids them — so a faithful reading of the document accepts
+   * bodies the server rejects outright. Jira answers "Unrecognized field ... not marked as
    * ignorable", verified against a live Data Center 11 instance, so the document is tightened here
    * to describe how the server actually behaves.
    */
@@ -78,14 +78,16 @@ public class JiraRequestBodyContractTest {
   /**
    * The document types every value in {@code fields} and {@code update} as an object, but Jira
    * takes a string for {@code summary}, an array for {@code components}, and {@code add}/{@code
-   * remove} operations under {@code update} — all accepted by a live Data Center 11 instance.
-   * Both maps are heterogeneous by nature, so their value schemas are dropped.
+   * remove} operations under {@code update} — all accepted by a live Data Center 11 instance. Both
+   * maps are heterogeneous by nature, so their value schemas are dropped.
    */
   private static void relaxHeterogeneousMaps(JsonNode spec) {
     JsonNode issueUpdate = spec.path("components").path("schemas").path("IssueUpdateBean");
     for (String map : List.of("fields", "update")) {
       JsonNode node = issueUpdate.path("properties").path(map);
-      if (node.isObject()) ((ObjectNode) node).set("additionalProperties", MAPPER.createObjectNode());
+      if (node.isObject()) {
+        ((ObjectNode) node).set("additionalProperties", MAPPER.createObjectNode());
+      }
     }
   }
 
@@ -129,9 +131,7 @@ public class JiraRequestBodyContractTest {
     }
 
     assertEquals(
-        "these tools build a body Jira rejects, so the call does nothing",
-        List.of(),
-        violations);
+        "these tools build a body Jira rejects, so the call does nothing", List.of(), violations);
   }
 
   private static List<String> validate(Sent sent) {
@@ -218,10 +218,13 @@ public class JiraRequestBodyContractTest {
     return client;
   }
 
-  private static DeclarativeTool instantiate(Class<?> type, JiraRestClient client) throws Exception {
+  private static DeclarativeTool instantiate(Class<?> type, JiraRestClient client)
+      throws Exception {
     Constructor<?> best = null;
     for (Constructor<?> candidate : type.getConstructors()) {
-      if (best == null || candidate.getParameterCount() < best.getParameterCount()) best = candidate;
+      if (best == null || candidate.getParameterCount() < best.getParameterCount()) {
+        best = candidate;
+      }
     }
     Object[] arguments = new Object[best.getParameterCount()];
     Class<?>[] types = best.getParameterTypes();

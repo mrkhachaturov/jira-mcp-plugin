@@ -36,11 +36,11 @@ public final class BufferedRequestWrapper extends HttpServletRequestWrapper {
 
   @Override
   public ServletInputStream getInputStream() {
-    final ByteArrayInputStream bais = new ByteArrayInputStream(body);
+    final ByteArrayInputStream buffer = new ByteArrayInputStream(body);
     return new ServletInputStream() {
       @Override
       public boolean isFinished() {
-        return bais.available() == 0;
+        return buffer.available() == 0;
       }
 
       @Override
@@ -53,7 +53,7 @@ public final class BufferedRequestWrapper extends HttpServletRequestWrapper {
 
       @Override
       public int read() {
-        return bais.read();
+        return buffer.read();
       }
     };
   }

@@ -70,14 +70,14 @@ export function TransitionPicker({
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       {/* Status badge as clickable dropdown trigger (like Jira's "To Do ▾") */}
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         onClick={handleToggle}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") handleToggle();
-        }}
         style={{
+          background: "none",
+          border: "none",
+          padding: 0,
+          font: "inherit",
           cursor: "pointer",
           display: "inline-flex",
           alignItems: "center",
@@ -88,7 +88,7 @@ export function TransitionPicker({
         <span style={{ fontSize: "10px", color: "var(--text-secondary)" }}>
           {loading ? "…" : "▾"}
         </span>
-      </div>
+      </button>
 
       {error && (
         <div
@@ -116,15 +116,16 @@ export function TransitionPicker({
           }}
         >
           {transitions.map((tr) => (
-            <div
+            <button
               key={tr.id}
-              role="button"
-              tabIndex={0}
+              type="button"
               onClick={() => handleTransition(tr)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleTransition(tr);
-              }}
               style={{
+                background: "none",
+                border: "none",
+                font: "inherit",
+                textAlign: "left",
+                width: "100%",
                 padding: "8px 12px",
                 fontSize: "13px",
                 cursor: applying ? "wait" : "pointer",
@@ -149,7 +150,7 @@ export function TransitionPicker({
                   → {tr.to_status}
                 </span>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}

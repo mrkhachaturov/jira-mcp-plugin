@@ -99,7 +99,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(PROXY_PORT, '127.0.0.1', () => {
   console.log(
-    `[dev-host-proxy] listening on http://127.0.0.1:${PROXY_PORT}/mcp → ${TARGET_URL}/plugins/servlet/mcp (auth injected from $JIRA_PAT_RKADMIN)`
+    `[dev-host-proxy] listening on http://127.0.0.1:${PROXY_PORT}/mcp` +
+      ` \u2192 ${TARGET_URL}/plugins/servlet/mcp (auth injected from $JIRA_PAT_RKADMIN)`
   );
 });
 

@@ -1,4 +1,5 @@
 import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { t } from "../i18n";
@@ -34,7 +35,9 @@ function formatDate(iso: string): string {
 
 function renderDescription(text: string): string {
   marked.setOptions({ breaks: true, gfm: true });
-  return marked.parse(text) as string;
+  // Issue descriptions and comments are written by any Jira user, including external Service
+  // Desk reporters, and marked passes raw HTML straight through.
+  return DOMPurify.sanitize(marked.parse(text) as string);
 }
 
 const LIVE_INTERVAL_MS = 30_000;
@@ -113,14 +116,14 @@ export function IssueDetail({
     <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
       {/* Header: key + title */}
       <div style={{ marginBottom: "4px" }}>
-        <span
-          role="link"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={handleOpenIssue}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleOpenIssue();
-          }}
           style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            font: "inherit",
             fontSize: "12px",
             color: "var(--accent)",
             cursor: app ? "pointer" : "default",
@@ -128,7 +131,7 @@ export function IssueDetail({
           }}
         >
           {issue.key}
-        </span>
+        </button>
       </div>
       <h3
         style={{
@@ -237,14 +240,14 @@ export function IssueDetail({
               </span>
             </div>
             {app && currentUser && !isAssignedToMe && (
-              <span
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={handleAssignToMe}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAssignToMe();
-                }}
                 style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  font: "inherit",
                   color: "var(--accent)",
                   cursor: "pointer",
                   fontSize: "11px",
@@ -252,7 +255,7 @@ export function IssueDetail({
                 }}
               >
                 {assigning ? t("assigning") : t("assignToMe")}
-              </span>
+              </button>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
@@ -343,6 +346,7 @@ export function IssueDetail({
               lineHeight: 1.6,
               wordBreak: "break-word",
             }}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized above
             dangerouslySetInnerHTML={{
               __html: renderDescription(issue.description),
             }}
@@ -363,9 +367,9 @@ export function IssueDetail({
           >
             {t("comments")} ({issue.comments.length})
           </div>
-          {issue.comments.slice(0, 5).map((comment, i) => (
+          {issue.comments.slice(0, 5).map((comment) => (
             <div
-              key={i}
+              key={`${comment.created}-${comment.author?.name ?? ""}`}
               style={{
                 background: "var(--border)",
                 borderRadius: "6px",
@@ -394,6 +398,7 @@ export function IssueDetail({
               </div>
               <div
                 style={{ color: "var(--text)", lineHeight: 1.5 }}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized above
                 dangerouslySetInnerHTML={{
                   __html: renderDescription(comment.body),
                 }}

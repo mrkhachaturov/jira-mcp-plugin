@@ -57,8 +57,9 @@ public class AddCommentTool extends DeclarativeTool {
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
-    if (visibility != null)
+    if (visibility != null) {
       requestBody.put("visibility", jsonObject(mapper, visibility, "visibility"));
+    }
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       return client.post("/rest/api/2/issue/" + issueKey + "/comment", jsonBody, authHeader);

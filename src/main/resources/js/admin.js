@@ -1,5 +1,5 @@
 (($) => {
-  var url = AJS.contextPath() + "/rest/mcp-admin/1.0/";
+  var url = `${AJS.contextPath()}/rest/mcp-admin/1.0/`;
   var headers = { "X-Atlassian-Token": "no-check" };
   var allToolsMeta = [];
   var disabledSet = new Set();
@@ -25,7 +25,7 @@
       var badge = tool.isWrite
         ? '<span class="aui-lozenge aui-lozenge-moved" style="font-size:10px; margin-left:6px;">write</span>'
         : "";
-      var cls = "mcp-tool-row" + (isDisabled ? " mcp-tool-disabled" : "");
+      var cls = `mcp-tool-row${isDisabled ? " mcp-tool-disabled" : ""}`;
       $list.append(
         '<div class="' +
           cls +
@@ -50,7 +50,7 @@
   // ==================== TAG PICKER (reusable for users & groups) ====================
 
   function renderTags(items, containerId, removeClass) {
-    var $c = $("#" + containerId).empty();
+    var $c = $(`#${containerId}`).empty();
     items.forEach((item, i) => {
       $c.append(
         '<span class="mcp-tag">' +
@@ -67,14 +67,12 @@
 
   function setupPicker(cfg) {
     var timer = null;
-    $("#" + cfg.inputId).on("input", function () {
+    $(`#${cfg.inputId}`).on("input", function () {
       clearTimeout(timer);
       var q = $(this).val().trim();
       timer = setTimeout(() => {
         if (!q || q.length < 2) {
-          $("#" + cfg.sugId)
-            .hide()
-            .empty();
+          $(`#${cfg.sugId}`).hide().empty();
           return;
         }
         $.ajax({
@@ -83,7 +81,7 @@
           headers: headers,
         }).done((data) => {
           var results = cfg.extractResults(data);
-          var $sug = $("#" + cfg.sugId).empty();
+          var $sug = $(`#${cfg.sugId}`).empty();
           var existing = {};
           cfg.items().forEach((it) => {
             existing[it.value] = true;
@@ -110,26 +108,24 @@
       }, 300);
     });
 
-    $(document).on("click", "#" + cfg.sugId + " .mcp-suggestion", function () {
+    $(document).on("click", `#${cfg.sugId} .mcp-suggestion`, function () {
       cfg
         .items()
         .push({ value: $(this).data("value"), label: $(this).data("label") });
       renderTags(cfg.items(), cfg.tagsId, cfg.removeClass);
-      $("#" + cfg.inputId).val("");
-      $("#" + cfg.sugId)
-        .hide()
-        .empty();
+      $(`#${cfg.inputId}`).val("");
+      $(`#${cfg.sugId}`).hide().empty();
     });
 
-    $(document).on("click", "." + cfg.removeClass, function (e) {
+    $(document).on("click", `.${cfg.removeClass}`, function (e) {
       e.preventDefault();
       cfg.items().splice($(this).data("index"), 1);
       renderTags(cfg.items(), cfg.tagsId, cfg.removeClass);
     });
 
-    $("#" + cfg.inputId).on("blur", () => {
+    $(`#${cfg.inputId}`).on("blur", () => {
       setTimeout(() => {
-        $("#" + cfg.sugId).hide();
+        $(`#${cfg.sugId}`).hide();
       }, 200);
     });
   }
@@ -199,11 +195,11 @@
         // Load users
         var us = config.allowedUsers || "";
         if (us) {
-          var keys = us
+          const keys = us
             .split(",")
             .map((k) => k.trim())
             .filter(Boolean);
-          var loaded = 0;
+          let loaded = 0;
           keys.forEach((key) => {
             $.ajax({
               url:
@@ -240,9 +236,9 @@
           );
         }
         var baseUrl = window.location.origin + AJS.contextPath();
-        var mcpUrl = baseUrl + "/rest/mcp/1.0/";
+        var mcpUrl = `${baseUrl}/rest/mcp/1.0/`;
         $("#oauth-callback-url").text(
-          baseUrl + "/plugins/servlet/mcp-oauth/callback",
+          `${baseUrl}/plugins/servlet/mcp-oauth/callback`,
         );
         $("#oauth-mcp-config").text(
           JSON.stringify(
@@ -306,7 +302,7 @@
         .fail((xhr) => {
           AJS.flag({
             type: "error",
-            title: "Failed to save: " + xhr.status,
+            title: `Failed to save: ${xhr.status}`,
             close: "auto",
           });
         });

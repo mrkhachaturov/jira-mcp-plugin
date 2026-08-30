@@ -50,15 +50,15 @@ export function IssueList({
             style={{ borderBottom: "1px solid var(--border)" }}
           >
             {/* Compact row */}
-            <div
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               onClick={() => setExpandedKey(isExpanded ? null : issue.key)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ")
-                  setExpandedKey(isExpanded ? null : issue.key);
-              }}
               style={{
+                background: "none",
+                border: "none",
+                font: "inherit",
+                textAlign: "left",
+                width: "100%",
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
@@ -115,7 +115,7 @@ export function IssueList({
                   ▾
                 </span>
               </div>
-            </div>
+            </button>
 
             {/* Expanded detail */}
             {isExpanded && (

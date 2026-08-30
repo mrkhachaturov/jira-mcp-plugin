@@ -35,7 +35,7 @@ export function ActionBar({
         },
       });
       onRefresh();
-    } catch (e) {
+    } catch {
       setAssignError(t("assignFailed"));
     } finally {
       setAssigning(false);
@@ -63,7 +63,7 @@ export function ActionBar({
             gap: "4px",
           }}
         >
-          <button onClick={handleAssignToMe} disabled={assigning}>
+          <button type="button" onClick={handleAssignToMe} disabled={assigning}>
             {assigning ? t("assigning") : t("assignToMe")}
           </button>
           {assignError && (

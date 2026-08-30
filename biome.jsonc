@@ -1,4 +1,11 @@
 {
+  "files": {
+    "includes": [
+      "**",
+      // Atlassian's published API description, vendored verbatim as a test fixture.
+      "!src/test/resources/jira-openapi.json"
+    ]
+  },
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2

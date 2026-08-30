@@ -1,8 +1,14 @@
 [MD013]
-enabled = true
-line-length = 120
-code-blocks = false
-tables = false
+# Prose wraps where the author put it; the rendered page is what matters.
+enabled = false
+
+[MD033]
+# README uses <details> for collapsible sections, which markdown has no syntax for.
+enabled = false
+
+[global]
+# CLAUDE.md is a one-line @-include, not a document.
+exclude = ["CLAUDE.md"]
 
 [MD060]
 enabled = true

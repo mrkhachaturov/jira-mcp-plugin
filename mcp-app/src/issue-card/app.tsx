@@ -14,7 +14,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { app, isConnected } = useApp({
+  const { app } = useApp({
     appInfo: { name: "jira-issue-card", version: "1.0.0" },
     // F-20: declare widget capabilities per ext-apps McpUiAppCapabilities.
     // Verified against node_modules/@modelcontextprotocol/ext-apps/dist/src/generated/schema.d.ts

@@ -17,11 +17,14 @@ final class ToolScan {
   static List<Class<?>> declarativeToolClasses() throws Exception {
     List<Class<?>> tools = new ArrayList<>();
     for (Class<?> type : allClasses()) {
-      if (DeclarativeTool.class.isAssignableFrom(type) && !Modifier.isAbstract(type.getModifiers())) {
+      if (DeclarativeTool.class.isAssignableFrom(type)
+          && !Modifier.isAbstract(type.getModifiers())) {
         tools.add(type);
       }
     }
-    if (tools.isEmpty()) throw new IllegalStateException("no DeclarativeTool found on the classpath");
+    if (tools.isEmpty()) {
+      throw new IllegalStateException("no DeclarativeTool found on the classpath");
+    }
     return tools;
   }
 

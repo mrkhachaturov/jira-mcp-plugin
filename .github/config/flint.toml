@@ -1,5 +1,17 @@
 [settings]
-exclude = [".upstream/**", "target/**", "**/node_modules/**", "**/dist/**"]
+exclude = [
+  ".upstream/**",
+  "target/**",
+  "**/node_modules/**",
+  "**/dist/**",
+  # Installed by the agent harness, not authored here.
+  ".claude/**",
+  ".agents/**",
+  "dev-tools/basic-host/**",
+  # Vendored verbatim: Atlassian's API description and npm's lockfile.
+  "src/test/resources/jira-openapi.json",
+  "**/package-lock.json",
+]
 
 [checks.google-java-format]
 patterns = ["src/**/*.java"]
