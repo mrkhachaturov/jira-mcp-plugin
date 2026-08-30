@@ -15,11 +15,7 @@ public class AddWatcherTool extends DeclarativeTool {
   private static final ToolParam<String> ISSUE_KEY =
       ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
   private static final ToolParam<String> USER_IDENTIFIER =
-      ToolParam.string(
-              "user_identifier",
-              "User to add as watcher. For Jira Cloud, use the account ID. For Jira Server/DC, use"
-                  + " the username.")
-          .required();
+      ToolParam.string("user_identifier", "Username of the person to add as a watcher.").required();
 
   private final JiraRestClient client;
 

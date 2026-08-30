@@ -21,8 +21,8 @@ public class UpdateIssueTool extends DeclarativeTool {
   private static final ToolParam<String> FIELDS =
       ToolParam.string(
               "fields",
-              "JSON string of fields to update. For 'assignee', provide a string identifier (email,"
-                  + " name, or accountId). For 'description', provide text in Markdown format."
+              "JSON string of fields to update. For 'assignee', provide the username. For"
+                  + " 'description', provide text in Markdown format."
                   + " Example: '{\"assignee\": \"user@example.com\", \"summary\": \"New Summary\","
                   + " \"description\": \"## Updated\\nMarkdown text\"}'")
           .required();

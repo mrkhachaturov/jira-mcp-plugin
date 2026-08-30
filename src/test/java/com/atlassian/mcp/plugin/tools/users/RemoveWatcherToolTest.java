@@ -38,24 +38,18 @@ public class RemoveWatcherToolTest {
         urlFor(
             Map.of(
                 "issue_key", "PROJ-123",
-                "username", "jsmith",
-                "account_id", "557058:abc"));
+                "username", "jsmith"));
 
-    assertTrue(url, url.startsWith("/rest/api/2/issue/PROJ-123/watchers?"));
-    assertTrue(url, url.contains("username=jsmith"));
-    assertTrue(url, url.contains("accountId=557058%3Aabc"));
+    assertEquals("/rest/api/2/issue/PROJ-123/watchers?username=jsmith", url);
   }
 
   @Test
-  public void optionalParamsAreOmittedWhenAbsent() throws Exception {
-    assertEquals("/rest/api/2/issue/PROJ-123/watchers", urlFor(Map.of("issue_key", "PROJ-123")));
-  }
+  public void missingUsernameIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class, () -> tool.execute(Map.of("issue_key", "PROJ-123"), "B"));
 
-  @Test
-  public void accountIdAloneOpensTheQuery() throws Exception {
-    String url = urlFor(Map.of("issue_key", "PROJ-1", "account_id", "557058:abc"));
-
-    assertEquals("/rest/api/2/issue/PROJ-1/watchers?accountId=557058%3Aabc", url);
+    assertTrue(e.getMessage(), e.getMessage().contains("username"));
   }
 
   @Test
@@ -73,9 +67,9 @@ public class RemoveWatcherToolTest {
     Map<String, Object> schema = tool.inputSchema();
 
     assertEquals(
-        Set.of("issue_key", "username", "account_id"),
-        ((Map<String, Object>) schema.get("properties")).keySet());
-    assertEquals(List.of("issue_key"), schema.get("required"));
+        Set.of("issue_key", "username"), ((Map<String, Object>) schema.get("properties")).keySet());
+    assertEquals(
+        Set.of("issue_key", "username"), Set.copyOf((List<String>) schema.get("required")));
   }
 
   @Test

@@ -14,9 +14,7 @@ public class RemoveWatcherTool extends DeclarativeTool {
   private static final ToolParam<String> ISSUE_KEY =
       ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
   private static final ToolParam<String> USERNAME =
-      ToolParam.string("username", "Username to remove (for Jira Server/DC).");
-  private static final ToolParam<String> ACCOUNT_ID =
-      ToolParam.string("account_id", "Account ID to remove (for Jira Cloud).");
+      ToolParam.string("username", "Username of the watcher to remove.").required();
 
   private final JiraRestClient client;
 
@@ -46,25 +44,16 @@ public class RemoveWatcherTool extends DeclarativeTool {
 
   @Override
   public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, USERNAME, ACCOUNT_ID);
+    return List.of(ISSUE_KEY, USERNAME);
   }
 
   @Override
   public String run(ToolArgs args, String authHeader) throws McpToolException {
     String issueKey = args.require(ISSUE_KEY);
-    String username = args.get(USERNAME);
-    String accountId = args.get(ACCOUNT_ID);
+    String username = args.require(USERNAME);
 
-    StringBuilder query = new StringBuilder();
-    String sep = "?";
-    if (username != null) {
-      query.append(sep).append("username=").append(encode(username));
-      sep = "&";
-    }
-    if (accountId != null) {
-      query.append(sep).append("accountId=").append(encode(accountId));
-    }
-    return client.delete("/rest/api/2/issue/" + issueKey + "/watchers" + query, authHeader);
+    return client.delete(
+        "/rest/api/2/issue/" + issueKey + "/watchers?username=" + encode(username), authHeader);
   }
 
   private static String encode(String s) {
