@@ -3,7 +3,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.BatchProgressBridge;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import java.util.ArrayList;
@@ -11,17 +13,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Batch version of get_issue_development_info. Delegates to GetIssueDevelopmentInfoTool per-issue
- * (matches upstream pattern).
- */
-public class GetIssuesDevelopmentInfoTool implements McpTool {
-  private final JiraRestClient client;
+/** Batch version of get_issue_development_info, driven one issue at a time. */
+public class GetIssuesDevelopmentInfoTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEYS =
+      ToolParam.string(
+              "issue_keys", "Comma-separated list of Jira issue keys (e.g., 'PROJ-123,PROJ-456')")
+          .required();
+  private static final ToolParam<String> APPLICATION_TYPE =
+      ToolParam.string(
+          "application_type",
+          "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server),"
+              + " 'bitbucket', 'github', 'gitlab'");
+  private static final ToolParam<String> DATA_TYPE =
+      ToolParam.string(
+          "data_type",
+          "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'");
+
   private final GetIssueDevelopmentInfoTool singleTool;
   private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssuesDevelopmentInfoTool(JiraRestClient client) {
-    this.client = client;
     this.singleTool = new GetIssueDevelopmentInfoTool(client);
   }
 
@@ -36,33 +48,6 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_keys",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Comma-separated list of Jira issue keys (e.g., 'PROJ-123,PROJ-456')"),
-                "application_type",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server), 'bitbucket', 'github', 'gitlab'"),
-                "data_type",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'")),
-        "required", List.of("issue_keys"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
@@ -73,8 +58,13 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    return executeWithProgress(args, authHeader, (current, total, message) -> {});
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEYS, APPLICATION_TYPE, DATA_TYPE);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    return run(args, authHeader, (current, total, message) -> {});
   }
 
   @Override
@@ -84,20 +74,24 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
       McpSyncServerExchange exchange,
       Object progressToken)
       throws McpToolException {
-    return executeWithProgress(
-        args, authHeader, BatchProgressBridge.bridge(exchange, progressToken));
+    return run(
+        new ToolArgs(params(), args),
+        authHeader,
+        BatchProgressBridge.bridge(exchange, progressToken));
   }
 
   @Override
   public String executeWithProgress(
       Map<String, Object> args, String authHeader, ProgressCallback progress)
       throws McpToolException {
-    String issueKeys = (String) args.get("issue_keys");
-    if (issueKeys == null || issueKeys.isBlank()) {
-      throw new McpToolException("'issue_keys' parameter is required");
-    }
-    String applicationType = (String) args.get("application_type");
-    String dataType = (String) args.get("data_type");
+    return run(new ToolArgs(params(), args), authHeader, progress);
+  }
+
+  private String run(ToolArgs args, String authHeader, ProgressCallback progress)
+      throws McpToolException {
+    String issueKeys = args.require(ISSUE_KEYS);
+    String applicationType = args.get(APPLICATION_TYPE);
+    String dataType = args.get(DATA_TYPE);
 
     String[] keys = issueKeys.split(",");
     List<String> trimmedKeys = new ArrayList<>();
@@ -115,7 +109,7 @@ public class GetIssuesDevelopmentInfoTool implements McpTool {
           i, total, "Fetching dev info for " + key + " (" + (i + 1) + "/" + total + ")");
 
       try {
-        // Delegate to single-issue tool (handles numeric ID resolution etc.)
+        // The single-issue tool owns the numeric-ID resolution and the per-application probing.
         Map<String, Object> singleArgs = new LinkedHashMap<>();
         singleArgs.put("issue_key", key);
         if (applicationType != null) singleArgs.put("application_type", applicationType);

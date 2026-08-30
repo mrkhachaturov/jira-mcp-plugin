@@ -2,7 +2,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
@@ -16,13 +18,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Computes SLA metrics for a Jira issue from changelog data. Matches upstream behavior: does NOT
- * call JSM API — instead fetches issue + changelog and computes cycle_time, lead_time,
- * time_in_status, due_date_compliance, resolution_time, first_response_time.
+ * Computes SLA metrics for a Jira issue from its changelog. Deliberately does not call the Service
+ * Desk SLA API: these metrics are derived from status history so they are available on every issue,
+ * not just the ones covered by a JSM SLA configuration.
  */
-public class GetIssueSlaTool implements McpTool {
-  private final JiraRestClient client;
-  private final ObjectMapper mapper = new ObjectMapper();
+public class GetIssueSlaTool extends DeclarativeTool {
 
   private static final Set<String> AVAILABLE_METRICS =
       Set.of(
@@ -33,8 +33,22 @@ public class GetIssueSlaTool implements McpTool {
           "resolution_time",
           "first_response_time");
 
-  /** Jira status category key indicating "in progress" work. */
-  private static final String IN_PROGRESS_CATEGORY_KEY = "indeterminate";
+  private static final List<String> DEFAULT_METRICS = List.of("cycle_time", "time_in_status");
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<String> METRICS =
+      ToolParam.string(
+          "metrics",
+          "Comma-separated list of SLA metrics to calculate. Available: cycle_time, lead_time,"
+              + " time_in_status, due_date_compliance, resolution_time, first_response_time."
+              + " Defaults to 'cycle_time,time_in_status'.");
+  private static final ToolParam<Boolean> INCLUDE_RAW_DATES =
+      ToolParam.bool("include_raw_dates", "Include raw date values in the response")
+          .withDefault(false);
+
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssueSlaTool(JiraRestClient client) {
     this.client = client;
@@ -51,62 +65,33 @@ public class GetIssueSlaTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "metrics",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Comma-separated list of SLA metrics to calculate. Available: cycle_time, lead_time, time_in_status, due_date_compliance, resolution_time, first_response_time. Defaults to 'cycle_time,time_in_status'."),
-                "include_raw_dates",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "Include raw date values in the response",
-                        "default",
-                        false)),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String metricsStr = (String) args.get("metrics");
-    boolean includeRawDates = getBoolean(args, "include_raw_dates", false);
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, METRICS, INCLUDE_RAW_DATES);
+  }
 
-    // Parse requested metrics
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String metricsStr = args.get(METRICS);
+    boolean includeRawDates = args.get(INCLUDE_RAW_DATES);
+
     List<String> requestedMetrics;
-    if (metricsStr != null && !metricsStr.isBlank()) {
+    if (metricsStr != null) {
       requestedMetrics =
           Arrays.stream(metricsStr.split(","))
               .map(String::trim)
               .filter(AVAILABLE_METRICS::contains)
               .toList();
     } else {
-      requestedMetrics = List.of("cycle_time", "time_in_status");
+      requestedMetrics = DEFAULT_METRICS;
     }
 
     try {
-      // Fetch issue with changelog and date fields
       String issueJson =
           client.get(
               "/rest/api/2/issue/"
@@ -128,10 +113,8 @@ public class GetIssueSlaTool implements McpTool {
           resolutionDateStr != null ? parseDate(resolutionDateStr) : null;
       OffsetDateTime now = OffsetDateTime.now();
 
-      // Parse status changes from changelog
       List<StatusTransition> transitions = parseStatusTransitions(issue);
 
-      // Build result
       Map<String, Object> result = new LinkedHashMap<>();
       result.put("issue_key", issueKey);
       result.put("current_status", currentStatus);
@@ -403,12 +386,5 @@ public class GetIssueSlaTool implements McpTool {
   private static String nullableText(JsonNode node, String field) {
     JsonNode val = node.path(field);
     return val.isNull() || val.isMissingNode() ? null : val.asText(null);
-  }
-
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
   }
 }

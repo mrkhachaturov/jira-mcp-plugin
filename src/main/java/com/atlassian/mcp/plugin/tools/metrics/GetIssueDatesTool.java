@@ -2,7 +2,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
@@ -15,11 +17,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Computes date information and status transition history for a Jira issue. Matches upstream
- * behavior: fetches issue + changelog, then computes status change durations and aggregated
- * time-in-status summaries.
+ * Computes date information and status transition history for a Jira issue: fetches the issue with
+ * its changelog, then derives per-transition durations and aggregated time-in-status summaries.
  */
-public class GetIssueDatesTool implements McpTool {
+public class GetIssueDatesTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')").required();
+  private static final ToolParam<Boolean> INCLUDE_STATUS_CHANGES =
+      ToolParam.bool(
+              "include_status_changes",
+              "Include status change history with timestamps and durations")
+          .withDefault(true);
+  private static final ToolParam<Boolean> INCLUDE_STATUS_SUMMARY =
+      ToolParam.bool("include_status_summary", "Include aggregated time spent in each status")
+          .withDefault(true);
+
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -38,52 +51,24 @@ public class GetIssueDatesTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"),
-                "include_status_changes",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "Include status change history with timestamps and durations",
-                        "default",
-                        true),
-                "include_status_summary",
-                    Map.of(
-                        "type",
-                        "boolean",
-                        "description",
-                        "Include aggregated time spent in each status",
-                        "default",
-                        true)),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    boolean includeStatusChanges = getBoolean(args, "include_status_changes", true);
-    boolean includeStatusSummary = getBoolean(args, "include_status_summary", true);
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, INCLUDE_STATUS_CHANGES, INCLUDE_STATUS_SUMMARY);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    boolean includeStatusChanges = args.get(INCLUDE_STATUS_CHANGES);
+    boolean includeStatusSummary = args.get(INCLUDE_STATUS_SUMMARY);
 
     try {
-      // Fetch issue with changelog (matches upstream fields)
+      // The changelog is only expanded when something in the response needs it — it is by far the
+      // heaviest part of the issue payload.
       String expand = (includeStatusChanges || includeStatusSummary) ? "&expand=changelog" : "";
       String issueJson =
           client.get(
@@ -96,7 +81,6 @@ public class GetIssueDatesTool implements McpTool {
       JsonNode issue = mapper.readTree(issueJson);
       JsonNode fields = issue.path("fields");
 
-      // Build response matching upstream IssueDatesResponse
       Map<String, Object> result = new LinkedHashMap<>();
       result.put("issue_key", issueKey);
       result.put("created", fields.path("created").asText(null));
@@ -122,7 +106,6 @@ public class GetIssueDatesTool implements McpTool {
         }
       }
 
-      // Remove null values (matches upstream exclude_none=True)
       result.values().removeIf(v -> v == null);
 
       return mapper.writeValueAsString(result);
@@ -134,10 +117,7 @@ public class GetIssueDatesTool implements McpTool {
     }
   }
 
-  /**
-   * Parse changelog to extract status transitions with durations. Matches upstream
-   * _parse_changelog_to_status_changes().
-   */
+  /** Parses the changelog into status transitions with the duration spent in each. */
   private List<Map<String, Object>> parseStatusChanges(JsonNode issue, OffsetDateTime createdDate) {
     List<Map<String, Object>> transitions = new ArrayList<>();
 
@@ -215,7 +195,7 @@ public class GetIssueDatesTool implements McpTool {
     return entries;
   }
 
-  /** Aggregate time spent in each status. Matches upstream _aggregate_status_times(). */
+  /** Aggregates the total time spent in each status across repeat visits. */
   private List<Map<String, Object>> aggregateStatusTimes(List<Map<String, Object>> statusChanges) {
     Map<String, long[]> statusTimes = new LinkedHashMap<>(); // [totalMinutes, visitCount]
 
@@ -246,7 +226,6 @@ public class GetIssueDatesTool implements McpTool {
       summaries.add(summary);
     }
 
-    // Sort by total duration descending (matches upstream)
     summaries.sort(
         (a, b) ->
             Long.compare(
@@ -267,7 +246,7 @@ public class GetIssueDatesTool implements McpTool {
     }
   }
 
-  /** Format minutes into human-readable string matching upstream. */
+  /** Formats a minute count as a human-readable "1d 2h 3m" string. */
   static String formatDuration(long minutes) {
     if (minutes <= 0) return "0m";
     long days = minutes / (24 * 60);
@@ -285,12 +264,5 @@ public class GetIssueDatesTool implements McpTool {
   private static String nullableText(JsonNode node, String field) {
     JsonNode val = node.path(field);
     return val.isNull() || val.isMissingNode() ? null : val.asText(null);
-  }
-
-  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-    Object val = args.get(key);
-    if (val instanceof Boolean b) return b;
-    if (val instanceof String s) return "true".equalsIgnoreCase(s);
-    return defaultVal;
   }
 }
