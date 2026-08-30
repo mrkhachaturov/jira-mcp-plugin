@@ -2,13 +2,22 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
-public class RemoveWatcherTool implements McpTool {
+public class RemoveWatcherTool extends DeclarativeTool {
+
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+  private static final ToolParam<String> USERNAME =
+      ToolParam.string("username", "Username to remove (for Jira Server/DC).");
+  private static final ToolParam<String> ACCOUNT_ID =
+      ToolParam.string("account_id", "Account ID to remove (for Jira Cloud).");
+
   private final JiraRestClient client;
 
   public RemoveWatcherTool(JiraRestClient client) {
@@ -26,26 +35,6 @@ public class RemoveWatcherTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                "username",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "Username to remove (for Jira Server/DC)."),
-                "account_id",
-                    Map.of(
-                        "type", "string", "description", "Account ID to remove (for Jira Cloud).")),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return true;
   }
@@ -56,23 +45,24 @@ public class RemoveWatcherTool implements McpTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String username = (String) args.get("username");
-    String accountId = (String) args.get("account_id");
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, USERNAME, ACCOUNT_ID);
+  }
+
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String username = args.get(USERNAME);
+    String accountId = args.get(ACCOUNT_ID);
 
     StringBuilder query = new StringBuilder();
     String sep = "?";
-    if (username != null && !username.isBlank()) {
+    if (username != null) {
       query.append(sep).append("username=").append(encode(username));
       sep = "&";
     }
-    if (accountId != null && !accountId.isBlank()) {
+    if (accountId != null) {
       query.append(sep).append("accountId=").append(encode(accountId));
-      sep = "&";
     }
     return client.delete("/rest/api/2/issue/" + issueKey + "/watchers" + query, authHeader);
   }

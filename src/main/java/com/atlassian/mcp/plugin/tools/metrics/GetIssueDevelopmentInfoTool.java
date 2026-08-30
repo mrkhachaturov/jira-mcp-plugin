@@ -2,7 +2,9 @@ package com.atlassian.mcp.plugin.tools.metrics;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
@@ -12,15 +14,28 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class GetIssueDevelopmentInfoTool implements McpTool {
-  private final JiraRestClient client;
-  private final ObjectMapper mapper = new ObjectMapper();
+public class GetIssueDevelopmentInfoTool extends DeclarativeTool {
 
-  /** Application types to try when none is specified (matches upstream). */
+  private static final ToolParam<String> ISSUE_KEY =
+      ToolParam.string("issue_key", "Jira issue key (e.g., 'PROJ-123')").required();
+  private static final ToolParam<String> APPLICATION_TYPE =
+      ToolParam.string(
+          "application_type",
+          "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server),"
+              + " 'bitbucket', 'github', 'gitlab'");
+  private static final ToolParam<String> DATA_TYPE =
+      ToolParam.string(
+          "data_type",
+          "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'");
+
+  /** Application types probed when the caller names none. */
   private static final String[] APP_TYPES = {"stash", "bitbucket", "github", "gitlab"};
 
-  /** Data types to try for each application type (matches upstream). */
+  /** Data types probed for each application type. */
   private static final String[] DATA_TYPES = {"pullrequest", "branch", "repository"};
+
+  private final JiraRestClient client;
+  private final ObjectMapper mapper = new ObjectMapper();
 
   public GetIssueDevelopmentInfoTool(JiraRestClient client) {
     this.client = client;
@@ -37,43 +52,22 @@ public class GetIssueDevelopmentInfoTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "issue_key",
-                    Map.of("type", "string", "description", "Jira issue key (e.g., 'PROJ-123')"),
-                "application_type",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Filter by application type. Examples: 'stash' (Bitbucket Server), 'bitbucket', 'github', 'gitlab'"),
-                "data_type",
-                    Map.of(
-                        "type",
-                        "string",
-                        "description",
-                        "(Optional) Filter by data type. Examples: 'pullrequest', 'branch', 'repository'")),
-        "required", List.of("issue_key"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String issueKey = (String) args.get("issue_key");
-    if (issueKey == null || issueKey.isBlank()) {
-      throw new McpToolException("'issue_key' parameter is required");
-    }
-    String applicationType = (String) args.get("application_type");
-    String dataType = (String) args.get("data_type");
+  public List<ToolParam<?>> params() {
+    return List.of(ISSUE_KEY, APPLICATION_TYPE, DATA_TYPE);
+  }
 
-    // Step 1: Get the numeric issue ID (dev-status API requires it, not the key)
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String issueKey = args.require(ISSUE_KEY);
+    String applicationType = args.get(APPLICATION_TYPE);
+    String dataType = args.get(DATA_TYPE);
+
+    // The dev-status API keys off the numeric issue ID; it does not accept an issue key.
     String issueId;
     try {
       String issueJson =
@@ -90,12 +84,13 @@ public class GetIssueDevelopmentInfoTool implements McpTool {
           "Failed to resolve issue ID for " + issueKey + ": " + e.getMessage());
     }
 
-    // Step 2: Fetch dev info — single app type or try all (matches upstream)
-    if (applicationType != null && !applicationType.isBlank()) {
+    if (applicationType != null) {
       return fetchDevInfo(issueKey, issueId, applicationType, dataType, authHeader);
     }
 
-    // No app type specified: try all combinations and merge results (matches upstream)
+    // The endpoint answers for one application and one data type at a time, so with no application
+    // named every one is probed and the results merged — restricted to the caller's data type when
+    // they named one.
     Map<String, Object> merged = new LinkedHashMap<>();
     merged.put("issue_key", issueKey);
     merged.put("detail", new ArrayList<>());
@@ -104,13 +99,14 @@ public class GetIssueDevelopmentInfoTool implements McpTool {
     merged.put("commits", new ArrayList<>());
     merged.put("repositories", new ArrayList<>());
 
+    String[] dataTypes = dataType != null ? new String[] {dataType} : DATA_TYPES;
     for (String appType : APP_TYPES) {
-      for (String dt : DATA_TYPES) {
+      for (String dt : dataTypes) {
         try {
           String json = fetchDevInfoRaw(issueId, appType, dt, authHeader);
           mergeDevResults(merged, json);
         } catch (Exception e) {
-          // Continue trying other combinations (matches upstream behavior)
+          // An application that is not connected answers with an error; the others still count.
         }
       }
     }
@@ -126,7 +122,6 @@ public class GetIssueDevelopmentInfoTool implements McpTool {
       String issueKey, String issueId, String appType, String dataType, String authHeader)
       throws McpToolException {
     String json = fetchDevInfoRaw(issueId, appType, dataType, authHeader);
-    // Wrap with issue_key for context (matches upstream)
     try {
       Map<String, Object> result = new LinkedHashMap<>();
       result.put("issue_key", issueKey);
@@ -144,7 +139,7 @@ public class GetIssueDevelopmentInfoTool implements McpTool {
       throws McpToolException {
     StringBuilder query = new StringBuilder("?issueId=").append(encode(issueId));
     query.append("&applicationType=").append(encode(appType));
-    if (dataType != null && !dataType.isBlank()) {
+    if (dataType != null) {
       query.append("&dataType=").append(encode(dataType));
     }
     return client.get("/rest/dev-status/1.0/issue/detail" + query, authHeader);

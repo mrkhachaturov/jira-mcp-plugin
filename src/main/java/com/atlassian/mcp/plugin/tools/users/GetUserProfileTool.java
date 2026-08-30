@@ -2,13 +2,22 @@ package com.atlassian.mcp.plugin.tools.users;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
-import com.atlassian.mcp.plugin.tools.McpTool;
+import com.atlassian.mcp.plugin.tools.DeclarativeTool;
+import com.atlassian.mcp.plugin.tools.ToolArgs;
+import com.atlassian.mcp.plugin.tools.ToolParam;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
-public class GetUserProfileTool implements McpTool {
+public class GetUserProfileTool extends DeclarativeTool {
+
+  private static final ToolParam<String> USER_IDENTIFIER =
+      ToolParam.string(
+              "user_identifier",
+              "Identifier for the user (e.g., email address 'user@example.com', username"
+                  + " 'johndoe', account ID 'accountid:...', or key for Server/DC).")
+          .required();
+
   private final JiraRestClient client;
 
   public GetUserProfileTool(JiraRestClient client) {
@@ -26,40 +35,20 @@ public class GetUserProfileTool implements McpTool {
   }
 
   @Override
-  public Map<String, Object> inputSchema() {
-    return Map.of(
-        "type", "object",
-        "properties",
-            Map.of(
-                "user_identifier",
-                Map.of(
-                    "type",
-                    "string",
-                    "description",
-                    "Identifier for the user (e.g., email address 'user@example.com', username 'johndoe', account ID 'accountid:...', or key for Server/DC).")),
-        "required", List.of("user_identifier"));
-  }
-
-  @Override
   public boolean isWriteTool() {
     return false;
   }
 
   @Override
-  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-    String userIdentifier = (String) args.get("user_identifier");
-    if (userIdentifier == null || userIdentifier.isBlank()) {
-      throw new McpToolException("'user_identifier' parameter is required");
-    }
+  public List<ToolParam<?>> params() {
+    return List.of(USER_IDENTIFIER);
+  }
 
-    StringBuilder query = new StringBuilder();
-    String sep = "?";
-    if (userIdentifier != null && !userIdentifier.isBlank()) {
-      query.append(sep).append("username=").append(encode(userIdentifier));
-      sep = "&";
-    }
+  @Override
+  public String run(ToolArgs args, String authHeader) throws McpToolException {
+    String userIdentifier = args.require(USER_IDENTIFIER);
 
-    return client.get("/rest/api/2/user" + query, authHeader);
+    return client.get("/rest/api/2/user?username=" + encode(userIdentifier), authHeader);
   }
 
   private static String encode(String s) {
