@@ -35,7 +35,9 @@ zizmor = "1.29.0"
 
 [tools."http:atlassian-plugin-sdk"]
 version = "9.11.2"
-url = "https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/atlassian-plugin-sdk/{{ version }}/atlassian-plugin-sdk-{{ version }}.tar.gz"
+url = """
+https://packages.atlassian.com/mvn/maven-external/com/atlassian/amps/\
+atlassian-plugin-sdk/{{ version }}/atlassian-plugin-sdk-{{ version }}.tar.gz"""
 strip_components = 1
 
 [tasks.lint]

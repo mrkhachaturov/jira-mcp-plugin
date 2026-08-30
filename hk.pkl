@@ -55,7 +55,8 @@ hooks {
     steps {
       // git writes its own "Merge branch ..." subject, which no convention covers.
       ["conventional-commit"] = new Step {
-        check = "test -f .git/MERGE_HEAD || hk util check-conventional-commit .git/COMMIT_EDITMSG"
+        check = "d=$(git rev-parse --git-dir); test -f \"$d/MERGE_HEAD\""
+          + " || hk util check-conventional-commit \"$d/COMMIT_EDITMSG\""
       }
     }
   }

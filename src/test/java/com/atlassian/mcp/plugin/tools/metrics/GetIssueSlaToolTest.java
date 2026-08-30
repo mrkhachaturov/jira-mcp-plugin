@@ -33,9 +33,9 @@ public class GetIssueSlaToolTest {
         },
         "changelog": {"histories": [
           {"created": "2024-01-01T02:00:00.000+0000",
-           "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]},
+            "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]},
           {"created": "2024-01-02T02:00:00.000+0000",
-           "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]}
+            "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]}
         ]}
       }
       """;

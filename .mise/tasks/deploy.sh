@@ -33,4 +33,4 @@ curl -fsS \
   -H "Authorization: Bearer $JIRA_PAT_RKADMIN" \
   -H "X-Atlassian-Token: no-check" \
   "$JIRA_URL/rest/plugins/1.0/com.atlassian.mcp.jira-mcp-plugin-key" |
-  python3 -c 'import sys, json; d = json.load(sys.stdin); print("enabled:", d.get("enabled"), "version:", d.get("version"))'
+  python3 -c 'import sys,json;d=json.load(sys.stdin);print("enabled:",d.get("enabled"),"version:",d.get("version"))'

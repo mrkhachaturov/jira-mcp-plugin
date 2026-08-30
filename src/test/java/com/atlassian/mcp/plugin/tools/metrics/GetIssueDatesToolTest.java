@@ -31,11 +31,11 @@ public class GetIssueDatesToolTest {
         },
         "changelog": {"histories": [
           {"created": "2024-01-01T02:00:00.000+0000",
-           "author": {"displayName": "Ann"},
-           "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]},
+            "author": {"displayName": "Ann"},
+            "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]},
           {"created": "2024-01-02T02:00:00.000+0000",
-           "author": {"displayName": "Bob"},
-           "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]}
+            "author": {"displayName": "Bob"},
+            "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]}
         ]}
       }
       """;
