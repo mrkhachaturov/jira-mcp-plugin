@@ -69,8 +69,8 @@ public class UpdateSprintTool extends DeclarativeTool {
     Map<String, Object> requestBody = new HashMap<>();
     if (name != null) requestBody.put("name", name);
     if (state != null) requestBody.put("state", state);
-    if (startDate != null) requestBody.put("start_date", startDate);
-    if (endDate != null) requestBody.put("end_date", endDate);
+    if (startDate != null) requestBody.put("startDate", startDate);
+    if (endDate != null) requestBody.put("endDate", endDate);
     if (goal != null) requestBody.put("goal", goal);
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);

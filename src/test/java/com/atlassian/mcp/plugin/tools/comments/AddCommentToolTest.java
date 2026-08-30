@@ -43,31 +43,32 @@ public class AddCommentToolTest {
     args.put("issue_key", "PROJ-3");
     args.put("body", "**shipped**");
     args.put("visibility", "{\"type\":\"group\",\"value\":\"jira-users\"}");
-    args.put("public", true);
 
     JsonNode json = postFor(args);
 
     assertEquals("/rest/api/2/issue/PROJ-3/comment", path.getValue());
     // Markdown is converted to Jira markup before it is sent.
     assertEquals("*shipped*", json.path("body").asText());
-    assertEquals("{\"type\":\"group\",\"value\":\"jira-users\"}", json.path("visibility").asText());
-    assertTrue(json.path("public").asBoolean());
+    assertEquals("group", json.path("visibility").path("type").asText());
+    assertEquals("jira-users", json.path("visibility").path("value").asText());
   }
 
   @Test
-  public void publicDefaultsToFalseAndVisibilityIsOmittedWhenAbsent() throws Exception {
-    JsonNode json = postFor(Map.of("issue_key", "PROJ-3", "body", "plain"));
-
-    assertFalse(json.path("public").asBoolean());
-    assertFalse(json.toString(), json.has("visibility"));
+  public void visibilityIsOmittedWhenAbsent() throws Exception {
+    assertFalse(postFor(Map.of("issue_key", "PROJ-3", "body", "plain")).has("visibility"));
   }
 
   @Test
-  public void publicAcceptsAStringFlag() throws Exception {
-    assertTrue(
-        postFor(Map.of("issue_key", "PROJ-3", "body", "plain", "public", "true"))
-            .path("public")
-            .asBoolean());
+  public void malformedVisibilityIsRejected() {
+    McpToolException e =
+        assertThrows(
+            McpToolException.class,
+            () ->
+                tool.execute(
+                    Map.of("issue_key", "PROJ-3", "body", "plain", "visibility", "jira-users"),
+                    "Bearer t"));
+
+    assertTrue(e.getMessage(), e.getMessage().contains("visibility"));
   }
 
   @Test
@@ -86,9 +87,8 @@ public class AddCommentToolTest {
     Map<String, Object> schema = tool.inputSchema();
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
-    assertEquals(Set.of("issue_key", "body", "visibility", "public"), props.keySet());
+    assertEquals(Set.of("issue_key", "body", "visibility"), props.keySet());
     assertEquals(
         Set.of("issue_key", "body"), Set.copyOf((java.util.List<String>) schema.get("required")));
-    assertEquals(Boolean.FALSE, ((Map<String, Object>) props.get("public")).get("default"));
   }
 }

@@ -55,18 +55,19 @@ public class CreateRemoteIssueLinkToolTest {
     JsonNode json = postFor(args);
 
     assertEquals("/rest/api/2/issue/PROJ-7/remotelink", path.getValue());
-    assertEquals("https://example.com/page", json.path("url").asText());
-    assertEquals("Docs", json.path("title").asText());
-    assertEquals("the design doc", json.path("summary").asText());
+    assertEquals("https://example.com/page", json.path("object").path("url").asText());
+    assertEquals("Docs", json.path("object").path("title").asText());
+    assertEquals("the design doc", json.path("object").path("summary").asText());
     assertEquals("documentation", json.path("relationship").asText());
-    assertEquals("https://example.com/icon.png", json.path("icon_url").asText());
+    assertEquals(
+        "https://example.com/icon.png", json.path("object").path("icon").path("url16x16").asText());
   }
 
   @Test
   public void optionalParamsAreOmittedWhenAbsent() throws Exception {
     JsonNode json = postFor(required());
 
-    assertFalse(json.toString(), json.has("summary"));
+    assertFalse(json.toString(), json.path("object").has("summary"));
     assertFalse(json.toString(), json.has("relationship"));
     assertFalse(json.toString(), json.has("icon_url"));
   }

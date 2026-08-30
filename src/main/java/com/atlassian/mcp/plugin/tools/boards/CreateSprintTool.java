@@ -12,8 +12,8 @@ import java.util.Map;
 
 public class CreateSprintTool extends DeclarativeTool {
 
-  private static final ToolParam<String> BOARD_ID =
-      ToolParam.string("board_id", "The id of board (e.g., '1000')").required();
+  private static final ToolParam<Integer> BOARD_ID =
+      ToolParam.integer("board_id", "The id of board (e.g., '1000')").required();
   private static final ToolParam<String> NAME =
       ToolParam.string("name", "Name of the sprint (e.g., 'Sprint 1')").required();
   private static final ToolParam<String> START_DATE =
@@ -57,17 +57,17 @@ public class CreateSprintTool extends DeclarativeTool {
 
   @Override
   public String run(ToolArgs args, String authHeader) throws McpToolException {
-    String boardId = args.require(BOARD_ID);
+    int boardId = args.require(BOARD_ID);
     String name = args.require(NAME);
     String startDate = args.require(START_DATE);
     String endDate = args.require(END_DATE);
     String goal = args.get(GOAL);
 
     Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("board_id", boardId);
+    requestBody.put("originBoardId", boardId);
     requestBody.put("name", name);
-    requestBody.put("start_date", startDate);
-    requestBody.put("end_date", endDate);
+    requestBody.put("startDate", startDate);
+    requestBody.put("endDate", endDate);
     if (goal != null) requestBody.put("goal", goal);
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);

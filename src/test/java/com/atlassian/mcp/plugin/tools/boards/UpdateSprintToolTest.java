@@ -44,8 +44,8 @@ public class UpdateSprintToolTest {
     String json = body.getValue();
     assertTrue(json, json.contains("\"name\":\"Sprint 2\""));
     assertTrue(json, json.contains("\"state\":\"closed\""));
-    assertTrue(json, json.contains("\"start_date\":\"2026-02-01\""));
-    assertTrue(json, json.contains("\"end_date\":\"2026-02-14\""));
+    assertTrue(json, json.contains("\"startDate\":\"2026-02-01\""));
+    assertTrue(json, json.contains("\"endDate\":\"2026-02-14\""));
     assertTrue(json, json.contains("\"goal\":\"Land the migration\""));
   }
 

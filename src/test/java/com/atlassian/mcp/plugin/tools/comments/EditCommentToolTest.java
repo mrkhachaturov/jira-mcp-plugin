@@ -55,7 +55,8 @@ public class EditCommentToolTest {
     assertEquals("/rest/api/2/issue/PROJ-3/comment/10100", path.getValue());
     // Markdown is converted to Jira markup before it is sent.
     assertEquals("*revised*", json.path("body").asText());
-    assertEquals("{\"type\":\"group\",\"value\":\"jira-users\"}", json.path("visibility").asText());
+    assertEquals("group", json.path("visibility").path("type").asText());
+    assertEquals("jira-users", json.path("visibility").path("value").asText());
   }
 
   @Test

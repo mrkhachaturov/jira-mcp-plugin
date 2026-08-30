@@ -66,15 +66,27 @@ public class CreateIssueLinkTool extends DeclarativeTool {
     String comment = args.get(COMMENT);
     String commentVisibility = args.get(COMMENT_VISIBILITY);
 
+    // The MCP parameter names are flat snake_case for the agent's benefit; Jira's
+    // LinkIssueRequestJsonBean accepts only type/inwardIssue/outwardIssue/comment and rejects
+    // anything else outright, so the body has to be rebuilt rather than passed through.
     Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("link_type", linkType);
-    requestBody.put("inward_issue_key", inwardIssueKey);
-    requestBody.put("outward_issue_key", outwardIssueKey);
-    if (comment != null) requestBody.put("comment", comment);
-    if (commentVisibility != null) requestBody.put("comment_visibility", commentVisibility);
+    requestBody.put("type", Map.of("name", linkType));
+    requestBody.put("inwardIssue", Map.of("key", inwardIssueKey));
+    requestBody.put("outwardIssue", Map.of("key", outwardIssueKey));
+    if (comment != null) {
+      Map<String, Object> commentBody = new HashMap<>();
+      commentBody.put("body", comment);
+      if (commentVisibility != null) {
+        commentBody.put("visibility", jsonObject(mapper, commentVisibility, "comment_visibility"));
+      }
+      requestBody.put("comment", commentBody);
+    }
+
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       return client.post("/rest/api/2/issueLink", jsonBody, authHeader);
+    } catch (McpToolException e) {
+      throw e;
     } catch (Exception e) {
       throw new McpToolException("Failed to serialize request: " + e.getMessage());
     }

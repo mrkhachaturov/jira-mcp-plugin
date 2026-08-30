@@ -162,6 +162,14 @@
             <version>5.12.0</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Validates the request bodies the tools build against Jira's own OpenAPI
+                 description. Test scope only — it never reaches the plugin JAR. -->
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>swagger-request-validator-core</artifactId>
+            <version>2.44.9</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

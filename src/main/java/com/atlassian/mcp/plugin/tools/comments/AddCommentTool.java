@@ -22,14 +22,6 @@ public class AddCommentTool extends DeclarativeTool {
           "visibility",
           "(Optional) Comment visibility as JSON string (e.g."
               + " '{\"type\":\"group\",\"value\":\"jira-users\"}')");
-  private static final ToolParam<Boolean> PUBLIC =
-      ToolParam.bool(
-              "public",
-              "(Optional) For JSM/Service Desk issues only. Set to true for customer-visible"
-                  + " comment, false for internal agent-only comment. Uses the ServiceDesk API"
-                  + " (plain text, not Markdown). Cannot be combined with visibility.")
-          .withDefault(Boolean.FALSE);
-
   private final JiraRestClient client;
   private final ObjectMapper mapper = new ObjectMapper();
 
@@ -54,7 +46,7 @@ public class AddCommentTool extends DeclarativeTool {
 
   @Override
   public List<ToolParam<?>> params() {
-    return List.of(ISSUE_KEY, BODY, VISIBILITY, PUBLIC);
+    return List.of(ISSUE_KEY, BODY, VISIBILITY);
   }
 
   @Override
@@ -62,12 +54,11 @@ public class AddCommentTool extends DeclarativeTool {
     String issueKey = args.require(ISSUE_KEY);
     String body = args.require(BODY);
     String visibility = args.get(VISIBILITY);
-    boolean isPublic = args.get(PUBLIC);
 
     Map<String, Object> requestBody = new HashMap<>();
     requestBody.put("body", JiraMarkupConverter.markdownToJira(body));
-    if (visibility != null) requestBody.put("visibility", visibility);
-    requestBody.put("public", isPublic);
+    if (visibility != null)
+      requestBody.put("visibility", jsonObject(mapper, visibility, "visibility"));
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       return client.post("/rest/api/2/issue/" + issueKey + "/comment", jsonBody, authHeader);

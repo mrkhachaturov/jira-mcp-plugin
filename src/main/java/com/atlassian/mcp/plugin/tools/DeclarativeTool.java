@@ -1,6 +1,9 @@
 package com.atlassian.mcp.plugin.tools;
 
 import com.atlassian.mcp.plugin.McpToolException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,5 +43,23 @@ public abstract class DeclarativeTool implements McpTool {
   @Override
   public final String execute(Map<String, Object> args, String authHeader) throws McpToolException {
     return run(new ToolArgs(params(), args), authHeader);
+  }
+
+  /**
+   * Reads a parameter carrying embedded JSON into the object Jira expects. Jira's beans have no
+   * String constructors, so a nested structure forwarded as a string fails deserialisation.
+   */
+  protected static Map<String, Object> jsonObject(ObjectMapper mapper, String raw, String param)
+      throws McpToolException {
+    try {
+      return mapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+    } catch (IOException e) {
+      throw new McpToolException(
+          "'"
+              + param
+              + "' must be a JSON object, e.g."
+              + " {\"type\":\"group\",\"value\":\"jira-users\"}: "
+              + e.getMessage());
+    }
   }
 }

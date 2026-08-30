@@ -6,6 +6,7 @@ import com.atlassian.mcp.plugin.tools.DeclarativeTool;
 import com.atlassian.mcp.plugin.tools.ToolArgs;
 import com.atlassian.mcp.plugin.tools.ToolParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,8 +56,17 @@ public class AddIssuesToSprintTool extends DeclarativeTool {
     String sprintId = args.require(SPRINT_ID);
     String issueKeys = args.require(ISSUE_KEYS);
 
+    List<String> keys = new ArrayList<>();
+    for (String key : issueKeys.split(",")) {
+      String trimmed = key.trim();
+      if (!trimmed.isEmpty()) keys.add(trimmed);
+    }
+    if (keys.isEmpty()) {
+      throw new McpToolException("'issue_keys' must name at least one issue");
+    }
+
     Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("issue_keys", issueKeys);
+    requestBody.put("issues", keys);
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       return client.post("/rest/agile/1.0/sprint/" + sprintId + "/issue", jsonBody, authHeader);

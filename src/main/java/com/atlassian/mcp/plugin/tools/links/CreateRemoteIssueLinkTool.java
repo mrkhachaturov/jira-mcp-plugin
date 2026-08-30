@@ -71,12 +71,17 @@ public class CreateRemoteIssueLinkTool extends DeclarativeTool {
     String relationship = args.get(RELATIONSHIP);
     String iconUrl = args.get(ICON_URL);
 
+    // Everything describing the link target lives under "object"; only relationship sits at the
+    // top level. Sent flat, Jira sees neither url nor title and rejects both as missing.
+    Map<String, Object> linkTarget = new HashMap<>();
+    linkTarget.put("url", url);
+    linkTarget.put("title", title);
+    if (summary != null) linkTarget.put("summary", summary);
+    if (iconUrl != null) linkTarget.put("icon", Map.of("url16x16", iconUrl));
+
     Map<String, Object> requestBody = new HashMap<>();
-    requestBody.put("url", url);
-    requestBody.put("title", title);
-    if (summary != null) requestBody.put("summary", summary);
+    requestBody.put("object", linkTarget);
     if (relationship != null) requestBody.put("relationship", relationship);
-    if (iconUrl != null) requestBody.put("icon_url", iconUrl);
     try {
       String jsonBody = mapper.writeValueAsString(requestBody);
       return client.post("/rest/api/2/issue/" + issueKey + "/remotelink", jsonBody, authHeader);

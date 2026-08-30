@@ -32,7 +32,7 @@ public class AddIssuesToSprintToolTest {
     verify(client).post(url.capture(), body.capture(), any());
 
     assertEquals("/rest/agile/1.0/sprint/10042/issue", url.getValue());
-    assertTrue(body.getValue(), body.getValue().contains("\"issue_keys\":\"PROJ-1,PROJ-2\""));
+    assertTrue(body.getValue(), body.getValue().contains("\"issues\":[\"PROJ-1\",\"PROJ-2\"]"));
   }
 
   @Test

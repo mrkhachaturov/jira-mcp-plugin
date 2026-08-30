@@ -50,12 +50,12 @@ public class CreateIssueLinkToolTest {
 
     JsonNode body = bodyFor(args);
 
-    assertEquals("Blocks", body.path("link_type").asText());
-    assertEquals("PROJ-1", body.path("inward_issue_key").asText());
-    assertEquals("PROJ-2", body.path("outward_issue_key").asText());
-    assertEquals("linking these", body.path("comment").asText());
-    assertEquals(
-        "{\"type\":\"group\",\"value\":\"jira-users\"}", body.path("comment_visibility").asText());
+    assertEquals("Blocks", body.path("type").path("name").asText());
+    assertEquals("PROJ-1", body.path("inwardIssue").path("key").asText());
+    assertEquals("PROJ-2", body.path("outwardIssue").path("key").asText());
+    assertEquals("linking these", body.path("comment").path("body").asText());
+    assertEquals("group", body.path("comment").path("visibility").path("type").asText());
+    assertEquals("jira-users", body.path("comment").path("visibility").path("value").asText());
   }
 
   @Test
@@ -63,7 +63,7 @@ public class CreateIssueLinkToolTest {
     JsonNode body = bodyFor(required());
 
     assertFalse(body.toString(), body.has("comment"));
-    assertFalse(body.toString(), body.has("comment_visibility"));
+    assertFalse(body.toString(), body.path("comment").has("visibility"));
   }
 
   @Test

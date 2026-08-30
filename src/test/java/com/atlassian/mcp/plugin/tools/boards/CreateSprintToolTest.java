@@ -47,10 +47,10 @@ public class CreateSprintToolTest {
 
     String body = bodyFor(args);
 
-    assertTrue(body, body.contains("\"board_id\":\"1000\""));
+    assertTrue(body, body.contains("\"originBoardId\":1000"));
     assertTrue(body, body.contains("\"name\":\"Sprint 1\""));
-    assertTrue(body, body.contains("\"start_date\":\"2026-01-01T00:00:00.000+0000\""));
-    assertTrue(body, body.contains("\"end_date\":\"2026-01-14T00:00:00.000+0000\""));
+    assertTrue(body, body.contains("\"startDate\":\"2026-01-01T00:00:00.000+0000\""));
+    assertTrue(body, body.contains("\"endDate\":\"2026-01-14T00:00:00.000+0000\""));
     assertTrue(body, body.contains("\"goal\":\"Ship the thing\""));
   }
 
