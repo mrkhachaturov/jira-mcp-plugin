@@ -3,72 +3,262 @@ package com.atlassian.mcp.plugin.tools.fields;
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
 import com.atlassian.mcp.plugin.tools.McpTool;
-
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class GetFieldOptionsTool implements McpTool {
-    private final JiraRestClient client;
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public GetFieldOptionsTool(JiraRestClient client) {
-        this.client = client;
+  private final JiraRestClient client;
+
+  public GetFieldOptionsTool(JiraRestClient client) {
+    this.client = client;
+  }
+
+  @Override
+  public String name() {
+    return "get_field_options";
+  }
+
+  @Override
+  public String description() {
+    return "Get allowed option values for a field on a given project and issue type. Returns the list of valid options for select, multi-select, radio, checkbox, cascading select, and other constrained fields (priority, components, versions). Options are read from the create metadata for the project/issue type combination, so they reflect what Jira will actually accept on that screen.";
+  }
+
+  @Override
+  public Map<String, Object> inputSchema() {
+    return Map.of(
+        "type", "object",
+        "properties",
+            Map.of(
+                "field_id",
+                    Map.of(
+                        "type",
+                        "string",
+                        "description",
+                        "Field ID (e.g., 'customfield_10001', 'priority', 'components'). Use jira_search_fields to find custom field IDs."),
+                "project_key",
+                    Map.of("type", "string", "description", "Project key. Example: 'PROJ'"),
+                "issue_type",
+                    Map.of(
+                        "type",
+                        "string",
+                        "description",
+                        "Issue type name as shown in the project. Example: 'Bug'"),
+                "contains",
+                    Map.of(
+                        "type",
+                        "string",
+                        "description",
+                        "(Optional) Case-insensitive substring filter on option values. Also matches child values in cascading selects."),
+                "return_limit",
+                    Map.of(
+                        "type",
+                        "integer",
+                        "description",
+                        "(Optional) Maximum number of options to return, applied after filtering. 0 or omitted returns all."),
+                "values_only",
+                    Map.of(
+                        "type",
+                        "boolean",
+                        "description",
+                        "If true, return only the option value strings instead of full option objects.",
+                        "default",
+                        false)),
+        "required", List.of("field_id", "project_key", "issue_type"));
+  }
+
+  @Override
+  public boolean isWriteTool() {
+    return false;
+  }
+
+  @Override
+  public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
+    String fieldId = required(args, "field_id");
+    String projectKey = required(args, "project_key");
+    String issueType = required(args, "issue_type");
+    String contains = (String) args.get("contains");
+    int returnLimit = getInt(args, "return_limit", 0);
+    boolean valuesOnly = getBoolean(args, "values_only", false);
+
+    String issueTypeId = resolveIssueTypeId(projectKey, issueType, authHeader);
+    ArrayNode options = readAllowedValues(projectKey, issueTypeId, fieldId, authHeader);
+
+    ArrayNode filtered = filter(options, contains, returnLimit);
+    return serialize(fieldId, projectKey, issueType, filtered, valuesOnly);
+  }
+
+  /** Maps an issue type name to its id, which the create-metadata field endpoint requires. */
+  private String resolveIssueTypeId(String projectKey, String issueType, String authHeader)
+      throws McpToolException {
+    JsonNode types =
+        read(
+            client.get(
+                "/rest/api/2/issue/createmeta/" + encode(projectKey) + "/issuetypes", authHeader));
+
+    StringBuilder known = new StringBuilder();
+    for (JsonNode type : types.path("values")) {
+      String name = type.path("name").asText("");
+      if (name.equalsIgnoreCase(issueType)) return type.path("id").asText();
+      if (known.length() > 0) known.append(", ");
+      known.append(name);
     }
+    throw new McpToolException(
+        "Issue type '"
+            + issueType
+            + "' not found in project '"
+            + projectKey
+            + "'. Available: "
+            + known);
+  }
 
-    @Override public String name() { return "get_field_options"; }
+  private ArrayNode readAllowedValues(
+      String projectKey, String issueTypeId, String fieldId, String authHeader)
+      throws McpToolException {
+    JsonNode fields =
+        read(
+            client.get(
+                "/rest/api/2/issue/createmeta/"
+                    + encode(projectKey)
+                    + "/issuetypes/"
+                    + encode(issueTypeId),
+                authHeader));
 
-    @Override
-    public String description() {
-        return "Get allowed option values for a custom field. Returns the list of valid options for select, multi-select, radio, checkbox, and cascading select custom fields. Cloud: Uses the Field Context Option API. If context_id is not provided, automatically resolves to the global context. Server/DC: Uses createmeta to get allowedValues. Requires project_key and issue_type parameters.";
-    }
-
-    @Override
-    public Map<String, Object> inputSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "field_id", Map.of("type", "string", "description", "Custom field ID (e.g., 'customfield_10001'). Use jira_search_fields to find field IDs."),
-                        "context_id", Map.of("type", "string", "description", "Field context ID (Cloud only). If omitted, auto-resolves to the global context."),
-                        "project_key", Map.of("type", "string", "description", "Project key (required for Server/DC). Example: 'PROJ'"),
-                        "issue_type", Map.of("type", "string", "description", "Issue type name (required for Server/DC). Example: 'Bug'"),
-                        "contains", Map.of("type", "string", "description", "Case-insensitive substring filter on option values. Also matches child values in cascading selects."),
-                        "return_limit", Map.of("type", "integer", "description", "Maximum number of results to return (applied after filtering)."),
-                        "values_only", Map.of("type", "boolean", "description", "If true, return only value strings in a compact JSON format instead of full option objects.", "default", false)
-                ),
-                "required", List.of("field_id")
-        );
-    }
-
-    @Override public boolean isWriteTool() { return false; }
-
-    @Override
-    public String execute(Map<String, Object> args, String authHeader) throws McpToolException {
-        String fieldId = (String) args.get("field_id");
-        if (fieldId == null || fieldId.isBlank()) {
-            throw new McpToolException("'field_id' parameter is required");
+    for (JsonNode field : fields.path("values")) {
+      if (fieldId.equals(field.path("fieldId").asText())) {
+        JsonNode allowed = field.path("allowedValues");
+        if (!allowed.isArray()) {
+          throw new McpToolException(
+              "Field '"
+                  + fieldId
+                  + "' has no constrained option list on this screen — it accepts free input.");
         }
-        String contextId = (String) args.get("context_id");
-        String projectKey = (String) args.get("project_key");
-        String issueType = (String) args.get("issue_type");
-        String contains = (String) args.get("contains");
-        int returnLimit = getInt(args, "return_limit", 0);
-        boolean valuesOnly = getBoolean(args, "values_only", false);
+        return (ArrayNode) allowed;
+      }
+    }
+    throw new McpToolException(
+        "Field '"
+            + fieldId
+            + "' is not on the create screen for issue type "
+            + issueTypeId
+            + " in project '"
+            + projectKey
+            + "'.");
+  }
 
-        return client.get("/rest/api/2/field/" + fieldId + "/option", authHeader);
+  /**
+   * Applies the substring filter and the result cap. A cascading option matches when either its own
+   * value or any of its children match, and matching children are kept.
+   */
+  private static ArrayNode filter(ArrayNode options, String contains, int returnLimit) {
+    ArrayNode kept = MAPPER.createArrayNode();
+    String needle =
+        contains == null || contains.isBlank() ? null : contains.toLowerCase(Locale.ROOT);
+
+    for (JsonNode option : options) {
+      if (returnLimit > 0 && kept.size() >= returnLimit) break;
+      if (needle == null) {
+        kept.add(option);
+        continue;
+      }
+      boolean selfMatches = valueOf(option).toLowerCase(Locale.ROOT).contains(needle);
+      ArrayNode children = matchingChildren(option, needle);
+      if (selfMatches) {
+        kept.add(option);
+      } else if (children.size() > 0) {
+        ObjectNode narrowed = option.deepCopy();
+        narrowed.set("children", children);
+        kept.add(narrowed);
+      }
+    }
+    return kept;
+  }
+
+  private static ArrayNode matchingChildren(JsonNode option, String needle) {
+    ArrayNode matches = MAPPER.createArrayNode();
+    for (JsonNode child : option.path("children")) {
+      if (valueOf(child).toLowerCase(Locale.ROOT).contains(needle)) matches.add(child);
+    }
+    return matches;
+  }
+
+  /** Jira names an option's label 'value' for custom fields and 'name' for system fields. */
+  private static String valueOf(JsonNode option) {
+    String value = option.path("value").asText(null);
+    return value != null ? value : option.path("name").asText("");
+  }
+
+  private static String serialize(
+      String fieldId, String projectKey, String issueType, ArrayNode options, boolean valuesOnly)
+      throws McpToolException {
+    ObjectNode result = MAPPER.createObjectNode();
+    result.put("field_id", fieldId);
+    result.put("project_key", projectKey);
+    result.put("issue_type", issueType);
+    result.put("total", options.size());
+
+    if (valuesOnly) {
+      ArrayNode values = MAPPER.createArrayNode();
+      for (JsonNode option : options) values.add(valueOf(option));
+      result.set("values", values);
+    } else {
+      result.set("options", options);
     }
 
-    private static int getInt(Map<String, Object> args, String key, int defaultVal) {
-        Object val = args.get(key);
-        if (val instanceof Number n) return n.intValue();
-        if (val instanceof String s) {
-            try { return Integer.parseInt(s); } catch (NumberFormatException e) { return defaultVal; }
-        }
+    try {
+      return MAPPER.writeValueAsString(result);
+    } catch (IOException e) {
+      throw new McpToolException("Failed to serialize field options: " + e.getMessage());
+    }
+  }
+
+  private static JsonNode read(String json) throws McpToolException {
+    try {
+      return MAPPER.readTree(json);
+    } catch (IOException e) {
+      throw new McpToolException(
+          "Jira returned an unreadable create-metadata response: " + e.getMessage());
+    }
+  }
+
+  private static String required(Map<String, Object> args, String key) throws McpToolException {
+    Object value = args.get(key);
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new McpToolException("'" + key + "' parameter is required");
+    }
+    return s;
+  }
+
+  private static String encode(String s) {
+    return URLEncoder.encode(s, StandardCharsets.UTF_8);
+  }
+
+  private static int getInt(Map<String, Object> args, String key, int defaultVal) {
+    Object val = args.get(key);
+    if (val instanceof Number n) return n.intValue();
+    if (val instanceof String s) {
+      try {
+        return Integer.parseInt(s);
+      } catch (NumberFormatException e) {
         return defaultVal;
+      }
     }
+    return defaultVal;
+  }
 
-    private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
-        Object val = args.get(key);
-        if (val instanceof Boolean b) return b;
-        if (val instanceof String s) return "true".equalsIgnoreCase(s);
-        return defaultVal;
-    }
+  private static boolean getBoolean(Map<String, Object> args, String key, boolean defaultVal) {
+    Object val = args.get(key);
+    if (val instanceof Boolean b) return b;
+    if (val instanceof String s) return "true".equalsIgnoreCase(s);
+    return defaultVal;
+  }
 }
