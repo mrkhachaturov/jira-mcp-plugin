@@ -14,40 +14,40 @@ import java.net.URI;
 
 public class AdminServlet extends HttpServlet {
 
-    private final UserManager userManager;
-    private final LoginUriProvider loginUriProvider;
-    private final TemplateRenderer renderer;
+  private final UserManager userManager;
+  private final LoginUriProvider loginUriProvider;
+  private final TemplateRenderer renderer;
 
-    @Inject
-    public AdminServlet(
-            @ComponentImport UserManager userManager,
-            @ComponentImport LoginUriProvider loginUriProvider,
-            @ComponentImport TemplateRenderer renderer) {
-        this.userManager = userManager;
-        this.loginUriProvider = loginUriProvider;
-        this.renderer = renderer;
-    }
+  @Inject
+  public AdminServlet(
+      @ComponentImport UserManager userManager,
+      @ComponentImport LoginUriProvider loginUriProvider,
+      @ComponentImport TemplateRenderer renderer) {
+    this.userManager = userManager;
+    this.loginUriProvider = loginUriProvider;
+    this.renderer = renderer;
+  }
 
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        UserProfile user = userManager.getRemoteUser(req);
-        if (user == null) {
-            resp.sendRedirect(loginUriProvider.getLoginUri(getUri(req)).toASCIIString());
-            return;
-        }
-        if (!userManager.isSystemAdmin(user.getUserKey())) {
-            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "System admin access required");
-            return;
-        }
-        resp.setContentType("text/html;charset=utf-8");
-        renderer.render("templates/admin.vm", resp.getWriter());
+  @Override
+  protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    UserProfile user = userManager.getRemoteUser(req);
+    if (user == null) {
+      resp.sendRedirect(loginUriProvider.getLoginUri(getUri(req)).toASCIIString());
+      return;
     }
+    if (!userManager.isSystemAdmin(user.getUserKey())) {
+      resp.sendError(HttpServletResponse.SC_FORBIDDEN, "System admin access required");
+      return;
+    }
+    resp.setContentType("text/html;charset=utf-8");
+    renderer.render("templates/admin.vm", resp.getWriter());
+  }
 
-    private URI getUri(HttpServletRequest req) {
-        StringBuffer buf = req.getRequestURL();
-        if (req.getQueryString() != null) {
-            buf.append("?").append(req.getQueryString());
-        }
-        return URI.create(buf.toString());
+  private URI getUri(HttpServletRequest req) {
+    StringBuffer buf = req.getRequestURL();
+    if (req.getQueryString() != null) {
+      buf.append("?").append(req.getQueryString());
     }
+    return URI.create(buf.toString());
+  }
 }

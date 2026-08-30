@@ -14,13 +14,13 @@
 
 [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that runs inside your Jira Data Center JVM. Claude Desktop, ChatGPT, VS Code Copilot, and other MCP-compatible clients connect to it and work with issues, projects, boards, sprints, and more. Everything stays inside your infrastructure.
 
-| | Scope | Meaning |
-|---|-------|---------|
-| 🔌 | Plugin | Single JAR, installed via UPM, runs inside the Jira JVM |
-| 🔐 | Auth | OAuth 2.0 (browser consent) + Personal Access Tokens |
-| 🛠️ | Tools | 49 tools covering issues, projects, boards, sprints, comments, worklogs, links, fields, attachments, service desk, forms, and metrics |
-| 📡 | Transport | Streamable HTTP (MCP spec 2025-11-25) with SSE progress streaming |
-| 🎨 | MCP Apps | Interactive Issue Card widget with transitions, comments, and assign (Claude Desktop, ChatGPT, VS Code) |
+|     | Scope     | Meaning                                                                                                                               |
+| --- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 🔌  | Plugin    | Single JAR, installed via UPM, runs inside the Jira JVM                                                                               |
+| 🔐  | Auth      | OAuth 2.0 (browser consent) + Personal Access Tokens                                                                                  |
+| 🛠️  | Tools     | 49 tools covering issues, projects, boards, sprints, comments, worklogs, links, fields, attachments, service desk, forms, and metrics |
+| 📡  | Transport | Streamable HTTP (MCP spec 2025-11-25) with SSE progress streaming                                                                     |
+| 🎨  | MCP Apps  | Interactive Issue Card widget with transitions, comments, and assign (Claude Desktop, ChatGPT, VS Code)                               |
 
 > [!IMPORTANT]
 > This plugin runs entirely inside Jira. No data leaves your infrastructure.
@@ -86,7 +86,7 @@ On first connection, click Authenticate, consent on the Jira page, and you're in
 > [!IMPORTANT]
 > Before installing the plugin, set the following JVM flag on the Jira instance:
 >
-> ```
+> ```text
 > -Datlassian.plugins.filter.async.default=true
 > ```
 >
@@ -130,13 +130,13 @@ This plugin implements the MCP Apps extension. When you ask about Jira issues, s
 
 ### Supported clients
 
-| Client | MCP Apps |
-|--------|:---:|
-| Claude Desktop | Yes |
-| ChatGPT | Yes |
-| VS Code GitHub Copilot | Yes |
-| Goose | Yes |
-| Claude Code / Cursor | No (CLI, text only — tools still work) |
+| Client                 |                MCP Apps                |
+| ---------------------- | :------------------------------------: |
+| Claude Desktop         |                  Yes                   |
+| ChatGPT                |                  Yes                   |
+| VS Code GitHub Copilot |                  Yes                   |
+| Goose                  |                  Yes                   |
+| Claude Code / Cursor   | No (CLI, text only — tools still work) |
 
 ### How it works
 
@@ -151,21 +151,21 @@ Text-only clients are unaffected — they receive the same text responses as bef
 <details>
 <summary>49 tools across 13 categories (click to expand)</summary>
 
-| | Category | Tools | Count |
-|---|----------|-------|:-----:|
-| 📋 | Issues | `search`, `get_issue`, `get_project_issues`, `create_issue`, `update_issue`, `delete_issue`, `batch_create_issues`, `batch_get_changelogs` | 8 |
-| 💬 | Comments | `add_comment`, `edit_comment` | 2 |
-| 🔄 | Transitions | `get_transitions`, `transition_issue` | 2 |
-| ⏱️ | Worklogs | `get_worklog`, `add_worklog` | 2 |
-| 🏃 | Boards and sprints | `get_agile_boards`, `get_board_issues`, `get_sprints_from_board`, `get_sprint_issues`, `create_sprint`, `update_sprint`, `add_issues_to_sprint` | 7 |
-| 🔗 | Links | `get_link_types`, `create_issue_link`, `create_remote_issue_link`, `remove_issue_link`, `link_to_epic` | 5 |
-| 📁 | Projects | `get_all_projects`, `get_project_versions`, `get_project_components`, `create_version`, `batch_create_versions` | 5 |
-| 👤 | Users | `get_user_profile`, `get_issue_watchers`, `add_watcher`, `remove_watcher` | 4 |
-| 📎 | Attachments | `download_attachments`, `get_issue_images` | 2 |
-| 🏷️ | Fields | `search_fields`, `get_field_options` | 2 |
-| 🎫 | Service Desk | `get_service_desk_for_project`, `get_service_desk_queues`, `get_queue_issues` | 3 |
-| 📝 | Forms | `get_issue_proforma_forms`, `get_proforma_form_details`, `update_proforma_form_answers` | 3 |
-| 📊 | Metrics | `get_issue_dates`, `get_issue_sla`, `get_issue_development_info`, `get_issues_development_info` | 4 |
+|     | Category           | Tools                                                                                                                                           | Count |
+| --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | :---: |
+| 📋  | Issues             | `search`, `get_issue`, `get_project_issues`, `create_issue`, `update_issue`, `delete_issue`, `batch_create_issues`, `batch_get_changelogs`      |   8   |
+| 💬  | Comments           | `add_comment`, `edit_comment`                                                                                                                   |   2   |
+| 🔄  | Transitions        | `get_transitions`, `transition_issue`                                                                                                           |   2   |
+| ⏱️  | Worklogs           | `get_worklog`, `add_worklog`                                                                                                                    |   2   |
+| 🏃  | Boards and sprints | `get_agile_boards`, `get_board_issues`, `get_sprints_from_board`, `get_sprint_issues`, `create_sprint`, `update_sprint`, `add_issues_to_sprint` |   7   |
+| 🔗  | Links              | `get_link_types`, `create_issue_link`, `create_remote_issue_link`, `remove_issue_link`, `link_to_epic`                                          |   5   |
+| 📁  | Projects           | `get_all_projects`, `get_project_versions`, `get_project_components`, `create_version`, `batch_create_versions`                                 |   5   |
+| 👤  | Users              | `get_user_profile`, `get_issue_watchers`, `add_watcher`, `remove_watcher`                                                                       |   4   |
+| 📎  | Attachments        | `download_attachments`, `get_issue_images`                                                                                                      |   2   |
+| 🏷️  | Fields             | `search_fields`, `get_field_options`                                                                                                            |   2   |
+| 🎫  | Service Desk       | `get_service_desk_for_project`, `get_service_desk_queues`, `get_queue_issues`                                                                   |   3   |
+| 📝  | Forms              | `get_issue_proforma_forms`, `get_proforma_form_details`, `update_proforma_form_answers`                                                         |   3   |
+| 📊  | Metrics            | `get_issue_dates`, `get_issue_sla`, `get_issue_development_info`, `get_issues_development_info`                                                 |   4   |
 
 Tools that require Jira Software, JSM, or Proforma are hidden automatically when those plugins aren't installed.
 
@@ -197,11 +197,11 @@ graph LR
 
 Most tool calls return plain JSON. Batch tools (`batch_create_issues`, `batch_create_versions`, `batch_get_changelogs`, `get_issues_development_info`) support SSE streaming when the client sends a `progressToken`. The server sends progress notifications as SSE events before the final result.
 
-| | Method | Behavior |
-|---|--------|----------|
-| 📨 | POST | JSON for single responses, SSE for batch tools with `progressToken` |
-| 📡 | GET | SSE stream for server-initiated notifications (requires `MCP-Session-Id`) |
-| 🗑️ | DELETE | Close session |
+|     | Method | Behavior                                                                  |
+| --- | ------ | ------------------------------------------------------------------------- |
+| 📨  | POST   | JSON for single responses, SSE for batch tools with `progressToken`       |
+| 📡  | GET    | SSE stream for server-initiated notifications (requires `MCP-Session-Id`) |
+| 🗑️  | DELETE | Close session                                                             |
 
 Sessions are tracked via the `MCP-Session-Id` header, assigned on `initialize`.
 
@@ -209,12 +209,12 @@ Sessions are tracked via the `MCP-Session-Id` header, assigned on `initialize`.
 
 Every SSE event has a globally unique `id` field for reconnection via `Last-Event-ID`.
 
-| | Event type | When | Payload |
-|---|-----------|------|---------|
-| 💓 | `heartbeat` | Every 30s on GET streams, priming event on connect | Empty data |
-| 📊 | `progress` | During batch tool execution | JSON-RPC `notifications/progress` |
-| 📨 | `message` | Final tool result | JSON-RPC response with `CallToolResult` |
-| ❌ | `error` | Tool execution failure during streaming | Error details |
+|     | Event type  | When                                               | Payload                                 |
+| --- | ----------- | -------------------------------------------------- | --------------------------------------- |
+| 💓  | `heartbeat` | Every 30s on GET streams, priming event on connect | Empty data                              |
+| 📊  | `progress`  | During batch tool execution                        | JSON-RPC `notifications/progress`       |
+| 📨  | `message`   | Final tool result                                  | JSON-RPC response with `CallToolResult` |
+| ❌  | `error`     | Tool execution failure during streaming            | Error details                           |
 
 ### Partial failure handling
 
@@ -262,19 +262,19 @@ Create a PAT in Jira (Profile > Personal Access Tokens) and configure your MCP c
 
 The plugin runs inside the Jira JVM. No data leaves your infrastructure. It uses Jira's own OAuth 2.0 and PAT mechanisms, so there are no separate credentials and no API keys to external services. The same Jira permissions apply: users can only access projects and issues they already have access to.
 
-| | Concern | How it's handled |
-|---|---------|-----------------|
-| 🏠 | Data residency | Runs inside Jira JVM, no outbound connections |
-| 🔐 | Authentication | Jira's own OAuth 2.0 and PATs — required on all endpoints (POST, GET, DELETE) |
-| 🔒 | Authorization | Same Jira permissions, same project access |
-| 👥 | Admin control | Group and user allowlists, per-tool enable/disable, read-only mode |
-| 🔗 | Session binding | Sessions tied to authenticated user — cross-user hijacking blocked |
-| 🛡️ | PKCE S256 | Mandatory on OAuth flow — prevents authorization code interception |
-| 🔀 | Redirect validation | OAuth `redirect_uri` checked against registered client URIs |
-| ⏱️ | Rate limiting | IP-based for anonymous endpoints, per-user for MCP calls |
-| 📏 | Body limits | 1 MB for MCP, 64 KB for registration, 8 KB for token exchange |
-| 🌐 | Origin validation | `Origin` header checked per MCP spec (DNS rebinding protection) |
-| 📋 | Security logging | All rejections logged with `[MCP-SEC]` prefix and client IP |
+|     | Concern             | How it's handled                                                              |
+| --- | ------------------- | ----------------------------------------------------------------------------- |
+| 🏠  | Data residency      | Runs inside Jira JVM, no outbound connections                                 |
+| 🔐  | Authentication      | Jira's own OAuth 2.0 and PATs — required on all endpoints (POST, GET, DELETE) |
+| 🔒  | Authorization       | Same Jira permissions, same project access                                    |
+| 👥  | Admin control       | Group and user allowlists, per-tool enable/disable, read-only mode            |
+| 🔗  | Session binding     | Sessions tied to authenticated user — cross-user hijacking blocked            |
+| 🛡️  | PKCE S256           | Mandatory on OAuth flow — prevents authorization code interception            |
+| 🔀  | Redirect validation | OAuth `redirect_uri` checked against registered client URIs                   |
+| ⏱️  | Rate limiting       | IP-based for anonymous endpoints, per-user for MCP calls                      |
+| 📏  | Body limits         | 1 MB for MCP, 64 KB for registration, 8 KB for token exchange                 |
+| 🌐  | Origin validation   | `Origin` header checked per MCP spec (DNS rebinding protection)               |
+| 📋  | Security logging    | All rejections logged with `[MCP-SEC]` prefix and client IP                   |
 
 > [!CAUTION]
 > The plugin makes localhost HTTP calls to Jira's own REST API. No outbound network connections are made. Verify this by checking your firewall logs after installation.
@@ -285,12 +285,12 @@ The plugin runs inside the Jira JVM. No data leaves your infrastructure. It uses
 
 Access via Jira Admin > MCP Server > MCP Configuration.
 
-| | Tab | What |
-|---|-----|------|
-| ⚙️ | General | Enable/disable MCP, read-only mode, base URL override |
-| 👥 | Access Control | Allowed groups + individual users (empty = everyone) |
-| 🛠️ | Tools | Click-to-toggle tool list with search filter |
-| 🔐 | OAuth | Client ID/Secret, status, callback URL, user config snippet |
+|     | Tab            | What                                                        |
+| --- | -------------- | ----------------------------------------------------------- |
+| ⚙️  | General        | Enable/disable MCP, read-only mode, base URL override       |
+| 👥  | Access Control | Allowed groups + individual users (empty = everyone)        |
+| 🛠️  | Tools          | Click-to-toggle tool list with search filter                |
+| 🔐  | OAuth          | Client ID/Secret, status, callback URL, user config snippet |
 
 ---
 
@@ -306,12 +306,12 @@ Fields renamed for consistency: `issuetype` to `issue_type`, `fixVersions` to `f
 
 ## 📋 Prerequisites
 
-| | Tool | Purpose |
-|---|------|---------|
-| ☕ | Java 21 | Runtime (via mise) — Jira 11 platform requirement |
-| 🧰 | Atlassian Plugin SDK | `atlas-mvn` for local builds |
-| ⚡ | `just` | Task runner |
-| 🔧 | `mise` | Tool version manager + env var loader |
+|     | Tool                 | Purpose                                           |
+| --- | -------------------- | ------------------------------------------------- |
+| ☕  | Java 21              | Runtime (via mise) — Jira 11 platform requirement |
+| 🧰  | Atlassian Plugin SDK | `atlas-mvn` for local builds                      |
+| ⚡  | `just`               | Task runner                                       |
+| 🔧  | `mise`               | Tool version manager + env var loader             |
 
 ## 🔨 Building from source
 

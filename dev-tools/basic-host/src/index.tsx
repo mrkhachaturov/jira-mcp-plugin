@@ -1,16 +1,44 @@
-import { getToolUiResourceUri, McpUiToolMetaSchema } from "@modelcontextprotocol/ext-apps/app-bridge";
+import {
+  getToolUiResourceUri,
+  McpUiToolMetaSchema,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { Component, type ErrorInfo, type ReactNode, StrictMode, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  StrictMode,
+  Suspense,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
-import { callTool, connectToServer, hasAppHtml, initializeApp, loadSandboxProxy, log, newAppBridge, type ServerInfo, type ToolCallInfo, type ModelContext, type AppMessage } from "./implementation";
-import { getTheme, toggleTheme, onThemeChange, type Theme } from "./theme";
+import {
+  type AppMessage,
+  callTool,
+  connectToServer,
+  hasAppHtml,
+  initializeApp,
+  loadSandboxProxy,
+  log,
+  type ModelContext,
+  newAppBridge,
+  type ServerInfo,
+  type ToolCallInfo,
+} from "./implementation";
 import styles from "./index.module.css";
+import { getTheme, onThemeChange, type Theme, toggleTheme } from "./theme";
 
 /**
  * Check if a tool is visible to the model (not app-only).
  * Tools with `visibility: ["app"]` should not be shown in tool lists.
  */
-function isToolVisibleToModel(tool: { _meta?: Record<string, unknown> }): boolean {
+function isToolVisibleToModel(tool: {
+  _meta?: Record<string, unknown>;
+}): boolean {
   const result = McpUiToolMetaSchema.safeParse(tool._meta?.ui);
   if (!result.success) return true; // default: visible to model
   const visibility = result.data.visibility;
@@ -45,7 +73,6 @@ function getToolDefaults(tool: Tool | undefined): string {
     ? JSON.stringify(defaults, null, 2)
     : "{}";
 }
-
 
 // Host passes serversPromise to CallToolPanel
 interface HostProps {
@@ -87,7 +114,6 @@ function ThemeToggle() {
   );
 }
 
-
 function Host({ serversPromise }: HostProps) {
   const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
   const [destroyingIds, setDestroyingIds] = useState<Set<number>>(new Set());
@@ -120,7 +146,9 @@ function Host({ serversPromise }: HostProps) {
       ))}
       <CallToolPanel
         serversPromise={serversPromise}
-        addToolCall={(info) => setToolCalls([...toolCalls, { ...info, id: nextToolCallId++ }])}
+        addToolCall={(info) =>
+          setToolCalls([...toolCalls, { ...info, id: nextToolCallId++ }])
+        }
         initialServer={queryParams.server}
         initialTool={queryParams.tool}
         autoCall={queryParams.call}
@@ -128,7 +156,6 @@ function Host({ serversPromise }: HostProps) {
     </>
   );
 }
-
 
 // CallToolPanel renders the unified form with Suspense around ServerSelect
 interface CallToolPanelProps {
@@ -138,7 +165,13 @@ interface CallToolPanelProps {
   initialTool?: string | null;
   autoCall?: boolean;
 }
-function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool, autoCall }: CallToolPanelProps) {
+function CallToolPanel({
+  serversPromise,
+  addToolCall,
+  initialServer,
+  initialTool,
+  autoCall,
+}: CallToolPanelProps) {
   const [selectedServer, setSelectedServer] = useState<ServerInfo | null>(null);
   const [selectedTool, setSelectedTool] = useState("");
   const [inputJson, setInputJson] = useState("{}");
@@ -169,9 +202,10 @@ function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool
       .sort(compareTools);
 
     // Use preferred tool if it exists and is visible, otherwise first visible tool
-    const targetTool = preferredTool && visibleTools.some(t => t.name === preferredTool)
-      ? preferredTool
-      : visibleTools[0]?.name ?? "";
+    const targetTool =
+      preferredTool && visibleTools.some((t) => t.name === preferredTool)
+        ? preferredTool
+        : (visibleTools[0]?.name ?? "");
 
     setSelectedTool(targetTool);
     // Set input JSON to tool defaults (if any)
@@ -203,10 +237,21 @@ function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool
 
   return (
     <div className={styles.callToolPanel}>
-      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSubmit();
+        }}
+      >
         <label>
           Server
-          <Suspense fallback={<select disabled><option>Loading...</option></select>}>
+          <Suspense
+            fallback={
+              <select disabled>
+                <option>Loading...</option>
+              </select>
+            }
+          >
             <ServerSelect
               serversPromise={serversPromise}
               onSelect={handleServerSelect}
@@ -227,9 +272,12 @@ function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool
             value={selectedTool}
             onChange={(e) => handleToolSelect(e.target.value)}
           >
-            {selectedServer && toolNames.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
+            {selectedServer &&
+              toolNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
           </select>
         </label>
         <label>
@@ -249,7 +297,6 @@ function CallToolPanel({ serversPromise, addToolCall, initialServer, initialTool
   );
 }
 
-
 // ServerSelect calls use() and renders the server <select>
 interface ServerSelectProps {
   serversPromise: Promise<ServerInfo[]>;
@@ -259,7 +306,14 @@ interface ServerSelectProps {
   autoCall?: boolean;
   onAutoCall?: (server: ServerInfo, tool: string) => void;
 }
-function ServerSelect({ serversPromise, onSelect, initialServer, initialTool, autoCall, onAutoCall }: ServerSelectProps) {
+function ServerSelect({
+  serversPromise,
+  onSelect,
+  initialServer,
+  initialTool,
+  autoCall,
+  onAutoCall,
+}: ServerSelectProps) {
   const servers = use(serversPromise);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -271,7 +325,7 @@ function ServerSelect({ serversPromise, onSelect, initialServer, initialTool, au
     // Find initial server index if specified
     let idx = 0;
     if (initialServer) {
-      const foundIdx = servers.findIndex(s => s.name === initialServer);
+      const foundIdx = servers.findIndex((s) => s.name === initialServer);
       if (foundIdx >= 0) idx = foundIdx;
     }
 
@@ -282,9 +336,10 @@ function ServerSelect({ serversPromise, onSelect, initialServer, initialTool, au
     const visibleTools = Array.from(server.tools.values())
       .filter((tool) => isToolVisibleToModel(tool))
       .sort(compareTools);
-    const targetTool = initialTool && visibleTools.some(t => t.name === initialTool)
-      ? initialTool
-      : visibleTools[0]?.name ?? "";
+    const targetTool =
+      initialTool && visibleTools.some((t) => t.name === initialTool)
+        ? initialTool
+        : (visibleTools[0]?.name ?? "");
 
     onSelect(server, targetTool);
     setHasInitialized(true);
@@ -293,10 +348,22 @@ function ServerSelect({ serversPromise, onSelect, initialServer, initialTool, au
     if (autoCall && targetTool) {
       onAutoCall?.(server, targetTool);
     }
-  }, [servers, hasInitialized, initialServer, initialTool, autoCall, onSelect, onAutoCall]);
+  }, [
+    servers,
+    hasInitialized,
+    initialServer,
+    initialTool,
+    autoCall,
+    onSelect,
+    onAutoCall,
+  ]);
 
   if (servers.length === 0) {
-    return <select disabled><option>No servers configured</option></select>;
+    return (
+      <select disabled>
+        <option>No servers configured</option>
+      </select>
+    );
   }
 
   return (
@@ -309,12 +376,13 @@ function ServerSelect({ serversPromise, onSelect, initialServer, initialTool, au
       }}
     >
       {servers.map((server, i) => (
-        <option key={i} value={i}>{server.name}</option>
+        <option key={i} value={i}>
+          {server.name}
+        </option>
       ))}
     </select>
   );
 }
-
 
 interface ToolCallInfoPanelProps {
   toolCallInfo: ToolCallInfo;
@@ -322,7 +390,12 @@ interface ToolCallInfoPanelProps {
   onRequestClose?: () => void;
   onCloseComplete?: () => void;
 }
-function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onCloseComplete }: ToolCallInfoPanelProps) {
+function ToolCallInfoPanel({
+  toolCallInfo,
+  isDestroying,
+  onRequestClose,
+  onCloseComplete,
+}: ToolCallInfoPanelProps) {
   const isApp = hasAppHtml(toolCallInfo);
 
   // For non-app tool calls, close immediately when isDestroying becomes true
@@ -341,7 +414,10 @@ function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onClose
     >
       {/* Row 1: Header with server:tool name and close button */}
       <div className={styles.appHeader}>
-        <span>{toolCallInfo.serverInfo.name}:<span className={styles.toolName}>{toolCallInfo.tool.name}</span></span>
+        <span>
+          {toolCallInfo.serverInfo.name}:
+          <span className={styles.toolName}>{toolCallInfo.tool.name}</span>
+        </span>
         {onRequestClose && !isDestroying && (
           <button
             className={styles.closeButton}
@@ -379,7 +455,6 @@ function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onClose
   );
 }
 
-
 interface CollapsiblePanelProps {
   icon: string;
   label: string;
@@ -387,7 +462,13 @@ interface CollapsiblePanelProps {
   badge?: string;
   defaultExpanded?: boolean;
 }
-function CollapsiblePanel({ icon, label, content, badge, defaultExpanded = false }: CollapsiblePanelProps) {
+function CollapsiblePanel({
+  icon,
+  label,
+  content,
+  badge,
+  defaultExpanded = false,
+}: CollapsiblePanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
@@ -397,37 +478,43 @@ function CollapsiblePanel({ icon, label, content, badge, defaultExpanded = false
       title={expanded ? "Click to collapse" : "Click to expand"}
     >
       <div className={styles.collapsibleHeader}>
-        <span className={styles.collapsibleLabel}>{icon} {label}</span>
+        <span className={styles.collapsibleLabel}>
+          {icon} {label}
+        </span>
         <span className={styles.collapsibleSize}>
           {badge ?? `${content.length} chars`}
         </span>
-        <span className={styles.collapsibleToggle}>
-          {expanded ? "▼" : "▶"}
-        </span>
+        <span className={styles.collapsibleToggle}>{expanded ? "▼" : "▶"}</span>
       </div>
       {expanded ? (
         <pre className={styles.collapsibleFull}>{content}</pre>
       ) : (
         <div className={styles.collapsiblePreview}>
-          {content.slice(0, 100)}{content.length > 100 ? "…" : ""}
+          {content.slice(0, 100)}
+          {content.length > 100 ? "…" : ""}
         </div>
       )}
     </div>
   );
 }
 
-
 interface AppIFramePanelProps {
   toolCallInfo: Required<ToolCallInfo>;
   isDestroying?: boolean;
   onTeardownComplete?: () => void;
 }
-function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppIFramePanelProps) {
+function AppIFramePanel({
+  toolCallInfo,
+  isDestroying,
+  onTeardownComplete,
+}: AppIFramePanelProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const appBridgeRef = useRef<ReturnType<typeof newAppBridge> | null>(null);
   const [modelContext, setModelContext] = useState<ModelContext | null>(null);
   const [messages, setMessages] = useState<AppMessage[]>([]);
-  const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">("inline");
+  const [displayMode, setDisplayMode] = useState<"inline" | "fullscreen">(
+    "inline",
+  );
 
   useEffect(() => {
     const iframe = iframeRef.current!;
@@ -441,21 +528,25 @@ function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppI
         // Outside of Strict Mode, this `useEffect` runs only once per
         // `toolCallInfo`.
         if (firstTime) {
-          const appBridge = newAppBridge(toolCallInfo.serverInfo, iframe, {
-            onContextUpdate: setModelContext,
-            onMessage: (msg) => setMessages((prev) => [...prev, msg]),
-            onDisplayModeChange: setDisplayMode,
-          }, {
-            // Provide container dimensions - maxHeight for flexible sizing
-            containerDimensions: { maxHeight: 6000 },
-            displayMode: "inline",
-          });
+          const appBridge = newAppBridge(
+            toolCallInfo.serverInfo,
+            iframe,
+            {
+              onContextUpdate: setModelContext,
+              onMessage: (msg) => setMessages((prev) => [...prev, msg]),
+              onDisplayModeChange: setDisplayMode,
+            },
+            {
+              // Provide container dimensions - maxHeight for flexible sizing
+              containerDimensions: { maxHeight: 6000 },
+              displayMode: "inline",
+            },
+          );
           appBridgeRef.current = appBridge;
           initializeApp(iframe, appBridge, toolCallInfo);
         }
       });
     });
-
   }, [toolCallInfo]);
 
   // Graceful teardown: wait for guest to respond before unmounting
@@ -471,7 +562,8 @@ function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppI
     }
 
     log.info("Sending teardown notification to MCP App");
-    appBridgeRef.current.teardownResource({})
+    appBridgeRef.current
+      .teardownResource({})
       .catch((err) => {
         log.warn("Teardown request failed (app may have already closed):", err);
       })
@@ -497,7 +589,8 @@ function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppI
   };
 
   // Format context for display
-  const contextText = modelContext?.content?.map(formatContentBlock).join("\n") ?? "";
+  const contextText =
+    modelContext?.content?.map(formatContentBlock).join("\n") ?? "";
   const contextJson = modelContext?.structuredContent
     ? JSON.stringify(modelContext.structuredContent, null, 2)
     : "";
@@ -510,9 +603,10 @@ function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppI
   };
   const messagesText = messages.map(formatMessage).join("\n\n");
 
-  const panelClassName = displayMode === "fullscreen"
-    ? `${styles.appIframePanel} ${styles.fullscreen}`
-    : styles.appIframePanel;
+  const panelClassName =
+    displayMode === "fullscreen"
+      ? `${styles.appIframePanel} ${styles.fullscreen}`
+      : styles.appIframePanel;
 
   return (
     <div className={panelClassName}>
@@ -526,12 +620,15 @@ function AppIFramePanel({ toolCallInfo, isDestroying, onTeardownComplete }: AppI
         />
       )}
       {modelContext && (
-        <CollapsiblePanel icon="📋" label="Model Context" content={fullContext} />
+        <CollapsiblePanel
+          icon="📋"
+          label="Model Context"
+          content={fullContext}
+        />
       )}
     </div>
   );
 }
-
 
 interface ToolResultPanelProps {
   toolCallInfo: ToolCallInfo;
@@ -539,9 +636,10 @@ interface ToolResultPanelProps {
 function ToolResultPanel({ toolCallInfo }: ToolResultPanelProps) {
   const result = use(toolCallInfo.resultPromise);
   const resultJson = JSON.stringify(result, null, 2);
-  return <CollapsiblePanel icon="📤" label="Tool Result" content={resultJson} />;
+  return (
+    <CollapsiblePanel icon="📤" label="Tool Result" content={resultJson} />
+  );
 }
-
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -568,12 +666,15 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     if (this.state.hasError) {
       const { error } = this.state;
       const message = error instanceof Error ? error.message : String(error);
-      return <div className={styles.error}><strong>ERROR:</strong> {message}</div>;
+      return (
+        <div className={styles.error}>
+          <strong>ERROR:</strong> {message}
+        </div>
+      );
     }
     return this.props.children;
   }
 }
-
 
 async function connectToAllServers(): Promise<ServerInfo[]> {
   const serverUrlsResponse = await fetch("/api/servers");
@@ -581,7 +682,7 @@ async function connectToAllServers(): Promise<ServerInfo[]> {
 
   // Use allSettled to be resilient to individual server failures
   const results = await Promise.allSettled(
-    serverUrls.map((url) => connectToServer(new URL(url)))
+    serverUrls.map((url) => connectToServer(new URL(url))),
   );
 
   const servers: ServerInfo[] = [];
@@ -590,12 +691,17 @@ async function connectToAllServers(): Promise<ServerInfo[]> {
     if (result.status === "fulfilled") {
       servers.push(result.value);
     } else {
-      console.warn(`[HOST] Failed to connect to ${serverUrls[i]}:`, result.reason);
+      console.warn(
+        `[HOST] Failed to connect to ${serverUrls[i]}:`,
+        result.reason,
+      );
     }
   }
 
   if (servers.length === 0 && serverUrls.length > 0) {
-    throw new Error(`Failed to connect to any servers (${serverUrls.length} attempted)`);
+    throw new Error(
+      `Failed to connect to any servers (${serverUrls.length} attempted)`,
+    );
   }
 
   return servers;

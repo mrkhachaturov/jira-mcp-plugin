@@ -10,7 +10,8 @@ type ThemeListener = (theme: Theme) => void;
 const listeners = new Set<ThemeListener>();
 
 // Get initial theme from system preference
-let currentTheme: Theme = window.matchMedia("(prefers-color-scheme: dark)").matches
+let currentTheme: Theme = window.matchMedia("(prefers-color-scheme: dark)")
+  .matches
   ? "dark"
   : "light";
 
@@ -59,6 +60,8 @@ export function onThemeChange(listener: ThemeListener): () => void {
 }
 
 // Also listen for system preference changes
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-  setTheme(e.matches ? "dark" : "light");
-});
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", (e) => {
+    setTheme(e.matches ? "dark" : "light");
+  });

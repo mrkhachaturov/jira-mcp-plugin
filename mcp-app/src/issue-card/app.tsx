@@ -1,78 +1,86 @@
-import { useState, useCallback } from 'react'
-import { useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
-import type { StructuredContent } from './types'
-import { Loading } from './components/loading'
-import { Empty } from './components/empty'
-import { IssueList } from './components/issue-list'
-import { IssueDetail } from './components/issue-detail'
-import { CommentForm } from './components/comment-form'
-import { t } from './i18n'
-import './styles/global.css'
+import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
+import { useCallback, useState } from "react";
+import { CommentForm } from "./components/comment-form";
+import { Empty } from "./components/empty";
+import { IssueDetail } from "./components/issue-detail";
+import { IssueList } from "./components/issue-list";
+import { Loading } from "./components/loading";
+import { t } from "./i18n";
+import type { StructuredContent } from "./types";
+import "./styles/global.css";
 
 export function App() {
-  const [data, setData] = useState<StructuredContent | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [data, setData] = useState<StructuredContent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const { app, isConnected } = useApp({
-    appInfo: { name: 'jira-issue-card', version: '1.0.0' },
+    appInfo: { name: "jira-issue-card", version: "1.0.0" },
     // F-20: declare widget capabilities per ext-apps McpUiAppCapabilities.
     // Verified against node_modules/@modelcontextprotocol/ext-apps/dist/src/generated/schema.d.ts
     // (McpUiAppCapabilitiesSchema). The widget renders inline only — no fullscreen / pip support —
     // and does not emit tools/list_changed (the host serves a static tool list via resources/read).
     capabilities: {
-      availableDisplayModes: ['inline'],
+      availableDisplayModes: ["inline"],
       tools: { listChanged: false },
     },
     onAppCreated: (app) => {
       app.ontoolinput = () => {
-        setLoading(true)
-        setData(null)
-        setError(null)
-      }
+        setLoading(true);
+        setData(null);
+        setError(null);
+      };
       app.ontoolresult = (params) => {
-        setLoading(false)
+        setLoading(false);
         if (params.isError) {
-          setError('Failed to load issue data.')
-          return
+          setError("Failed to load issue data.");
+          return;
         }
         if (params.structuredContent) {
-          setData(params.structuredContent as StructuredContent)
+          setData(params.structuredContent as StructuredContent);
         }
-      }
+      };
     },
-  })
+  });
 
-  useHostStyles(app, app?.getHostContext())
+  useHostStyles(app, app?.getHostContext());
 
-  const refreshIssue = useCallback(async (issueKey: string) => {
-    if (!app) return null
-    const result = await app.callServerTool({
-      name: 'get_issue',
-      arguments: { issue_key: issueKey },
-    })
-    if (result?.structuredContent) {
-      const sc = result.structuredContent as StructuredContent
-      setData(prev => {
-        if (!prev) return sc
-        return {
-          ...prev,
-          issues: prev.issues.map(i =>
-            i.key === issueKey && sc.issues[0] ? sc.issues[0] : i
-          ),
-        }
-      })
-      return sc.issues[0] ?? null
-    }
-    return null
-  }, [app])
+  const refreshIssue = useCallback(
+    async (issueKey: string) => {
+      if (!app) return null;
+      const result = await app.callServerTool({
+        name: "get_issue",
+        arguments: { issue_key: issueKey },
+      });
+      if (result?.structuredContent) {
+        const sc = result.structuredContent as StructuredContent;
+        setData((prev) => {
+          if (!prev) return sc;
+          return {
+            ...prev,
+            issues: prev.issues.map((i) =>
+              i.key === issueKey && sc.issues[0] ? sc.issues[0] : i,
+            ),
+          };
+        });
+        return sc.issues[0] ?? null;
+      }
+      return null;
+    },
+    [app],
+  );
 
-  if (loading) return <Loading />
-  if (error) return <div style={{ color: 'var(--error)', padding: '12px' }}>{t('failedToLoad')}</div>
-  if (!data || data.issues.length === 0) return <Empty />
+  if (loading) return <Loading />;
+  if (error)
+    return (
+      <div style={{ color: "var(--error)", padding: "12px" }}>
+        {t("failedToLoad")}
+      </div>
+    );
+  if (!data || data.issues.length === 0) return <Empty />;
 
   if (data.issues.length === 1) {
-    const issue = data.issues[0]
+    const issue = data.issues[0];
     return (
       <IssueDetail
         issue={issue}
@@ -82,10 +90,14 @@ export function App() {
         onRefresh={() => refreshIssue(issue.key)}
       >
         {app && (
-          <CommentForm app={app} issue={issue} onCommented={() => refreshIssue(issue.key)} />
+          <CommentForm
+            app={app}
+            issue={issue}
+            onCommented={() => refreshIssue(issue.key)}
+          />
         )}
       </IssueDetail>
-    )
+    );
   }
 
   return (
@@ -97,5 +109,5 @@ export function App() {
       currentUser={data.currentUser}
       onRefreshIssue={refreshIssue}
     />
-  )
+  );
 }

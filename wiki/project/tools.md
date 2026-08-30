@@ -1,20 +1,20 @@
 # Tools — 49 Total
 
-| Package | Count | Toolset | Plugin Requirement |
-|---------|-------|---------|--------------------|
-| `issues/` | 8 | `jira_issues` | — |
-| `comments/` | 2 | `jira_comments` | — |
-| `transitions/` | 2 | `jira_transitions` | — |
-| `worklogs/` | 2 | `jira_worklog` | — |
-| `boards/` | 7 | `jira_agile` | Jira Software |
-| `links/` | 5 | `jira_links` | — |
-| `projects/` | 5 | `jira_projects` | — |
-| `users/` | 4 | `jira_watchers` / `jira_users` | — |
-| `attachments/` | 2 | `jira_attachments` | — |
-| `fields/` | 2 | `jira_fields` | — |
-| `servicedesk/` | 3 | `jira_service_desk` | JSM |
-| `forms/` | 3 | `jira_forms` | Proforma |
-| `metrics/` | 4 | `jira_sla` / `jira_development` | JSM (SLA only) |
+| Package        | Count | Toolset                         | Plugin Requirement |
+| -------------- | ----- | ------------------------------- | ------------------ |
+| `issues/`      | 8     | `jira_issues`                   | —                  |
+| `comments/`    | 2     | `jira_comments`                 | —                  |
+| `transitions/` | 2     | `jira_transitions`              | —                  |
+| `worklogs/`    | 2     | `jira_worklog`                  | —                  |
+| `boards/`      | 7     | `jira_agile`                    | Jira Software      |
+| `links/`       | 5     | `jira_links`                    | —                  |
+| `projects/`    | 5     | `jira_projects`                 | —                  |
+| `users/`       | 4     | `jira_watchers` / `jira_users`  | —                  |
+| `attachments/` | 2     | `jira_attachments`              | —                  |
+| `fields/`      | 2     | `jira_fields`                   | —                  |
+| `servicedesk/` | 3     | `jira_service_desk`             | JSM                |
+| `forms/`       | 3     | `jira_forms`                    | Proforma           |
+| `metrics/`     | 4     | `jira_sla` / `jira_development` | JSM (SLA only)     |
 
 Tools with a plugin requirement are automatically hidden from `tools/list`
 if that plugin isn't installed.

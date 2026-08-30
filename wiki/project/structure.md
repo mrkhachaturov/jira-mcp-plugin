@@ -1,6 +1,6 @@
 # Project Structure
 
-```
+```text
 src/main/java/com/atlassian/mcp/plugin/
 ├── rest/
 │   ├── McpBootstrap.java             # Builds McpSyncServer (tools + resources) on plugin start

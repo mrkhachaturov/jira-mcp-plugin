@@ -1,10 +1,10 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { viteSingleFile } from 'vite-plugin-singlefile'
-import { resolve } from 'path'
-import { fileURLToPath } from 'url'
+import react from "@vitejs/plugin-react";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
+import { defineConfig } from "vite";
+import { viteSingleFile } from "vite-plugin-singlefile";
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url))
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 // F-21 (bundle size measurement) — last measured 2026-05-22:
 //   dist/index.html = 584,747 bytes (~571 KB, gzip 159 KB), built against ext-apps 1.7.2.
@@ -18,18 +18,18 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
-  root: resolve(__dirname, 'src/issue-card'),
+  root: resolve(__dirname, "src/issue-card"),
   build: {
-    outDir: resolve(__dirname, 'dist'),
+    outDir: resolve(__dirname, "dist"),
     emptyOutDir: true,
     assetsInlineLimit: 100000000,
     cssCodeSplit: false,
-    target: 'es2020',
+    target: "es2020",
     rollupOptions: {
-      input: resolve(__dirname, 'src/issue-card/index.html'),
+      input: resolve(__dirname, "src/issue-card/index.html"),
       output: {
         inlineDynamicImports: true,
       },
     },
   },
-})
+});

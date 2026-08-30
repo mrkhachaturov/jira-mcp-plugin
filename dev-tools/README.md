@@ -3,7 +3,7 @@
 Local development harness for visually testing MCP Apps widgets (the Issue
 Card) without deploying to Claude.ai / ChatGPT / VS Code Copilot.
 
-```
+```text
 dev-tools/
 ├── basic-host/          # Vendored from @modelcontextprotocol/ext-apps@1.7.2,
 │                        # examples/basic-host. Local mini-host: shows tools,

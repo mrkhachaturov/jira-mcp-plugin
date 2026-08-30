@@ -10,22 +10,22 @@
  * Jira handles localization of type names — use the default (English) name here.
  */
 
-import bug from './bug.svg'
-import epic from './epic.svg'
-import itHelp from './it_help.png'
-import serviceRequest from './serv_req.png'
-import srApproval from './sr_approval.png'
-import story from './story.svg'
-import subTask from './sub-task.svg'
-import task from './task.svg'
+import bug from "./bug.svg";
+import epic from "./epic.svg";
+import itHelp from "./it_help.png";
+import serviceRequest from "./serv_req.png";
+import srApproval from "./sr_approval.png";
+import story from "./story.svg";
+import subTask from "./sub-task.svg";
+import task from "./task.svg";
 
 export const issueTypeIcons: Record<string, string> = {
-  'Bug': bug,
-  'Epic': epic,
-  'IT Help': itHelp,
-  'Service Request': serviceRequest,
-  'Service Request with Approvals': srApproval,
-  'Story': story,
-  'Sub-task': subTask,
-  'Task': task,
-}
+  Bug: bug,
+  Epic: epic,
+  "IT Help": itHelp,
+  "Service Request": serviceRequest,
+  "Service Request with Approvals": srApproval,
+  Story: story,
+  "Sub-task": subTask,
+  Task: task,
+};

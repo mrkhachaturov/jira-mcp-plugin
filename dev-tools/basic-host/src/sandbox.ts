@@ -1,4 +1,7 @@
-import type { McpUiSandboxProxyReadyNotification, McpUiSandboxResourceReadyNotification } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  McpUiSandboxProxyReadyNotification,
+  McpUiSandboxResourceReadyNotification,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 const ALLOWED_REFERRER_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
@@ -78,7 +81,7 @@ window.addEventListener("message", async (event) => {
         "[Sandbox] Rejecting message from unexpected origin:",
         event.origin,
         "expected:",
-        EXPECTED_HOST_ORIGIN
+        EXPECTED_HOST_ORIGIN,
       );
       return;
     }
@@ -103,7 +106,9 @@ window.addEventListener("message", async (event) => {
           doc.close();
         } else {
           // Fallback to srcdoc if document is not accessible
-          console.warn("[Sandbox] document.write not available, falling back to srcdoc");
+          console.warn(
+            "[Sandbox] document.write not available, falling back to srcdoc",
+          );
           inner.srcdoc = html;
         }
       }
@@ -118,7 +123,7 @@ window.addEventListener("message", async (event) => {
         "[Sandbox] Rejecting message from inner iframe with unexpected origin:",
         event.origin,
         "expected:",
-        OWN_ORIGIN
+        OWN_ORIGIN,
       );
       return;
     }
@@ -130,8 +135,11 @@ window.addEventListener("message", async (event) => {
 
 // Notify the Host that the Sandbox is ready to receive view HTML.
 // Use specific origin instead of "*" to ensure only the expected host receives this.
-window.parent.postMessage({
-  jsonrpc: "2.0",
-  method: PROXY_READY_NOTIFICATION,
-  params: {},
-}, EXPECTED_HOST_ORIGIN);
+window.parent.postMessage(
+  {
+    jsonrpc: "2.0",
+    method: PROXY_READY_NOTIFICATION,
+    params: {},
+  },
+  EXPECTED_HOST_ORIGIN,
+);

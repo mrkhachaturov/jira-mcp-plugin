@@ -23,37 +23,37 @@ git clone --branch "v$(npm view @modelcontextprotocol/ext-apps version)" --depth
 
 Read JSDoc documentation directly from `/tmp/mcp-ext-apps/src/`:
 
-| File | Contents |
-|------|----------|
-| `src/app.ts` | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`), lifecycle |
-| `src/server/index.ts` | `registerAppTool`, `registerAppResource`, `getUiCapability`, tool visibility options |
-| `src/spec.types.ts` | All type definitions: `McpUiHostContext`, CSS variable keys, display modes |
-| `src/styles.ts` | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts` |
-| `src/react/useApp.tsx` | `useApp` hook for React apps |
-| `src/react/useHostStyles.ts` | `useHostStyles`, `useHostStyleVariables`, `useHostFonts` hooks |
+| File                         | Contents                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `src/app.ts`                 | `App` class, handlers (`ontoolinput`, `ontoolresult`, `onhostcontextchanged`, `onteardown`), lifecycle |
+| `src/server/index.ts`        | `registerAppTool`, `registerAppResource`, `getUiCapability`, tool visibility options                   |
+| `src/spec.types.ts`          | All type definitions: `McpUiHostContext`, CSS variable keys, display modes                             |
+| `src/styles.ts`              | `applyDocumentTheme`, `applyHostStyleVariables`, `applyHostFonts`                                      |
+| `src/react/useApp.tsx`       | `useApp` hook for React apps                                                                           |
+| `src/react/useHostStyles.ts` | `useHostStyles`, `useHostStyleVariables`, `useHostFonts` hooks                                         |
 
 ### Key Examples (Mixed Tool Patterns)
 
 These examples demonstrate servers with both App-enhanced and plain tools — the exact pattern you're adding:
 
-| Example | Pattern |
-|---------|---------|
-| `examples/map-server/` | `show-map` (App tool) + `geocode` (plain tool) |
-| `examples/pdf-server/` | `display_pdf` (App tool) + `list_pdfs` (plain tool) + `read_pdf_bytes` (app-only tool) |
-| `examples/system-monitor-server/` | `get-system-info` (App tool) + `poll-system-stats` (app-only polling tool) |
+| Example                           | Pattern                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `examples/map-server/`            | `show-map` (App tool) + `geocode` (plain tool)                                         |
+| `examples/pdf-server/`            | `display_pdf` (App tool) + `list_pdfs` (plain tool) + `read_pdf_bytes` (app-only tool) |
+| `examples/system-monitor-server/` | `get-system-info` (App tool) + `poll-system-stats` (app-only polling tool)             |
 
 ### Framework Templates
 
 Learn and adapt from `/tmp/mcp-ext-apps/examples/basic-server-{framework}/`:
 
-| Template | Key Files |
-|----------|-----------|
-| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html` |
-| `basic-server-react/` | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
-| `basic-server-vue/` | `server.ts`, `src/App.vue` |
-| `basic-server-svelte/` | `server.ts`, `src/App.svelte` |
-| `basic-server-preact/` | `server.ts`, `src/mcp-app.tsx` |
-| `basic-server-solid/` | `server.ts`, `src/mcp-app.tsx` |
+| Template                  | Key Files                                           |
+| ------------------------- | --------------------------------------------------- |
+| `basic-server-vanillajs/` | `server.ts`, `src/mcp-app.ts`, `mcp-app.html`       |
+| `basic-server-react/`     | `server.ts`, `src/mcp-app.tsx` (uses `useApp` hook) |
+| `basic-server-vue/`       | `server.ts`, `src/App.vue`                          |
+| `basic-server-svelte/`    | `server.ts`, `src/App.svelte`                       |
+| `basic-server-preact/`    | `server.ts`, `src/mcp-app.tsx`                      |
+| `basic-server-solid/`     | `server.ts`, `src/mcp-app.tsx`                      |
 
 ## Step 1: Analyze Existing Tools
 
@@ -66,13 +66,13 @@ Before writing any code, analyze the server's existing tools and determine which
 
 ### Decision Framework
 
-| Tool output type | UI benefit | Example |
-|---|---|---|
-| Structured data / lists / tables | High — interactive table, search, filtering | List of items, search results |
-| Metrics / numbers over time | High — charts, gauges, dashboards | System stats, analytics |
-| Media / rich content | High — viewer, player, renderer | Maps, PDFs, images, video |
-| Simple text / confirmations | Low — text is fine | "File created", "Setting updated" |
-| Data for other tools | Consider app-only | Polling endpoints, chunk loaders |
+| Tool output type                 | UI benefit                                  | Example                           |
+| -------------------------------- | ------------------------------------------- | --------------------------------- |
+| Structured data / lists / tables | High — interactive table, search, filtering | List of items, search results     |
+| Metrics / numbers over time      | High — charts, gauges, dashboards           | System stats, analytics           |
+| Media / rich content             | High — viewer, player, renderer             | Maps, PDFs, images, video         |
+| Simple text / confirmations      | Low — text is fine                          | "File created", "Setting updated" |
+| Data for other tools             | Consider app-only                           | Polling endpoints, chunk loaders  |
 
 ## Step 2: Add Dependencies
 
@@ -145,6 +145,7 @@ Add build scripts to `package.json`. The UI must be built before the server code
 Transform plain MCP tools into App tools with UI.
 
 **Before** (plain MCP tool):
+
 ```typescript
 server.tool("my-tool", { param: z.string() }, async (args) => {
   const data = await fetchData(args.param);
@@ -153,6 +154,7 @@ server.tool("my-tool", { param: z.string() }, async (args) => {
 ```
 
 **After** (App tool with UI):
+
 ```typescript
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 
@@ -172,6 +174,7 @@ registerAppTool(server, "my-tool", {
 ```
 
 Key guidance:
+
 - **Always keep the `content` array** with a text fallback for text-only clients
 - Add `structuredContent` for data the UI needs to render
 - Link the tool to its resource via `_meta.ui.resourceUri`
