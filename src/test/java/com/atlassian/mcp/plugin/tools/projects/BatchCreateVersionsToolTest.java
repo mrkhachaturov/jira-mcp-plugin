@@ -6,12 +6,15 @@ import static org.mockito.Mockito.*;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.atlassian.mcp.plugin.tools.CancellationSignal;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -152,6 +155,68 @@ public class BatchCreateVersionsToolTest {
   @Test(expected = McpToolException.class)
   public void aVersionsValueThatIsNotAnObjectListIsRejected() throws Exception {
     tool.execute(Map.of("project_key", "PROJ", "versions", "not json"), "Bearer t");
+  }
+
+  /** Fires once the batch has reached its {@code items}-th checkpoint. */
+  private static CancellationSignal stopAfter(int items) {
+    AtomicInteger reached = new AtomicInteger();
+    return () ->
+        reached.getAndIncrement() < items ? Optional.empty() : Optional.of("caller went away");
+  }
+
+  @Test
+  public void aBatchStoppedPartWayReportsTheVersionsItAlreadyCreated() throws Exception {
+    String result =
+        tool.executeWithSdkProgress(
+            Map.of("project_key", "PROJ", "versions", TWO_VERSIONS),
+            "Bearer t",
+            null,
+            null,
+            stopAfter(1));
+
+    verify(client, times(1)).post(anyString(), anyString(), any());
+
+    JsonNode parsed = MAPPER.readTree(result);
+    assertEquals(1, parsed.path("created").asInt());
+    assertEquals(1, parsed.path("versions").size());
+    assertTrue(parsed.toString(), parsed.path("cancelled").asBoolean());
+    assertEquals("caller went away", parsed.path("cancelled_reason").asText());
+    assertEquals(1, parsed.path("processed").asInt());
+    assertEquals(2, parsed.path("total").asInt());
+  }
+
+  @Test
+  public void aBatchStoppedBeforeItsFirstItemCreatesNothing() throws Exception {
+    String result =
+        tool.executeWithSdkProgress(
+            Map.of("project_key", "PROJ", "versions", TWO_VERSIONS),
+            "Bearer t",
+            null,
+            null,
+            stopAfter(0));
+
+    verify(client, never()).post(anyString(), anyString(), any());
+
+    JsonNode parsed = MAPPER.readTree(result);
+    assertEquals(0, parsed.path("created").asInt());
+    assertEquals(0, parsed.path("processed").asInt());
+    assertTrue(parsed.toString(), parsed.path("cancelled").asBoolean());
+  }
+
+  @Test
+  public void aBatchThatRunsToTheEndIsNotMarkedCancelled() throws Exception {
+    String result =
+        tool.executeWithSdkProgress(
+            Map.of("project_key", "PROJ", "versions", TWO_VERSIONS),
+            "Bearer t",
+            null,
+            null,
+            CancellationSignal.NONE);
+
+    JsonNode parsed = MAPPER.readTree(result);
+    assertEquals(2, parsed.path("created").asInt());
+    assertFalse(parsed.toString(), parsed.has("cancelled"));
+    assertFalse(parsed.toString(), parsed.has("processed"));
   }
 
   @Test

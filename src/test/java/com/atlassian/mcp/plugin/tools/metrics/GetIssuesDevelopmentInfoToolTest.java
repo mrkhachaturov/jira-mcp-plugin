@@ -46,8 +46,11 @@ public class GetIssuesDevelopmentInfoToolTest {
   @Test
   public void everyKeyInTheListIsFetched() throws Exception {
     JsonNode results =
-        MAPPER.readTree(
-            tool.execute(Map.of("issue_keys", TWO_KEYS, "application_type", "github"), "Bearer t"));
+        MAPPER
+            .readTree(
+                tool.execute(
+                    Map.of("issue_keys", TWO_KEYS, "application_type", "github"), "Bearer t"))
+            .path("results");
 
     verify(client).get("/rest/api/2/issue/PROJ-1?fields=id", "Bearer t");
     verify(client).get("/rest/api/2/issue/PROJ-2?fields=id", "Bearer t");
@@ -93,8 +96,10 @@ public class GetIssuesDevelopmentInfoToolTest {
     when(client.get(eq("/rest/api/2/issue/PROJ-2?fields=id"), any())).thenReturn("{}");
 
     JsonNode results =
-        MAPPER.readTree(
-            tool.execute(Map.of("issue_keys", TWO_KEYS, "application_type", "github"), "B"));
+        MAPPER
+            .readTree(
+                tool.execute(Map.of("issue_keys", TWO_KEYS, "application_type", "github"), "B"))
+            .path("results");
 
     assertEquals(2, results.size());
     assertFalse(results.get(0).toString(), results.get(0).has("error"));
@@ -119,7 +124,7 @@ public class GetIssuesDevelopmentInfoToolTest {
     String withoutProgress =
         tool.execute(Map.of("issue_keys", TWO_KEYS, "application_type", "github"), "B");
 
-    assertEquals(2, MAPPER.readTree(withoutProgress).size());
+    assertEquals(2, MAPPER.readTree(withoutProgress).path("results").size());
   }
 
   @Test

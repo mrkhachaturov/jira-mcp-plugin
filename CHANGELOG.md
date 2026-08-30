@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.4] - 2026-08-30
+
+### Added
+
+- **`notifications/cancelled` is honoured.** A caller that stops a batch part way now stops it: `batch_create_issues`, `batch_create_versions`, `batch_get_changelogs` and `get_issues_development_info` check for a cancellation between items and return what they already did, marked `cancelled`, `cancelled_reason`, `processed` and `total`. Previously all four ran to completion — a caller who pressed stop still got every issue created, and a dropped connection lost the result of work that had already happened.
+
+  The method appears nowhere in the MCP Java SDK at any published version, so `McpTransportFilter` reads the JSON-RPC envelope itself before handing the message on, and `McpCancellationRegistry` matches the notification to the running call by session and request id. Work in flight is never interrupted — a request that has reached Jira runs to completion — so a batch stops between items and never inside one.
+
+### Changed
+
+- `get_issues_development_info` returns `{"results": [...]}` rather than a bare array, so a run that stopped early is distinguishable from one where the remaining issues simply had no development information.
+
 ## [1.5.3] - 2026-08-30
 
 ### Changed
@@ -88,7 +100,6 @@
 
 ### Documented gaps
 
-- **F-08 (`notifications/cancelled`)**: MCP Java SDK 2.0.0-M3 does NOT surface cancellation to call handlers (no `exchange.isCancelled()`). The four batch tools therefore run to completion. Spec allows this (`SHOULD process / MAY ignore`). TODO documented in `McpToolAdapter`.
 - **F-15 (Tasks extension)**: experimental in 2025-11-25. Deferred per audit recommendation.
 
 ## [1.3.0] - 2026-05-22

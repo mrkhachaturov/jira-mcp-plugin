@@ -2,6 +2,7 @@ package com.atlassian.mcp.plugin.tools.projects;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.atlassian.mcp.plugin.tools.BatchResult;
 import com.atlassian.mcp.plugin.tools.McpContext;
 import com.atlassian.mcp.plugin.tools.ToolArg;
 import com.atlassian.mcp.plugin.tools.TypedTool;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class BatchCreateVersionsTool extends TypedTool<BatchCreateVersionsTool.Args> {
 
@@ -58,8 +60,17 @@ public class BatchCreateVersionsTool extends TypedTool<BatchCreateVersionsTool.A
     int total = args.versions().size();
     List<Map<String, Object>> created = new ArrayList<>();
     List<Map<String, Object>> errors = new ArrayList<>();
+    String stopped = null;
+    int processed = 0;
 
     for (int i = 0; i < total; i++) {
+      Optional<String> cancellation = context.cancellation();
+      if (cancellation.isPresent()) {
+        stopped = cancellation.get();
+        break;
+      }
+      processed = i + 1;
+
       NewVersion version = args.versions().get(i);
       context.reportProgress(
           i, total, "Creating version " + (i + 1) + " of " + total + ": " + version.name());
@@ -82,13 +93,25 @@ public class BatchCreateVersionsTool extends TypedTool<BatchCreateVersionsTool.A
     }
 
     context.reportProgress(
-        total, total, "Completed: " + created.size() + " created, " + errors.size() + " errors");
+        processed,
+        total,
+        (stopped == null ? "Completed: " : "Stopped: ")
+            + created.size()
+            + " created, "
+            + errors.size()
+            + " errors");
 
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("created", created.size());
     result.put("errors", errors.size());
     result.put("versions", created);
     if (!errors.isEmpty()) result.put("failed", errors);
+    if (stopped != null) {
+      result.put(BatchResult.CANCELLED, true);
+      result.put(BatchResult.CANCELLED_REASON, stopped);
+      result.put(BatchResult.PROCESSED, processed);
+      result.put(BatchResult.TOTAL, total);
+    }
 
     try {
       return mapper.writeValueAsString(result);

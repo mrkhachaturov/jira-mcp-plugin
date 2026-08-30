@@ -79,10 +79,12 @@ public abstract class TypedTool<A> implements McpTool {
       Map<String, Object> args,
       String authHeader,
       McpSyncServerExchange exchange,
-      Object progressToken)
+      Object progressToken,
+      CancellationSignal cancellation)
       throws McpToolException {
     return run(
         ToolArgsBinder.bind(argsType, args),
-        McpContext.of(authHeader, BatchProgressBridge.bridge(exchange, progressToken)));
+        McpContext.of(
+            authHeader, BatchProgressBridge.bridge(exchange, progressToken), cancellation));
   }
 }

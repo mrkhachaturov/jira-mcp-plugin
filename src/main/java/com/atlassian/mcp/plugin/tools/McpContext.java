@@ -1,5 +1,7 @@
 package com.atlassian.mcp.plugin.tools;
 
+import java.util.Optional;
+
 /**
  * Per-call context, carrying what a tool needs from the request but never declares as a parameter.
  *
@@ -20,11 +22,25 @@ public interface McpContext {
    */
   default void reportProgress(int current, int total, String message) {}
 
+  /**
+   * Why the work should stop before its next item, or empty while it should carry on.
+   *
+   * <p>A tool honours this by leaving its loop, never by abandoning a call already in flight.
+   */
+  default Optional<String> cancellation() {
+    return Optional.empty();
+  }
+
   static McpContext of(String authHeader) {
     return () -> authHeader;
   }
 
   static McpContext of(String authHeader, McpTool.ProgressCallback progress) {
+    return of(authHeader, progress, CancellationSignal.NONE);
+  }
+
+  static McpContext of(
+      String authHeader, McpTool.ProgressCallback progress, CancellationSignal cancellation) {
     return new McpContext() {
       @Override
       public String authHeader() {
@@ -34,6 +50,11 @@ public interface McpContext {
       @Override
       public void reportProgress(int current, int total, String message) {
         progress.report(current, total, message);
+      }
+
+      @Override
+      public Optional<String> cancellation() {
+        return cancellation.cancellation();
       }
     };
   }

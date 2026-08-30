@@ -1,6 +1,10 @@
 package com.atlassian.mcp.plugin.rest;
 
 import com.atlassian.annotations.security.UnrestrictedAccess;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.spec.HttpHeaders;
+import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.servlet.Filter;
@@ -45,12 +49,28 @@ public class McpTransportFilter implements Filter {
 
   private static final Logger log = LoggerFactory.getLogger(McpTransportFilter.class);
 
+  /** Absent from the SDK at every published version, so the plugin routes it itself. */
+  private static final String METHOD_CANCELLED = "notifications/cancelled";
+
+  private static final String MCP_SESSION_ID = HttpHeaders.MCP_SESSION_ID;
+  private static final String METHOD_CALL_TOOL = McpSchema.METHOD_TOOLS_CALL;
+
+  /** Enough for any JSON-RPC envelope this plugin answers; a larger body is left to the SDK. */
+  private static final int MAX_PEEKED_BODY = 1024 * 1024;
+
+  static final String ATTR_REQUEST_ID = "com.atlassian.mcp.requestId";
+  static final String ATTR_SESSION_ID = "com.atlassian.mcp.sessionId";
+
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
   private final McpBootstrap bootstrap;
+  private final McpCancellationRegistry registry;
   private volatile HttpServlet delegate;
 
   @Inject
-  public McpTransportFilter(McpBootstrap bootstrap) {
+  public McpTransportFilter(McpBootstrap bootstrap, McpCancellationRegistry registry) {
     this.bootstrap = bootstrap;
+    this.registry = registry;
   }
 
   @Override
@@ -80,10 +100,50 @@ public class McpTransportFilter implements Filter {
           httpReq.getDispatcherType(),
           httpReq.isAsyncSupported());
     }
+    if ("POST".equalsIgnoreCase(httpReq.getMethod())) {
+      httpReq = CachedBodyHttpServletRequest.caching(httpReq, MAX_PEEKED_BODY);
+      routeCancellation(httpReq);
+    }
     // Do NOT call chain.doFilter(). This filter is the endpoint — the SDK
     // transport's service() owns the response (including AsyncContext for
     // non-initialize requests).
     d.service(httpReq, httpResp);
+  }
+
+  /**
+   * Reads the JSON-RPC envelope and acts on the two methods the SDK cannot pass on.
+   *
+   * <p>The SDK has no notion of {@code notifications/cancelled} — the method appears nowhere in it
+   * — so a caller pressing stop reaches a handler only if the notification is read here, before the
+   * transport routes the message and drops it as unknown. The id of a {@code tools/call} is stashed
+   * alongside it so the same call can be recognised when the cancellation arrives.
+   *
+   * <p>Never throws: a body that is absent, oversized or malformed simply means no cancellation
+   * routing for that request, and the SDK still answers it as it always did.
+   */
+  private void routeCancellation(HttpServletRequest request) {
+    String body = CachedBodyHttpServletRequest.bodyOf(request);
+    if (body == null || body.isBlank()) {
+      return;
+    }
+    try {
+      JsonNode envelope = MAPPER.readTree(body);
+      String method = envelope.path("method").asText("");
+      String sessionId = request.getHeader(MCP_SESSION_ID);
+
+      if (METHOD_CANCELLED.equals(method)) {
+        JsonNode cancelled = envelope.path("params").path("requestId");
+        if (!cancelled.isMissingNode()) {
+          String reason = envelope.path("params").path("reason").asText("cancelled by the caller");
+          registry.cancel(McpCancellationRegistry.key(sessionId, cancelled.asText()), reason);
+        }
+      } else if (METHOD_CALL_TOOL.equals(method) && !envelope.path("id").isMissingNode()) {
+        request.setAttribute(ATTR_REQUEST_ID, envelope.path("id").asText());
+        request.setAttribute(ATTR_SESSION_ID, sessionId);
+      }
+    } catch (Exception e) {
+      log.debug("[MCP] could not read the JSON-RPC envelope for cancellation routing", e);
+    }
   }
 
   @Override

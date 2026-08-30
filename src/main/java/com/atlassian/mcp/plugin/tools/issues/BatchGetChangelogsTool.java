@@ -2,6 +2,7 @@ package com.atlassian.mcp.plugin.tools.issues;
 
 import com.atlassian.mcp.plugin.JiraRestClient;
 import com.atlassian.mcp.plugin.McpToolException;
+import com.atlassian.mcp.plugin.tools.BatchResult;
 import com.atlassian.mcp.plugin.tools.McpContext;
 import com.atlassian.mcp.plugin.tools.ToolArg;
 import com.atlassian.mcp.plugin.tools.TypedTool;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 public class BatchGetChangelogsTool extends TypedTool<BatchGetChangelogsTool.Args> {
@@ -72,8 +74,17 @@ public class BatchGetChangelogsTool extends TypedTool<BatchGetChangelogsTool.Arg
     ObjectNode changelogs = MAPPER.createObjectNode();
     ObjectNode failed = MAPPER.createObjectNode();
     int total = keys.size();
+    String stopped = null;
+    int processed = 0;
 
     for (int i = 0; i < total; i++) {
+      Optional<String> cancellation = context.cancellation();
+      if (cancellation.isPresent()) {
+        stopped = cancellation.get();
+        break;
+      }
+      processed = i + 1;
+
       String key = keys.get(i);
       context.reportProgress(
           i, total, "Fetching changelog for " + key + " (" + (i + 1) + "/" + total + ")");
@@ -91,7 +102,13 @@ public class BatchGetChangelogsTool extends TypedTool<BatchGetChangelogsTool.Arg
     }
 
     context.reportProgress(
-        total, total, "Completed: " + changelogs.size() + " fetched, " + failed.size() + " errors");
+        processed,
+        total,
+        (stopped == null ? "Completed: " : "Stopped: ")
+            + changelogs.size()
+            + " fetched, "
+            + failed.size()
+            + " errors");
 
     ObjectNode result = MAPPER.createObjectNode();
     result.set("changelogs", changelogs);
@@ -99,6 +116,12 @@ public class BatchGetChangelogsTool extends TypedTool<BatchGetChangelogsTool.Arg
     result.put("errors", failed.size());
     if (!failed.isEmpty()) {
       result.set("failed", failed);
+    }
+    if (stopped != null) {
+      result.put(BatchResult.CANCELLED, true);
+      result.put(BatchResult.CANCELLED_REASON, stopped);
+      result.put(BatchResult.PROCESSED, processed);
+      result.put(BatchResult.TOTAL, total);
     }
     return result.toString();
   }

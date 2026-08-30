@@ -181,12 +181,15 @@ public interface McpTool {
    * @param exchange the SDK server exchange; never {@code null}
    * @param progressToken progress token from {@code params._meta.progressToken}, or {@code null} if
    *     the client did not request progress
+   * @param cancellation why a batch should stop before its next item; {@link
+   *     CancellationSignal#NONE} when nothing can ask it to
    */
   default String executeWithSdkProgress(
       Map<String, Object> args,
       String authHeader,
       McpSyncServerExchange exchange,
-      Object progressToken)
+      Object progressToken,
+      CancellationSignal cancellation)
       throws McpToolException {
     return execute(args, authHeader);
   }
