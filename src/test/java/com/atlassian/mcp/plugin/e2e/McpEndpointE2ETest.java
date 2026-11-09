@@ -961,7 +961,7 @@ public class McpEndpointE2ETest {
             .endpoint(MCP_ENDPOINT)
             .connectTimeout(Duration.ofSeconds(5))
             .openConnectionOnStartup(false)
-            .httpRequestCustomizer(
+            .addHttpRequestCustomizer(
                 (builder, method, uri, body, ctx) ->
                     builder.header("Authorization", "Bearer " + token))
             .build();

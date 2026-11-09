@@ -1,4 +1,4 @@
-import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import type { App } from "@modelcontextprotocol/ext-apps";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -12,7 +12,7 @@ import { TransitionPicker } from "./transition-picker";
 interface IssueDetailProps {
   issue: Issue;
   baseUrl: string;
-  app?: McpApp;
+  app?: App;
   currentUser?: { name: string; displayName?: string };
   onRefresh?: () => void;
   children?: ReactNode;

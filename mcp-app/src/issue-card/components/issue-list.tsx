@@ -1,4 +1,4 @@
-import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import type { App } from "@modelcontextprotocol/ext-apps";
 import { useState } from "react";
 import { t } from "../i18n";
 import type { Issue } from "../types";
@@ -11,7 +11,7 @@ interface IssueListProps {
   issues: Issue[];
   baseUrl: string;
   totalCount: number;
-  app?: McpApp;
+  app?: App;
   currentUser?: { name: string; displayName?: string };
   onRefreshIssue?: (issueKey: string) => void;
 }

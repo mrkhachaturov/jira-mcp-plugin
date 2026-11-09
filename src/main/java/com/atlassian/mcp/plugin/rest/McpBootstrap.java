@@ -112,7 +112,7 @@ public class McpBootstrap {
             .jsonMapper(jsonMapper)
             .mcpEndpoint("/plugins/servlet/mcp")
             .contextExtractor(authExtractor)
-            .securityValidator(buildSecurityValidator())
+            .httpHeaderValidator(buildOriginValidator())
             .build();
 
     var serverInfo =
@@ -191,7 +191,7 @@ public class McpBootstrap {
    * never inspected Host either, and Jira sits behind a reverse proxy where the Host header is
    * whatever the deployer configured.
    */
-  private DefaultServerTransportSecurityValidator buildSecurityValidator() {
+  private DefaultServerTransportSecurityValidator buildOriginValidator() {
     var builder =
         DefaultServerTransportSecurityValidator.builder()
             .allowedOrigin("https://claude.ai")

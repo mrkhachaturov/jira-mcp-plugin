@@ -1,4 +1,4 @@
-import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import type { App } from "@modelcontextprotocol/ext-apps";
 import { useState } from "react";
 import { t } from "../i18n";
 import type { Issue } from "../types";
@@ -11,7 +11,7 @@ interface Transition {
 }
 
 interface TransitionPickerProps {
-  app: McpApp;
+  app: App;
   issue: Issue;
   onTransitioned: () => void;
 }
@@ -39,7 +39,8 @@ export function TransitionPicker({
         name: "get_transitions",
         arguments: { issue_key: issue.key },
       });
-      const text = result?.content?.[0]?.text ?? "[]";
+      const block = result?.content?.[0];
+      const text = block?.type === "text" ? block.text : "[]";
       setTransitions(JSON.parse(text));
       setOpen(true);
     } catch {

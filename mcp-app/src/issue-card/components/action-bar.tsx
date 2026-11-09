@@ -1,4 +1,4 @@
-import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import type { App } from "@modelcontextprotocol/ext-apps";
 import { useState } from "react";
 import { t } from "../i18n";
 import type { Issue } from "../types";
@@ -6,7 +6,7 @@ import { CommentForm } from "./comment-form";
 import { TransitionPicker } from "./transition-picker";
 
 interface ActionBarProps {
-  app: McpApp;
+  app: App;
   issue: Issue;
   currentUser: { name: string; displayName?: string };
   onRefresh: () => void;
