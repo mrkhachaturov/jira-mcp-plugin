@@ -46,7 +46,7 @@ wrapping big responses.
 ## Cancellation
 
 These same four tools are the ones a caller can stop. `notifications/cancelled`
-appears nowhere in the MCP Java SDK — not at 2.0.1, not on `main`, not in its
+appears nowhere in the MCP Java SDK — not at 2.1.0, not on `main`, not in its
 roadmap — so the SDK routes it as an unknown method and drops it.
 `McpTransportFilter` therefore reads the JSON-RPC envelope itself, before
 handing the message to the SDK, and records the stop in
@@ -76,9 +76,16 @@ is no supported way to observe it.
 ## Session management
 
 - `MCP-Session-Id` returned on `initialize`, required on subsequent requests.
-- Sessions stored in static `ConcurrentHashMap` (survives JAX-RS per-request instantiation).
-- Session-user binding: each session is tied to the authenticated user; cross-user access returns 403.
-- Sessions capped at 200 with 4-hour TTL; expired sessions cleaned lazily.
+- The SDK transport owns the sessions. Every 30 minutes it evicts each session that has no
+  open stream and received no request during the previous interval — a client that went
+  away without sending DELETE leaves nothing behind. An evicted session answers 404, and
+  the client re-initializes.
+- Every 30 minutes the transport pings each session that holds an open GET stream. A ping
+  left unanswered releases that stream but keeps the session, so the client can reconnect.
+  Sessions that only ever POST are never pinged.
+- Session-user binding (`SessionBindingFilter`): each session is tied to the authenticated
+  user; cross-user access returns 403. The binding map is capped at 200 entries with a
+  4-hour TTL, cleaned lazily. It records ownership only and does not bound the SDK's sessions.
 - DELETE closes session (requires auth + user match), 404 returned for expired/unknown sessions.
 
 ## Security

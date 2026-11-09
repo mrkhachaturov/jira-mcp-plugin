@@ -1,10 +1,10 @@
-import type { McpApp } from "@modelcontextprotocol/ext-apps";
+import type { App } from "@modelcontextprotocol/ext-apps";
 import { useState } from "react";
 import { t } from "../i18n";
 import type { Issue } from "../types";
 
 interface CommentFormProps {
-  app: McpApp;
+  app: App;
   issue: Issue;
   onCommented: () => void;
 }

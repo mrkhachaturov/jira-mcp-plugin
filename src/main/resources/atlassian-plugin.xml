@@ -26,7 +26,7 @@
          ServletFilterModuleDescriptor.init()). OAuthAnonymousFilter (weight=1)
          stays at the very front. -->
     <!-- Origin validation is now handled by the SDK's DefaultServerTransportSecurityValidator
-         wired in McpBootstrap (see buildSecurityValidator()). The previous mcp-origin-filter
+         wired in McpBootstrap (see buildOriginValidator()). The previous mcp-origin-filter
          (OriginValidationFilter) was removed as part of F-02. -->
 
     <servlet-filter key="mcp-body-size-filter" name="MCP Body Size Limit Filter"

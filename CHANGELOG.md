@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.5] - 2026-11-09
+
+### Security
+
+- The Issue Card widget ships DOMPurify 3.4.17 and marked 18.1.3. marked 18.0.x could be driven into unbounded recursion by a crafted issue description, exhausting the widget's memory (GHSA-6v9c-7cg6-27q7). The DOMPurify advisories fixed in 3.4.15–3.4.17 affect `IN_PLACE`, hooks, `SAFE_FOR_TEMPLATES` and the XHTML parser, none of which the widget uses; the bump is defensive.
+- MCP Java SDK 2.1.0. A flood of `initialize` requests from an authenticated caller could grow the transport's session store without bound and exhaust Jira's heap (GHSA-2hm9-qff2-hrpj); idle sessions are now evicted every 30 minutes. A request that fails inside the SDK no longer returns the exception's cause chain to the client (GHSA-w83x-jw8h-w4rj); the plugin's own tool, resource and completion handlers already caught their exceptions and were not affected.
+
+### Changed
+
+- Clients must speak MCP protocol 2025-03-26 or later: the SDK no longer offers 2024-11-05 over Streamable HTTP. POST requests whose `Content-Type` is not `application/json` are refused.
+- The Issue Card widget is on `@modelcontextprotocol/ext-apps` 2.0.4, which builds on the split MCP TypeScript SDK 2.x packages instead of `@modelcontextprotocol/sdk` 1.x. The MCP Apps wire protocol is unchanged, so the widget still renders in hosts on ext-apps 1.x. The widget no longer installs the SDK's Express/Hono server stack.
+- Built against Jira 11.3.13, which fixes CVE-2026-21589 (JRASERVER-79546). The plugin's own Java dependencies have no published advisories and are unchanged.
+
 ## [1.5.4] - 2026-08-30
 
 ### Added
